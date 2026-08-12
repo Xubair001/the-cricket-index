@@ -1,5 +1,6 @@
-export type Competition = 'tests' | 'odis' | 't20is'
+export type Competition = 'tests' | 'odis' | 't20is' | 'psl'
 export type ApiGender = 'male' | 'female'
+export type TeamType = 'international' | 'franchise'
 
 export interface TeamRef {
   team_id: number

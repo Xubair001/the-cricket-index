@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { TeamSummary } from '../api/types'
+import type { TeamSummary, TeamType } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { useGender } from '../gender/useGender'
 
+// National sides and franchises are both "teams" but aren't comparable: a
+// win % against Australia doesn't mean what a win % against Multan Sultans
+// means. One kind at a time, the same way the app never mixes genders.
+const TEAM_TYPES: { value: TeamType; label: string }[] = [
+  { value: 'international', label: 'International' },
+  { value: 'franchise', label: 'Franchise' },
+]
+
 export function Teams() {
   const { slug, apiGender } = useGender()
+  const [teamType, setTeamType] = useState<TeamType>('international')
   const [teams, setTeams] = useState<TeamSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -15,7 +24,7 @@ export function Teams() {
     setTeams(null)
     setError(null)
     api
-      .teams(apiGender)
+      .teams(apiGender, teamType)
       .then((res) => {
         if (!cancelled) setTeams(res)
       })
@@ -25,19 +34,45 @@ export function Teams() {
     return () => {
       cancelled = true
     }
-  }, [apiGender])
+  }, [apiGender, teamType])
 
   if (error) return <ErrorMessage message={error} />
-  if (!teams) return <LoadingSpinner />
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Teams</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          {teams.length} teams, ranked by matches played
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Teams</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {teams ? `${teams.length} teams, ranked by matches played` : 'Loading…'}
+          </p>
+        </div>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-800 dark:bg-slate-900">
+          {TEAM_TYPES.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => setTeamType(t.value)}
+              className={
+                'rounded-md px-3 py-1.5 text-sm font-medium transition ' +
+                (teamType === t.value
+                  ? 'bg-emerald-600 text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white')
+              }
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {!teams ? (
+        <LoadingSpinner />
+      ) : teams.length === 0 ? (
+        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+          No {teamType} teams in this dataset.
+        </p>
+      ) : (
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <table className="w-full text-sm">
@@ -76,6 +111,7 @@ export function Teams() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }

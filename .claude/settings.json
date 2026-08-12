@@ -22,7 +22,8 @@
       "Bash(curl -sSL -I https://cricsheet.org/downloads/psl_json.zip)",
       "WebFetch(domain:www.kaggle.com)",
       "Bash(curl -s \"http://127.0.0.1:8001/api/dashboard?gender=female\")",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(kill 3347826)"
     ]
   }
 }

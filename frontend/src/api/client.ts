@@ -11,6 +11,7 @@ import type {
   PlayerSummary,
   TeamDetail,
   TeamSummary,
+  TeamType,
 } from './types'
 
 async function getJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
@@ -41,7 +42,10 @@ export const api = {
     params: { competition?: string; min_matches?: number; sort_by?: string; limit?: number; offset?: number }
   ) => getJson<Paginated<BowlingRankingRow>>('/api/rankings/bowling', { gender, ...params }),
 
-  teams: (gender: ApiGender) => getJson<TeamSummary[]>('/api/teams', { gender }),
+  // team_type is optional: the Teams page scopes to one kind at a time, but
+  // the Matches filter deliberately omits it so you can filter by any side.
+  teams: (gender: ApiGender, teamType?: TeamType) =>
+    getJson<TeamSummary[]>('/api/teams', { gender, team_type: teamType }),
 
   teamDetail: (teamId: number) => getJson<TeamDetail>(`/api/teams/${teamId}`),
 

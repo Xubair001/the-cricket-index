@@ -15,6 +15,7 @@ from shared import (
     PROJECT_ROOT,
     COMPETITION_META,
     CRICSHEET_URLS,
+    TEAM_TYPE_BY_COMPETITION_TYPE,
     DownloadResult,
     MatchIngestionInput,
     MatchIngestionResult,
@@ -138,7 +139,7 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
         )
 
     display_name, comp_type = COMPETITION_META[input.competition]
-    team_type = "international"
+    team_type = TEAM_TYPE_BY_COMPETITION_TYPE[comp_type]
 
     with get_connection() as conn:
         competition_id = _get_or_create_competition(

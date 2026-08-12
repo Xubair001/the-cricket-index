@@ -6,6 +6,29 @@ from .models import Competition, Match, Player, PlayerMatchStat, Team
 
 RECENT_MATCHES_LIMIT = 10
 
+# Rankings are confined to one competition type at a time (see _ranking_scope).
+# Internationals are the default scope because that's what an unqualified
+# cricket record means; franchise cricket is opt-in.
+DEFAULT_RANKING_COMPETITION_TYPE = "international"
+
+
+def valid_competition_keys(db: Session) -> set[str]:
+    """The competition keys currently present in the database.
+
+    Read from `competitions` rather than hardcoded in the routers so that
+    ingesting a new league is a data change, not an API code change --  the
+    same property the schema already gives competitions and seasons.
+    """
+    return {k for (k,) in db.execute(select(Competition.key).distinct()).all()}
+
+
+def valid_competition_types(db: Session) -> set[str]:
+    return {t for (t,) in db.execute(select(Competition.type).distinct()).all()}
+
+
+def valid_team_types(db: Session) -> set[str]:
+    return {t for (t,) in db.execute(select(Team.team_type).distinct()).all()}
+
 
 def _safe_div(numerator: float, denominator: float) -> float | None:
     if not denominator:
@@ -39,16 +62,41 @@ def _match_summary(m: Match, comp: Competition, team1: Team | None, team2: Team 
     )
 
 
+def _competition_scoped(stmt, competition_key: str | None, competition_type: str | None):
+    """Applies competition filtering, joining `competitions` at most once.
+
+    `competition_key` and `competition_type` are two granularities of the same
+    scope (one competition vs. every competition of a kind); a caller passing
+    both gets the intersection, which is only ever used defensively.
+    """
+    if not competition_key and not competition_type:
+        return stmt
+    stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id)
+    if competition_key:
+        stmt = stmt.where(Competition.key == competition_key)
+    if competition_type:
+        stmt = stmt.where(Competition.type == competition_type)
+    return stmt
+
+
 def _batting_aggregate_rows(
     db: Session,
     gender: str,
     competition_key: str | None = None,
+    competition_type: str | None = None,
     player_identifier: str | None = None,
+    team_id: int | None = None,
 ) -> list[dict]:
     stmt = (
         select(
-            PlayerMatchStat.player_name,
-            func.max(PlayerMatchStat.player_identifier).label("player_identifier"),
+            # Grouped by identifier, not name: 78 names in this dataset map to
+            # more than one real person (e.g. two "Iftikhar Ahmed"s in the PSL
+            # squads alone), and grouping by name silently merged their careers
+            # into a single ranking row. player_match_stats.player_identifier is
+            # populated for every Cricsheet-sourced row; max(player_name) just
+            # picks a stable display spelling among any name variants.
+            func.max(PlayerMatchStat.player_name).label("player_name"),
+            PlayerMatchStat.player_identifier,
             func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
             func.sum(PlayerMatchStat.runs_scored).label("runs"),
             func.sum(PlayerMatchStat.dismissals).label("dismissals"),
@@ -58,14 +106,13 @@ def _batting_aggregate_rows(
         )
         .join(Match, Match.match_id == PlayerMatchStat.match_id)
         .where(Match.gender == gender)
-        .group_by(PlayerMatchStat.player_name)
+        .group_by(PlayerMatchStat.player_identifier)
     )
-    if competition_key:
-        stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id).where(
-            Competition.key == competition_key
-        )
+    stmt = _competition_scoped(stmt, competition_key, competition_type)
     if player_identifier:
         stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
+    if team_id is not None:
+        stmt = stmt.where(PlayerMatchStat.team_id == team_id)
 
     rows = db.execute(stmt).all()
     results = []
@@ -94,12 +141,15 @@ def _bowling_aggregate_rows(
     db: Session,
     gender: str,
     competition_key: str | None = None,
+    competition_type: str | None = None,
     player_identifier: str | None = None,
+    team_id: int | None = None,
 ) -> list[dict]:
     stmt = (
         select(
-            PlayerMatchStat.player_name,
-            func.max(PlayerMatchStat.player_identifier).label("player_identifier"),
+            # Grouped by identifier, not name -- see _batting_aggregate_rows.
+            func.max(PlayerMatchStat.player_name).label("player_name"),
+            PlayerMatchStat.player_identifier,
             func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
             func.sum(PlayerMatchStat.wickets_taken).label("wickets"),
             func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
@@ -107,14 +157,13 @@ def _bowling_aggregate_rows(
         )
         .join(Match, Match.match_id == PlayerMatchStat.match_id)
         .where(Match.gender == gender, PlayerMatchStat.balls_bowled > 0)
-        .group_by(PlayerMatchStat.player_name)
+        .group_by(PlayerMatchStat.player_identifier)
     )
-    if competition_key:
-        stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id).where(
-            Competition.key == competition_key
-        )
+    stmt = _competition_scoped(stmt, competition_key, competition_type)
     if player_identifier:
         stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
+    if team_id is not None:
+        stmt = stmt.where(PlayerMatchStat.team_id == team_id)
 
     rows = db.execute(stmt).all()
     results = []
@@ -137,6 +186,20 @@ def _bowling_aggregate_rows(
     return results
 
 
+def _ranking_scope(competition_key: str | None, competition_type: str | None) -> str | None:
+    """Resolves the competition_type a ranking should be confined to.
+
+    A ranking must never sum across competition types: a "runs" figure that
+    blends Test/ODI/T20I with franchise-league cricket is a number no cricket
+    source reports. So an unscoped request is not "everything" -- it falls back
+    to internationals, and franchise cricket has to be asked for explicitly.
+    A specific competition_key is already narrower than any type, so it wins.
+    """
+    if competition_key:
+        return None
+    return competition_type or DEFAULT_RANKING_COMPETITION_TYPE
+
+
 def get_batting_rankings(
     db: Session,
     gender: str,
@@ -145,8 +208,14 @@ def get_batting_rankings(
     sort_by: str,
     limit: int,
     offset: int,
+    competition_type: str | None = None,
 ) -> tuple[list[dict], int]:
-    rows = _batting_aggregate_rows(db, gender, competition_key=competition_key)
+    rows = _batting_aggregate_rows(
+        db,
+        gender,
+        competition_key=competition_key,
+        competition_type=_ranking_scope(competition_key, competition_type),
+    )
     rows = [r for r in rows if r["matches"] >= min_matches]
     rows.sort(key=lambda r: (r[sort_by] if r[sort_by] is not None else -1), reverse=True)
     total = len(rows)
@@ -161,8 +230,14 @@ def get_bowling_rankings(
     sort_by: str,
     limit: int,
     offset: int,
+    competition_type: str | None = None,
 ) -> tuple[list[dict], int]:
-    rows = _bowling_aggregate_rows(db, gender, competition_key=competition_key)
+    rows = _bowling_aggregate_rows(
+        db,
+        gender,
+        competition_key=competition_key,
+        competition_type=_ranking_scope(competition_key, competition_type),
+    )
     rows = [r for r in rows if r["matches"] >= min_matches]
     reverse = sort_by not in ("average", "economy")  # lower is better for both
     rows.sort(key=lambda r: (r[sort_by] if r[sort_by] is not None else (10**9)), reverse=reverse)
@@ -250,8 +325,16 @@ def _team_summary(db: Session, team: Team) -> schemas.TeamSummary:
     )
 
 
-def get_teams_summary(db: Session, gender: str) -> list[schemas.TeamSummary]:
-    teams = db.execute(select(Team).where(Team.gender == gender)).scalars().all()
+def get_teams_summary(
+    db: Session, gender: str, team_type: str | None = None
+) -> list[schemas.TeamSummary]:
+    # Without a team_type filter this lists Karachi Kings next to Australia --
+    # they're both male teams, but they aren't comparable entities. The caller
+    # picks a side; the API doesn't blend them by default.
+    stmt = select(Team).where(Team.gender == gender)
+    if team_type:
+        stmt = stmt.where(Team.team_type == team_type)
+    teams = db.execute(stmt).scalars().all()
     summaries = [_team_summary(db, t) for t in teams]
     summaries = [s for s in summaries if s.matches > 0]
     summaries.sort(key=lambda s: s.matches, reverse=True)
@@ -265,23 +348,15 @@ def get_team_detail(db: Session, team_id: int) -> schemas.TeamDetail | None:
 
     summary = _team_summary(db, team)
 
-    team_player_names = {
-        n
-        for (n,) in db.execute(
-            select(PlayerMatchStat.player_name)
-            .where(PlayerMatchStat.team_id == team_id)
-            .distinct()
-        ).all()
-    }
-
-    batting_rows = [
-        r for r in _batting_aggregate_rows(db, team.gender) if r["player_name"] in team_player_names
-    ]
+    # Scoped to this team's matches, not merely to players who have appeared
+    # for it. Filtering gender-wide career totals down to the team's squad
+    # meant a franchise page credited a player with every run of their
+    # international career too -- e.g. Karachi Kings showing Babar Azam's Test
+    # runs. team_id lives on player_match_stats, so the aggregate can do it.
+    batting_rows = _batting_aggregate_rows(db, team.gender, team_id=team_id)
     batting_rows.sort(key=lambda r: r["runs"], reverse=True)
 
-    bowling_rows = [
-        r for r in _bowling_aggregate_rows(db, team.gender) if r["player_name"] in team_player_names
-    ]
+    bowling_rows = _bowling_aggregate_rows(db, team.gender, team_id=team_id)
     bowling_rows.sort(key=lambda r: r["wickets"], reverse=True)
 
     recent = db.execute(

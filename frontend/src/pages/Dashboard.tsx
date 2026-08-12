@@ -22,12 +22,14 @@ const COMPETITION_COLORS: Record<string, string> = {
   tests: '#d97706',
   odis: '#0284c7',
   t20is: '#c026d3',
+  psl: '#059669',
 }
 
 const COMPETITION_LABELS: Record<string, string> = {
   tests: 'Tests',
   odis: 'ODIs',
   t20is: 'T20Is',
+  psl: 'PSL',
 }
 
 function parseSeasonYear(season: string): number {

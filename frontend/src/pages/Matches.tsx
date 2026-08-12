@@ -9,11 +9,14 @@ import { useGender } from '../gender/useGender'
 
 const LIMIT = 25
 
+// A match list isn't an aggregate, so "All" here really is everything --
+// unlike Rankings, showing a Test and a PSL fixture side by side sums nothing.
 const COMPETITIONS = [
-  { value: '', label: 'All Formats' },
+  { value: '', label: 'All Competitions' },
   { value: 'tests', label: 'Tests' },
   { value: 'odis', label: 'ODIs' },
   { value: 't20is', label: 'T20Is' },
+  { value: 'psl', label: 'PSL' },
 ]
 
 export function Matches() {

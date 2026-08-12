@@ -22,7 +22,7 @@ cd frontend && npm run dev                                             # localho
 
 **Trigger ingestion** (worker must be running):
 ```bash
-cd ingestion && python starter.py tests   # or: odis, t20is
+cd ingestion && python starter.py tests   # or: odis, t20is, psl
 ```
 Re-running is cheap — each match is content-hashed; unchanged matches are skipped, not re-parsed.
 
@@ -66,6 +66,30 @@ mapped to the API's `male`/`female` via `frontend/src/gender/useGender.ts`).
 `Layout.tsx`'s gender switcher deliberately drops to the current section's
 *list* page rather than trying to preserve a specific team/player/match ID
 when switching — an ID from one gender is meaningless in the other's context.
+
+### International vs franchise is the same kind of split as gender
+
+Adding the PSL needed no migration — `teams.team_type` and `competitions.type`
+already carried the vocabulary. The rule the code enforces is that the two
+never merge into one number:
+- `teams` are keyed by `(name, gender, team_type)`, and `GET /api/teams` takes
+  an optional `team_type` so a list is national sides *or* franchises, never
+  both interleaved. The frontend Teams page defaults to `international`.
+- Rankings are confined to one competition type at a time
+  (`queries._ranking_scope`). An unscoped request is **not** "everything" — it
+  falls back to `international`, and franchise cricket must be asked for via
+  `competition=psl` or `competition_type=domestic_league`. Blending a player's
+  Test/ODI/T20I runs with their PSL runs would produce a figure no cricket
+  source publishes.
+- `team_type` is derived from the competition
+  (`shared.TEAM_TYPE_BY_COMPETITION_TYPE`), **not** from the source data:
+  Cricsheet's own `info.team_type` says `"club"` for franchise leagues, which
+  isn't in the schema's CHECK vocabulary. That raw value is still stored on
+  `matches.team_type` as a display-only column.
+
+Competition keys and types are validated against the `competitions` table
+(`app/validation.py`), not a regex, so ingesting a new league stays a data
+change rather than an API code change.
 
 ### Ingestion: Temporal workflow, not child-workflow-per-match
 
@@ -122,6 +146,14 @@ nothing — don't treat them as dead code:
 `backend/app/queries.py`'s `_batting_aggregate_rows` / `_bowling_aggregate_rows`
 run one SQL `GROUP BY` per call, then compute averages/strike-rate/economy
 and sort in Python across the full result set before slicing for pagination.
+
+They group by `player_identifier`, **not** `player_name` — 78 names in this
+dataset map to more than one real person (two distinct "SR Taylor"s, two
+"Shahid Afridi"s), and grouping by name silently summed their careers into a
+single ranking row. `max(player_name)` just picks a stable display spelling.
+Both helpers also take an optional `team_id`, which is what makes a team page
+show a player's figures *for that team* rather than their gender-wide career
+totals — without it a franchise page credits Babar Azam with his Test runs.
 This is intentional (average requires a divide-by-zero guard that's awkward
 in SQLite SQL) but means an unfiltered all-players query is O(total players)
 in Python — acceptable at this dataset's size (~9,300 players), worth
