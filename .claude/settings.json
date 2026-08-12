@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sSf https://temporal.download/cli.sh)",
+      "Bash(sh)",
+      "WebFetch(domain:cricsheet.org)",
+      "WebFetch(domain:www.espncricinfo.com)",
+      "WebFetch(domain:www.cricbuzz.com)",
+      "WebFetch(domain:www.icc-cricket.com)",
+      "WebFetch(domain:arnavbonigala.medium.com)",
+      "Bash(unzip -l ipl_json.zip)",
+      "Bash(mkdir -p /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-temporal-demo/75aa68cd-9769-4e41-9cb0-4925dcb00993/scratchpad)",
+      "Bash(curl -sSL --retry 3 -o tests_json.zip https://cricsheet.org/downloads/tests_json.zip)",
+      "Bash(kill 1000666 2746188)",
+      "Bash(kill -9 2877819 2920504)",
+      "Bash(curl -s http://127.0.0.1:8001/api/health)",
+      "Bash(curl -s http://127.0.0.1:8001/api/dashboard)",
+      "Bash(python3 -c \"import playwright; print\\('python playwright available'\\)\")",
+      "Bash(npx --yes playwright --version)",
+      "Bash(/usr/bin/python3 /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-temporal-demo/75aa68cd-9769-4e41-9cb0-4925dcb00993/scratchpad/verify_app.py)",
+      "Bash(sqlite3 -header -column cricket.db ' *)",
+      "Bash(curl -sSL -I https://cricsheet.org/downloads/psl_json.zip)",
+      "WebFetch(domain:www.kaggle.com)",
+      "Bash(curl -s \"http://127.0.0.1:8001/api/dashboard?gender=female\")",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}
