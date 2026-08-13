@@ -202,10 +202,60 @@ def _par_from(runs, balls, conceded, bowled, wickets, rows, measured: bool) -> P
     )
 
 
+_team_totals: dict[tuple[str, int], float] | None = None
+
+
+def team_match_totals(db: Session, *, refresh: bool = False) -> dict[tuple[str, int], float]:
+    """(match_id, team_id) -> that side's total runs-equivalent impact.
+
+    Needed by anything asking "how much of this was the player's doing" -- a
+    share of the side's effort, which is what makes a contribution comparable
+    between a low-scoring match and a run fest.
+
+    Impact is linear in the aggregates, so one GROUP BY down to (match, side)
+    gives every total without a per-row pass.
+    """
+    global _team_totals
+    if _team_totals is not None and not refresh:
+        return _team_totals
+
+    par = par_table(db)
+    stmt = (
+        select(
+            PlayerMatchStat.match_id,
+            PlayerMatchStat.team_id,
+            Competition.key,
+            Match.gender,
+            func.sum(PlayerMatchStat.runs_scored),
+            func.sum(PlayerMatchStat.balls_faced),
+            func.sum(PlayerMatchStat.wickets_taken),
+            func.sum(PlayerMatchStat.balls_bowled),
+            func.sum(PlayerMatchStat.runs_conceded),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(PlayerMatchStat.team_id.is_not(None))
+        .group_by(PlayerMatchStat.match_id, PlayerMatchStat.team_id)
+    )
+    out: dict[tuple[str, int], float] = {}
+    for match_id, team_id, key, gender, runs, bf, wkts, bb, conceded in db.execute(stmt).all():
+        p = par_table(db).lookup(key, gender)
+        out[(match_id, team_id)] = (
+            2.0 * (runs or 0)
+            - (p.scoring_rate / 100.0) * (bf or 0)
+            + p.runs_per_wicket * (wkts or 0)
+            + (p.economy / 6.0) * (bb or 0)
+            - (conceded or 0)
+        )
+    _team_totals = out
+    return out
+
+
 def invalidate() -> None:
     """Drop the cached par table -- call after an ingest changes the dataset."""
-    global _cache
+    global _cache, _team_totals
     _cache = None
+    _team_totals = None
 
 
 def score(

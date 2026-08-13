@@ -184,6 +184,24 @@ OPPOSITION_FIT_ITERATIONS = 60
 OPPOSITION_MULTIPLIER_BOUNDS = (0.55, 1.60)
 
 # --------------------------------------------------------------------------
+# Performance Index
+# --------------------------------------------------------------------------
+
+# §14's weights, and which components are live in Phase 1, are declared in
+# `performance_index.COMPONENTS` -- they belong beside the code that renormalises
+# them. These two are the shape of the window that Index is measured over.
+
+# How much recent cricket the Index is computed from. Longer than the form
+# engine's 10-match window: form is asking "what changed", which wants a short
+# window, while a rating is asking "how good are they", which wants the most
+# evidence it can get that is still recent.
+INDEX_WINDOW_MATCHES = 15
+
+# Below this, the percentile of a component says more about sample size than
+# about the player, so they are left off the board rather than rated badly.
+INDEX_MIN_MATCHES = 8
+
+# --------------------------------------------------------------------------
 # Form leaderboards
 # --------------------------------------------------------------------------
 

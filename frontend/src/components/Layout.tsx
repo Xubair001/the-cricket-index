@@ -53,6 +53,7 @@ const NAV: NavGroup[] = [
     label: 'Rankings',
     items: [
       { label: 'Performance Rankings', to: 'rankings' },
+      { label: 'Performance Index', to: 'performance-index' },
       { label: 'ICC Rankings', to: 'icc-rankings' },
       { label: 'Performance Index', blocked: 'Phase 2 — see the scope document' },
     ],

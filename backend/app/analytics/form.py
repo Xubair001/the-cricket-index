@@ -69,6 +69,11 @@ class MatchImpact:
     match_date: str | None
     competition_key: str
     gender: str
+    # Both sides are carried: the opponent rates the difficulty, and the
+    # player's own side is what a contribution share is taken against. Deriving
+    # one from the other at the call site is how a player ends up measured as a
+    # share of the opposition's effort.
+    team_id: int | None
     opponent_team_id: int | None
     runs_scored: int
     balls_faced: int
@@ -208,6 +213,7 @@ def player_timeline(
                 match_date=match_date,
                 competition_key=comp_key,
                 gender=gender,
+                team_id=team_id,
                 opponent_team_id=opponent,
                 runs_scored=runs or 0,
                 balls_faced=balls_faced or 0,
@@ -293,6 +299,7 @@ def all_timelines(
                 match_date=match_date,
                 competition_key=comp_key,
                 gender=row_gender,
+                team_id=team_id,
                 opponent_team_id=opponent,
                 runs_scored=runs or 0,
                 balls_faced=balls_faced or 0,

@@ -1,5 +1,6 @@
 import type {
   ExplorerKind,
+  PerformanceIndexPage,
   ExplorerPage,
   ApiGender,
   BattingRankingRow,
@@ -165,6 +166,14 @@ export const api = {
       offset?: number
     } = {}
   ) => getJson<ExplorerPage>(`/api/analytics/${explorer}`, { gender, ...params }),
+
+  // The Performance Index (§14). Always returns its own decomposition — a
+  // score without its components is not usable by someone who has to defend
+  // the decision it informs (§30).
+  performanceIndex: (
+    gender: ApiGender,
+    params: { competition?: string; role?: string; limit?: number; offset?: number } = {}
+  ) => getJson<PerformanceIndexPage>('/api/rankings/performance', { gender, ...params }),
 
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 

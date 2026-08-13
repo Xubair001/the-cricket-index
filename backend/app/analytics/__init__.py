@@ -1,9 +1,10 @@
-"""The analytics layer.
+r"""The analytics layer.
 
-Three process-lifetime caches sit behind this package, and they are *dependent*
+Four process-lifetime caches sit behind this package, and they are *dependent*
 rather than independent:
 
-    impact.par_table  ->  opposition.table  ->  form (per verdict)  ->  leaderboard
+    impact.par_table  ->  opposition.table  ->  form  ->  leaderboard
+                                                  \-> performance_index
 
 `opposition` measures itself against par, and every form verdict is scored using
 both. Clearing one and leaving the others is therefore not a partial refresh but
@@ -14,7 +15,7 @@ rather than reaching for a single module's `invalidate()`.
 
 from __future__ import annotations
 
-from . import impact, leaderboard, opposition
+from . import impact, leaderboard, opposition, performance_index
 
 
 def invalidate_all() -> None:
@@ -22,6 +23,7 @@ def invalidate_all() -> None:
     impact.invalidate()
     opposition.invalidate()
     leaderboard.invalidate()
+    performance_index.invalidate()
 
 
 __all__ = ["invalidate_all"]

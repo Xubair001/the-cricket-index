@@ -272,6 +272,37 @@ nothing — don't treat them as dead code:
   `bio_source` are nullable and currently always `null`. The API and UI both
   render this as "Not available" — never infer or guess a value for these.
 
+### The Performance Index pools percentiles by discipline, or it rates discipline
+
+`backend/app/analytics/performance_index.py`. Two decisions that look like
+detail and are correctness:
+
+- **Percentiles are pooled within (scope x discipline).** Measured over this
+  dataset a bowler's mean opposition-adjusted impact is **1.08 par units against
+  a batter's 0.64** — a 69% gap that is an artefact of the impact model (a
+  four-wicket haul converts to ~120 runs-equivalent where a good innings is 45),
+  not a statement about quality. Pooled together the first cut returned eleven
+  bowlers in a top twelve. The form board never exposed this because form is
+  self-relative and the offset cancels; a rating compares players to each other,
+  so it does not.
+- **"Recent performance" is the absolute standard of the window, not the form
+  delta.** §14 words that component as "recent window versus the player's own
+  baseline", which is literally the form figure — but scored that way the Index
+  inherits form's self-relativity, a journeyman improving from poor to ordinary
+  out-rates a great player playing normally, and the Index becomes a reweighted
+  copy of a board we already ship (violating §15's requirement that the three
+  rankings stay distinct). The deviation is deliberate and documented in the
+  module.
+
+Consistency is **downside deviation**, not variance: plain variance punishes a
+match-winning 150 as hard as a duck, so the most "consistent" player is the
+reliably mediocre one. Only shortfalls below par count.
+
+Absent components (role, situation, availability — 25% of §14's weighting) are
+dropped and the rest renormalised, never scored as zero. The API returns every
+component with both its specified and applied weight, and the UI states the
+shortfall.
+
 ### A volume floor does not keep specialists out of the wrong leaderboard
 
 The explorers (`backend/app/analytics/explorer.py`) gate on minimum balls, and

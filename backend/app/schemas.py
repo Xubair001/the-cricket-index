@@ -326,6 +326,43 @@ class MatchDetail(MatchSummary):
     performers: list[MatchPerformer]
 
 
+class IndexComponent(BaseModel):
+    """One component of a Performance Index score, always decomposed (§30)."""
+
+    key: str
+    label: str
+    specified_weight: float          # what §14 asks for
+    applied_weight: float            # after renormalising over live components
+    active: bool
+    basis: str | None
+    unavailable_because: str | None  # non-null exactly when inactive
+
+
+class IndexRow(BaseModel):
+    player_identifier: str
+    player_name: str
+    # The percentile pool this score was taken against. Inferred, not sourced.
+    role: str
+    matches: int
+    index: float
+    # Component key -> 0..100 percentile within (scope x role).
+    scores: dict[str, float]
+    # Component key -> the measured figure the percentile came from.
+    raw: dict[str, float]
+
+
+class PerformanceIndexPage(BaseModel):
+    scope: str
+    gender: Gender
+    total: int
+    limit: int
+    offset: int
+    window_matches: int
+    min_matches: int
+    components: list[IndexComponent]
+    items: list[IndexRow]
+
+
 class ExplorerRow(BaseModel):
     """One explorer row. Fields vary by explorer, so this stays open."""
 

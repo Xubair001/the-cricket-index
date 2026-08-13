@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from .. import queries, schemas, validation
-from ..analytics import leaderboard as form_board
+from ..analytics import config as analytics_config, leaderboard as form_board, performance_index as performance_index_mod
 from ..database import get_db
 
 router = APIRouter(prefix="/api/rankings", tags=["rankings"])
@@ -103,4 +103,58 @@ def form_leaderboard(
         offset=offset,
         scope=form_board.scope_label(comp_key, comp_type),
         items=[schemas.FormLeaderRow(**r) for r in rows],
+    )
+
+
+@router.get("/performance", response_model=schemas.PerformanceIndexPage)
+def performance_index(
+    gender: str = Query(pattern="^(male|female)$"),
+    competition: str | None = Query(default=None),
+    competition_type: str | None = Query(default=None),
+    role: str | None = Query(default=None, pattern="^(batter|bowler|allrounder)$"),
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> schemas.PerformanceIndexPage:
+    """The Performance Index (§14).
+
+    Scoped, decomposed, and explicit about what it cannot yet include. An
+    unscoped request is international cricket -- never "everything" -- for the
+    same reason every other aggregate here refuses to blend competition types.
+    """
+    key = validation.check_competition_key(db, competition)
+    ctype = validation.check_competition_type(db, competition_type)
+    if not key and not ctype:
+        ctype = queries.DEFAULT_RANKING_COMPETITION_TYPE
+
+    items, total = performance_index_mod.page(
+        db,
+        gender=gender,
+        competition_key=key,
+        competition_type=ctype,
+        role=role,
+        limit=limit,
+        offset=offset,
+    )
+    return schemas.PerformanceIndexPage(
+        scope=key or ctype or "international",
+        gender=gender,
+        total=total,
+        limit=limit,
+        offset=offset,
+        window_matches=analytics_config.INDEX_WINDOW_MATCHES,
+        min_matches=analytics_config.INDEX_MIN_MATCHES,
+        components=[schemas.IndexComponent(**c) for c in performance_index_mod.describe_components()],
+        items=[
+            schemas.IndexRow(
+                player_identifier=r.player_identifier,
+                player_name=r.player_name,
+                role=r.role,
+                matches=r.matches,
+                index=r.index,
+                scores=r.scores,
+                raw=r.raw,
+            )
+            for r in items
+        ],
     )

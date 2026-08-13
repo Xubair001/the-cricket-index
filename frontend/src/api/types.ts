@@ -472,3 +472,41 @@ export interface ExplorerPage {
   sorts: string[]
   items: ExplorerRow[]
 }
+
+// --- Performance Index (§14) ----------------------------------------------
+
+export interface IndexComponent {
+  key: string
+  label: string
+  /** What §14 asks for. */
+  specified_weight: number
+  /** After renormalising over the components that are actually live. */
+  applied_weight: number
+  active: boolean
+  basis: string | null
+  /** Non-null exactly when the component is inactive. */
+  unavailable_because: string | null
+}
+
+export interface IndexRow {
+  player_identifier: string
+  player_name: string
+  /** The percentile pool the score was taken against. Inferred, not sourced. */
+  role: PlayerRole
+  matches: number
+  index: number
+  scores: Record<string, number>
+  raw: Record<string, number>
+}
+
+export interface PerformanceIndexPage {
+  scope: string
+  gender: ApiGender
+  total: number
+  limit: number
+  offset: number
+  window_matches: number
+  min_matches: number
+  components: IndexComponent[]
+  items: IndexRow[]
+}

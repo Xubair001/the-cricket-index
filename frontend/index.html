@@ -4,7 +4,28 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>The Cricket Index</title>
+    <!--
+      Applies the stored theme before the first paint. Inline and synchronous
+      on purpose: doing this from the React bundle means the browser paints the
+      light palette first and swaps once the module has loaded, which is the
+      flash of wrong theme that every themed app gets judged on. Kept in sync
+      with `src/theme/useTheme.ts` — the storage key and the three preference
+      values are the contract between the two.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('cricket-dashboard-theme')
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored)
+          }
+        } catch (e) {
+          /* Private-mode Safari throws here. The CSS default is correct anyway. */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
