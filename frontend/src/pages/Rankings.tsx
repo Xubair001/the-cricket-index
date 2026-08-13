@@ -5,6 +5,7 @@ import type { BattingRankingRow, BowlingRankingRow } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { rate } from '../format'
 
 /**
  * Computed leaderboards — this project's own figures, derived from Cricsheet
@@ -231,8 +232,8 @@ export function Rankings() {
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
                       {p.runs.toLocaleString()}
                     </td>
-                    <td className={td}>{p.average ?? '—'}</td>
-                    <td className={td}>{p.strike_rate ?? '—'}</td>
+                    <td className={td}>{rate(p.average)}</td>
+                    <td className={td}>{rate(p.strike_rate)}</td>
                     <td className={td}>{p.fours}</td>
                     <td className="tnum px-4 py-2.5 text-right text-muted">{p.sixes}</td>
                   </tr>
@@ -270,8 +271,8 @@ export function Rankings() {
                     <td className={td}>{p.matches}</td>
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">{p.wickets}</td>
                     <td className={td}>{p.runs_conceded.toLocaleString()}</td>
-                    <td className={td}>{p.average ?? '—'}</td>
-                    <td className="tnum px-4 py-2.5 text-right text-muted">{p.economy ?? '—'}</td>
+                    <td className={td}>{rate(p.average)}</td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">{rate(p.economy)}</td>
                   </tr>
                 ))}
               </tbody>

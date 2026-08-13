@@ -70,10 +70,18 @@ function FixtureCard({ fixture, slug }: { fixture: FixtureRow; slug: string }) {
         {f.venue && ` · ${f.venue}`}
       </p>
       {/* Result when there is one, otherwise ICC's own status string ("Match
-          begins at 12:30 IST") -- never a made-up prediction. */}
-      {(f.match_result || f.match_status) && (
-        <p className="mt-1 text-sm text-ink">{f.match_result || f.match_status}</p>
-      )}
+          begins at 12:30 IST") -- never a made-up prediction.
+
+          The two are not weighted the same. A result is the answer to the
+          question the row was opened for, so it takes ink. A pre-match status
+          is scheduling chatter; given the same weight it out-shouted the team
+          names on every upcoming fixture, which is the one thing an upcoming
+          row is actually about. */}
+      {f.match_result ? (
+        <p className="mt-1 text-sm text-ink">{f.match_result}</p>
+      ) : f.match_status ? (
+        <p className="mt-1 text-sm text-muted">{f.match_status}</p>
+      ) : null}
     </div>
   )
 }

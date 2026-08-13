@@ -5,6 +5,7 @@ import type { DirectoryPlayer, FormState } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { rate } from '../format'
 
 /**
  * The player directory — the main discovery interface (§7).
@@ -256,10 +257,10 @@ export function Players() {
                     </td>
                     <td className="tnum px-3 py-2.5 text-right text-muted">{p.matches}</td>
                     <td className="tnum px-3 py-2.5 text-right text-ink">{p.runs.toLocaleString()}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{p.batting_average ?? '—'}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{p.strike_rate ?? '—'}</td>
+                    <td className="tnum px-3 py-2.5 text-right text-muted">{rate(p.batting_average)}</td>
+                    <td className="tnum px-3 py-2.5 text-right text-muted">{rate(p.strike_rate)}</td>
                     <td className="tnum px-3 py-2.5 text-right text-muted">{p.wickets || '—'}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{p.economy ?? '—'}</td>
+                    <td className="tnum px-3 py-2.5 text-right text-muted">{rate(p.economy)}</td>
                     <td className="px-4 py-2.5 text-right">
                       {p.form_state ? (
                         <span

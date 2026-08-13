@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { TeamSummary, TeamType } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { useGender } from '../gender/useGender'
+import { percent } from '../format'
 
 // National sides and franchises are both "teams" but aren't comparable: a
 // win % against Australia doesn't mean what a win % against Multan Sultans
@@ -112,7 +113,7 @@ export function Teams() {
                   <td className={td}>{t.losses}</td>
                   <td className={td}>{t.ties_or_no_result}</td>
                   <td className="tnum px-4 py-2.5 text-right font-semibold text-ink">
-                    {t.win_pct !== null ? `${t.win_pct}%` : '—'}
+                    {percent(t.win_pct)}
                   </td>
                 </tr>
               ))}

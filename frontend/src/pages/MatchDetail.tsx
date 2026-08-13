@@ -97,7 +97,17 @@ export function MatchDetail() {
       ? ` by ${match.win_by_wickets} wickets`
       : ''
 
-  const where = [match.venue, match.city].filter(Boolean).join(', ')
+  // Cricsheet's venue string often already carries the city ("Queen's Park
+  // Oval, Port of Spain, Trinidad"), so appending the city column unconditionally
+  // reads as "…, Trinidad, Port of Spain". Only add it when it isn't there.
+  const where = [
+    match.venue,
+    match.city && !match.venue?.toLowerCase().includes(match.city.toLowerCase())
+      ? match.city
+      : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
     <div className="space-y-6">

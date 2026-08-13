@@ -11,7 +11,6 @@ import { Players } from './pages/Players'
 import { Rankings } from './pages/Rankings'
 import { TeamDetail } from './pages/TeamDetail'
 import { Teams } from './pages/Teams'
-import { ThemeProvider } from './theme/ThemeContext'
 import { GENDER_STORAGE_KEY } from './components/Layout'
 
 function RootRedirect() {
@@ -19,28 +18,33 @@ function RootRedirect() {
   return <Navigate to={`/${stored === 'women' ? 'women' : 'men'}`} replace />
 }
 
+/**
+ * There is no theme provider: §23 specifies a single dark palette, the tokens in
+ * `index.css` are built on it, and every page now reads from those tokens. The
+ * provider that used to pin the theme and apply a `.dark` class existed only to
+ * keep un-migrated pages rendering their dark variants, and no `dark:` variant
+ * survives in the app.
+ */
 function App() {
   return (
-    <ThemeProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<RootRedirect />} />
-          <Route path="/:gender" element={<Layout />}>
-            <Route index element={<Home />} />
-            <Route path="rankings" element={<Rankings />} />
-            <Route path="icc-rankings" element={<IccRankings />} />
-            <Route path="compare" element={<Compare />} />
-            <Route path="fixtures" element={<Fixtures />} />
-            <Route path="teams" element={<Teams />} />
-            <Route path="teams/:teamId" element={<TeamDetail />} />
-            <Route path="players" element={<Players />} />
-            <Route path="players/:identifier" element={<PlayerDetail />} />
-            <Route path="matches" element={<Matches />} />
-            <Route path="matches/:matchId" element={<MatchDetail />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </ThemeProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/:gender" element={<Layout />}>
+          <Route index element={<Home />} />
+          <Route path="rankings" element={<Rankings />} />
+          <Route path="icc-rankings" element={<IccRankings />} />
+          <Route path="compare" element={<Compare />} />
+          <Route path="fixtures" element={<Fixtures />} />
+          <Route path="teams" element={<Teams />} />
+          <Route path="teams/:teamId" element={<TeamDetail />} />
+          <Route path="players" element={<Players />} />
+          <Route path="players/:identifier" element={<PlayerDetail />} />
+          <Route path="matches" element={<Matches />} />
+          <Route path="matches/:matchId" element={<MatchDetail />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   )
 }
 

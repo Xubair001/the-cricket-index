@@ -6,6 +6,7 @@ import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { StatCard } from '../components/StatCard'
 import { useGender } from '../gender/useGender'
+import { percent, rate } from '../format'
 
 /**
  * A team's record and its leading players.
@@ -89,7 +90,7 @@ export function TeamDetail() {
         <StatCard label="Lost" value={team.losses} />
         <StatCard
           label="Win %"
-          value={team.win_pct !== null ? `${team.win_pct}%` : '—'}
+          value={percent(team.win_pct)}
           subtext="Decided matches only"
         />
       </div>
@@ -117,7 +118,7 @@ export function TeamDetail() {
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
                       {p.runs.toLocaleString()}
                     </td>
-                    <td className="tnum px-4 py-2.5 text-right text-muted">avg {p.average ?? '—'}</td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">avg {rate(p.average)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -147,7 +148,7 @@ export function TeamDetail() {
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
                       {p.wickets}
                     </td>
-                    <td className="tnum px-4 py-2.5 text-right text-muted">avg {p.average ?? '—'}</td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">avg {rate(p.average)}</td>
                   </tr>
                 ))}
               </tbody>
