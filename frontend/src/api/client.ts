@@ -4,7 +4,11 @@ import type {
   BowlingRankingRow,
   DashboardStats,
   HeadToHead,
+  IccRankingTable,
+  IccTeamRankingTable,
   MatchDetail,
+  PaginatedFixtures,
+  PlayerComparison,
   MatchSummary,
   Paginated,
   PlayerDetail,
@@ -71,4 +75,29 @@ export const api = {
   ) => getJson<Paginated<MatchSummary>>('/api/matches', { gender, ...params }),
 
   matchDetail: (matchId: string) => getJson<MatchDetail>(`/api/matches/${encodeURIComponent(matchId)}`),
+
+  comparePlayers: (
+    a: string,
+    b: string,
+    params: { competition?: string; competition_type?: string } = {}
+  ) => getJson<PlayerComparison>('/api/players/compare', { a, b, ...params }),
+
+  iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
+
+  iccPlayerRanking: (rankType: string) =>
+    getJson<IccRankingTable>(`/api/icc/players/${encodeURIComponent(rankType)}`),
+
+  iccTeamRanking: (rankType: string) =>
+    getJson<IccTeamRankingTable>(`/api/icc/teams/${encodeURIComponent(rankType)}`),
+
+  fixtures: (params: {
+    gender?: string
+    window?: string
+    match_type?: string
+    limit?: number
+    offset?: number
+  }) => getJson<PaginatedFixtures>('/api/fixtures', params),
+
+  fixtureMatchTypes: (gender?: string) =>
+    getJson<{ match_types: string[] }>('/api/fixtures/match-types', { gender }),
 }

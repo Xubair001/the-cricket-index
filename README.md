@@ -31,10 +31,18 @@ Three components, each independently runnable:
 - **A `data_granularity` flag on matches** (`full` vs `result_only`)
   anticipates a future, coarser-grained data source (e.g. historical
   pre-2001 results) without requiring another migration when it lands.
-- **Missing data stays missing.** Player bio fields (date of birth,
-  birthplace, nationality) exist in the schema but are `null` until a real
-  source backs them — the API and UI both say "Not available," never a
-  guess.
+- **Missing data stays missing.** Player bio fields are `null` until a real
+  source backs them — the API and UI both say "Not available," never a guess.
+  The same rule governs playing status: a player is only labelled **Retired**
+  when Wikidata carries a retirement or death date. A long gap in appearances
+  shows as "Last played 2019" instead, because a gap equally means injury,
+  being dropped, or cricket outside this dataset. In practice that means very
+  few retirement labels — Wikidata records a retirement date for just 21 of
+  ~31,700 cricketers — and showing fewer honest labels is the intended
+  trade-off.
+- **Official ICC rankings are kept apart from computed ones.** `/api/icc/*`
+  serves ICC's published ratings, refreshed daily; `/api/rankings` serves
+  figures this project derives from ball-by-ball data. They are never merged.
 
 See `ingestion/schema.sql` for the full schema.
 
@@ -89,6 +97,9 @@ With the worker running, trigger ingestion per competition:
 ```bash
 cd ingestion
 python starter.py tests   # or: odis, t20is, psl
+python starter.py icc     # ICC's official rankings
+python starter.py enrich  # player bios from Wikidata
+python schedule.py        # register the daily ICC refresh
 ```
 
 Re-running is cheap: each match is content-hashed, so unchanged matches are

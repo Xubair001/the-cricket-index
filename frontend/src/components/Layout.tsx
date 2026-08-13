@@ -5,9 +5,12 @@ import { useGender, type GenderSlug } from '../gender/useGender'
 const NAV_LINKS = [
   { to: '', label: 'Dashboard' },
   { to: 'rankings', label: 'Rankings' },
+  { to: 'icc-rankings', label: 'ICC' },
+  { to: 'compare', label: 'Compare' },
   { to: 'teams', label: 'Teams' },
   { to: 'players', label: 'Players' },
   { to: 'matches', label: 'Matches' },
+  { to: 'fixtures', label: 'Fixtures' },
 ]
 
 const GENDER_STORAGE_KEY = 'cricket-dashboard-gender'
