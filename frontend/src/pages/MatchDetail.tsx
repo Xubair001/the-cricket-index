@@ -6,6 +6,7 @@ import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * A single match, at the granularity this dataset actually holds.
@@ -17,7 +18,15 @@ import { useGender } from '../gender/useGender'
  * fill the gap.
  */
 
-function PerformerTable({ performers, team }: { performers: MatchPerformer[]; team: TeamRef }) {
+function PerformerTable({
+  performers,
+  team,
+  slug,
+}: {
+  performers: MatchPerformer[]
+  team: TeamRef
+  slug: string
+}) {
   const teamPerformers = performers.filter((p) => p.team_id === team.team_id)
   return (
     <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
@@ -43,7 +52,18 @@ function PerformerTable({ performers, team }: { performers: MatchPerformer[]; te
                   key={p.player_name}
                   className="border-b border-border-subtle last:border-0 hover:bg-elevated"
                 >
-                  <td className="px-4 py-2 text-ink">{p.player_name}</td>
+                  <td className="px-4 py-2 text-ink">
+                    <PlayerName
+                      name={p.player_name}
+                      country={p.country}
+                      countryCode={p.country_code}
+                      to={
+                        p.player_identifier
+                          ? `/${slug}/players/${p.player_identifier}`
+                          : undefined
+                      }
+                    />
+                  </td>
                   <td className="tnum px-3 py-2 text-right text-ink">
                     {p.runs_scored}
                     {/* Not out, in the scorecard sense: they faced deliveries and
@@ -148,8 +168,12 @@ export function MatchDetail() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {match.team1 && <PerformerTable performers={match.performers} team={match.team1} />}
-        {match.team2 && <PerformerTable performers={match.performers} team={match.team2} />}
+        {match.team1 && (
+          <PerformerTable performers={match.performers} team={match.team1} slug={slug} />
+        )}
+        {match.team2 && (
+          <PerformerTable performers={match.performers} team={match.team2} slug={slug} />
+        )}
       </div>
 
       <p className="max-w-3xl text-xs leading-relaxed text-dim">

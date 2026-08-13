@@ -175,6 +175,31 @@ OPPOSITION_SHRINKAGE_ROWS = 30
 # and falls back to the side's figure across all competitions.
 OPPOSITION_MIN_MATCHES_FOR_SLICE = 20
 
+# Bradley-Terry is fitted per era, not once over the whole archive, because team
+# strength moves materially across 25 years. Measured on own-share of match
+# output: Bangladesh runs 0.387 in the early 2000s to 0.505 in the mid-2020s,
+# Australia 0.570 down to 0.488. Bangladesh's swing alone is wider than the gap
+# between many pairs of teams, so a single career rating credits a 2003 century
+# against them exactly as much as a 2025 one -- which is what §14 means when it
+# asks for opponent standing "at the time".
+#
+# Five years is a compromise: long enough that most sides have a usable fixture
+# list inside a bucket, short enough to track a side rebuilding. Eras that are
+# thin for a given side are shrunk towards that side's all-era figure, so a
+# bucket with three matches in it contributes almost nothing.
+OPPOSITION_ERA_YEARS = 5
+
+# The stable core an era's reference is measured against: sides with this much
+# volume in at least this many eras. Without it the 2019 expansion of T20I status
+# to every ICC member drags each era's average opponent down and inflates every
+# established side in the 2020s. See the note in `opposition.table`.
+OPPOSITION_CORE_MIN_MATCHES_PER_ERA = 20
+OPPOSITION_CORE_MIN_ERAS = 4
+
+# How strongly an era's own fit is trusted against the side's all-era fit.
+# Same empirical-Bayes shape as everywhere else in this layer.
+OPPOSITION_ERA_SHRINKAGE_MATCHES = 20
+
 # MM iterations for the Bradley-Terry fit. It converges monotonically and this
 # many rounds is comfortably past the point where the powers stop moving.
 OPPOSITION_FIT_ITERATIONS = 60

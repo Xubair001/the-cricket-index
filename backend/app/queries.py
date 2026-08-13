@@ -112,6 +112,77 @@ def _last_played_map(db: Session, gender: str | None = None) -> dict[str, str]:
     return {ident: last for ident, last in db.execute(stmt).all() if last}
 
 
+def _player_country_map(
+    db: Session, gender: str | None = None
+) -> dict[str, tuple[str, str | None]]:
+    """player_identifier -> (national side represented, ISO code or None).
+
+    The flag beside a player means the same thing as the flag beside a team:
+    the nation they turn out for. It is read from their appearances, which is
+    Cricsheet-derived and exact, and deliberately *not* from
+    `players.nationality` — that is a Wikidata citizenship claim answering a
+    different question. A Guyanese passport does not make a West Indies player
+    Guyanese in cricketing terms, and the dataset carries values like "United
+    Kingdom" that name no cricketing side at all.
+
+    Three cases the shape of the data forces:
+
+    * **Franchise-only players** (1,247 of 9,442, mostly PSL) represent no
+      nation here and get no entry. They render as the neutral mark, exactly
+      as a franchise team does.
+    * **Invitational appearances** are skipped, so the 146 players with more
+      than one "international" side collapse to their real one — an ICC World
+      XI cap does not make Dravid dual-national.
+    * **Genuine switchers** remain (van der Merwe: South Africa then
+      Netherlands; Garth: Australia then Ireland). The most recent side wins,
+      tie-broken on appearances. That is a sourced fact — who they last played
+      for — rather than a guess at allegiance, and the side's name travels with
+      the code so the UI can say which on hover.
+    """
+    stmt = (
+        select(
+            PlayerMatchStat.player_identifier,
+            Team.name,
+            Team.team_type,
+            func.max(Match.match_date_start),
+            func.count(),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Team, Team.team_id == PlayerMatchStat.team_id)
+        .where(PlayerMatchStat.player_identifier.is_not(None))
+        .where(Team.team_type == "international")
+        .group_by(PlayerMatchStat.player_identifier, Team.team_id)
+    )
+    if gender:
+        stmt = stmt.where(Match.gender == gender)
+
+    best: dict[str, tuple[str, int, str, str | None]] = {}
+    for identifier, name, team_type, last_played, appearances in db.execute(stmt).all():
+        if not flags.is_national_side(name, team_type):
+            continue
+        candidate = (last_played or "", appearances, name, flags.country_code(name, team_type))
+        current = best.get(identifier)
+        if current is None or candidate[:2] > current[:2]:
+            best[identifier] = candidate
+    return {ident: (name, code) for ident, (_, _, name, code) in best.items()}
+
+
+def _attach_country(
+    rows: list[dict], countries: dict[str, tuple[str, str | None]], key: str = "player_identifier"
+) -> list[dict]:
+    """Stamp `country` / `country_code` onto already-built row dicts.
+
+    Applied after the fact rather than joined into each aggregate query: the
+    ranking helpers already group and sort in Python, and a join would have to
+    be repeated identically in seven places with the invitational rule in each.
+    """
+    for row in rows:
+        name, code = countries.get(row.get(key) or "", (None, None))
+        row["country"] = name
+        row["country_code"] = code
+    return rows
+
+
 def _safe_div(numerator: float, denominator: float) -> float | None:
     if not denominator:
         return None
@@ -230,7 +301,11 @@ def _batting_aggregate_rows(
                 "strike_rate": _safe_div(runs * 100, balls_faced),
             }
         )
-    return results
+    # Stamped here rather than in each caller so rankings, the dashboard's top
+    # tens and a team page's leaders all carry the flag without three copies of
+    # the rule. Note the country is the player's own nation even on a team page
+    # scoped to a franchise -- Babar Azam is Pakistan on a Peshawar Zalmi list.
+    return _attach_country(results, _player_country_map(db, gender))
 
 
 def _bowling_aggregate_rows(
@@ -283,7 +358,7 @@ def _bowling_aggregate_rows(
                 "economy": _safe_div(runs_conceded * 6, balls_bowled),
             }
         )
-    return results
+    return _attach_country(results, _player_country_map(db, gender))
 
 
 def _ranking_scope(competition_key: str | None, competition_type: str | None) -> str | None:
@@ -690,6 +765,7 @@ def search_players(
     # cheap, but building them for all ~9,400 players to serve 25 would not be.
     reference = dataset_latest_date(db)
     last_played = _last_played_map(db, gender)
+    countries = _player_country_map(db, gender)
     page_players = {
         p.identifier: p
         for p in db.execute(
@@ -709,6 +785,8 @@ def search_players(
             scorecard_name=r.name,
             gender=r.gender,
             matches=r.matches,
+            country=countries.get(r.identifier, (None, None))[0],
+            country_code=countries.get(r.identifier, (None, None))[1],
             status=(
                 player_status(page_players[r.identifier], last_played.get(r.identifier), reference)
                 if r.identifier in page_players
@@ -779,11 +857,16 @@ def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | No
     ).scalars().all()
     recent_matches = [_hydrate_match_summary(db, m) for m in recent]
 
+    country, country_code = _player_country_map(db, player.gender).get(
+        player.identifier, (None, None)
+    )
     return schemas.PlayerDetail(
         identifier=player.identifier,
         name=player.display_name or player.name,
         scorecard_name=player.name,
         gender=player.gender,
+        country=country,
+        country_code=country_code,
         teams=[_team_ref(t) for t in teams],
         bio=schemas.PlayerBio(
             date_of_birth=player.date_of_birth,
@@ -966,6 +1049,7 @@ def get_icc_player_ranking(
                 position=r.position,
                 player_name=r.player_name,
                 country=r.country,
+                country_code=flags.country_code(r.country, "international"),
                 points=r.points,
                 career_best=r.career_best,
                 player_identifier=r.player_identifier,
@@ -1133,10 +1217,15 @@ def _comparison_side(
         totals.display_name = comp.display_name
         by_competition.append(totals)
 
+    country, country_code = _player_country_map(db, player.gender).get(
+        identifier, (None, None)
+    )
     return schemas.ComparisonSide(
         identifier=identifier,
         name=player.display_name or player.name,
         scorecard_name=player.name,
+        country=country,
+        country_code=country_code,
         status=player_status(player, last_played, reference),
         teams=[_team_ref(t) for t in teams],
         bio=schemas.PlayerBio(
@@ -1314,6 +1403,11 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
         .order_by(PlayerMatchStat.team_id, PlayerMatchStat.runs_scored.desc())
     ).scalars().all()
 
+    # The flag earns its place most on a franchise scorecard, where one XI holds
+    # several nationalities; on an international it agrees with the team header,
+    # which is the point -- it is the same fact, not a second one.
+    countries = _player_country_map(db, match.gender)
+
     return schemas.MatchDetail(
         **summary.model_dump(),
         toss_winner=_team_ref(toss_winner),
@@ -1324,6 +1418,8 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
             schemas.MatchPerformer(
                 player_name=p.player_name,
                 player_identifier=p.player_identifier,
+                country=countries.get(p.player_identifier or "", (None, None))[0],
+                country_code=countries.get(p.player_identifier or "", (None, None))[1],
                 team_id=p.team_id,
                 runs_scored=p.runs_scored,
                 balls_faced=p.balls_faced,

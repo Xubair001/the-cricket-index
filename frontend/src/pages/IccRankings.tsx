@@ -5,6 +5,7 @@ import type { IccRankingTable, IccTeamRankingTable } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * ICC's own published ratings — distinct from /rankings, which this project
@@ -177,21 +178,21 @@ export function IccRankings() {
                       {/* Only confidently-matched entries become links. An
                           unmatched name is still shown -- it's ICC's data and
                           it's real -- but is not attached to a profile. */}
-                      {r.player_identifier ? (
-                        <Link
-                          to={`/${slug}/players/${r.player_identifier}`}
-                          className="hover:text-analytic-ink"
-                        >
-                          {r.player_name}
-                        </Link>
-                      ) : (
-                        <span
-                          className="text-muted"
-                          title="No confident match to a player in this dataset, so this name is not linked"
-                        >
-                          {r.player_name}
-                        </span>
-                      )}
+                      {/* The flag here comes from ICC's own country column, not
+                          from our appearance data — this is their list, and
+                          resolving it any other way would mix a derived figure
+                          into a published one. */}
+                      <PlayerName
+                        name={r.player_name}
+                        country={r.country}
+                        countryCode={r.country_code}
+                        to={
+                          r.player_identifier
+                            ? `/${slug}/players/${r.player_identifier}`
+                            : undefined
+                        }
+                        className={r.player_identifier ? '' : 'text-muted'}
+                      />
                     </td>
                     <td className="px-3 py-2.5 text-muted">{r.country ?? '—'}</td>
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">

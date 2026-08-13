@@ -6,6 +6,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * Computed leaderboards — this project's own figures, derived from Cricsheet
@@ -221,12 +222,17 @@ export function Rankings() {
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
                     <td className="px-3 py-2.5">
-                      <Link
-                        to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic-ink"
-                      >
-                        {p.player_name}
-                      </Link>
+                      <PlayerName
+                        name={p.player_name}
+                        country={p.country}
+                        countryCode={p.country_code}
+                        to={
+                          p.player_identifier
+                            ? `/${slug}/players/${p.player_identifier}`
+                            : undefined
+                        }
+                        nameClassName="font-medium"
+                      />
                     </td>
                     <td className={td}>{p.matches}</td>
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
@@ -261,12 +267,17 @@ export function Rankings() {
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
                     <td className="px-3 py-2.5">
-                      <Link
-                        to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic-ink"
-                      >
-                        {p.player_name}
-                      </Link>
+                      <PlayerName
+                        name={p.player_name}
+                        country={p.country}
+                        countryCode={p.country_code}
+                        to={
+                          p.player_identifier
+                            ? `/${slug}/players/${p.player_identifier}`
+                            : undefined
+                        }
+                        nameClassName="font-medium"
+                      />
                     </td>
                     <td className={td}>{p.matches}</td>
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">{p.wickets}</td>

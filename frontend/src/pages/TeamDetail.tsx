@@ -8,6 +8,7 @@ import { StatCard } from '../components/StatCard'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { percent, rate } from '../format'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * A team's record and its leading players.
@@ -110,12 +111,17 @@ export function TeamDetail() {
                     className="border-b border-border-subtle last:border-0 hover:bg-elevated"
                   >
                     <td className="px-4 py-2.5">
-                      <Link
-                        to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic-ink"
-                      >
-                        {p.player_name}
-                      </Link>
+                      <PlayerName
+                        name={p.player_name}
+                        country={p.country}
+                        countryCode={p.country_code}
+                        to={
+                          p.player_identifier
+                            ? `/${slug}/players/${p.player_identifier}`
+                            : undefined
+                        }
+                        nameClassName="font-medium"
+                      />
                     </td>
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
                       {p.runs.toLocaleString()}
@@ -140,12 +146,17 @@ export function TeamDetail() {
                     className="border-b border-border-subtle last:border-0 hover:bg-elevated"
                   >
                     <td className="px-4 py-2.5">
-                      <Link
-                        to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic-ink"
-                      >
-                        {p.player_name}
-                      </Link>
+                      <PlayerName
+                        name={p.player_name}
+                        country={p.country}
+                        countryCode={p.country_code}
+                        to={
+                          p.player_identifier
+                            ? `/${slug}/players/${p.player_identifier}`
+                            : undefined
+                        }
+                        nameClassName="font-medium"
+                      />
                     </td>
                     <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
                       {p.wickets}

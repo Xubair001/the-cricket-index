@@ -102,7 +102,10 @@ def form_leaderboard(
         limit=limit,
         offset=offset,
         scope=form_board.scope_label(comp_key, comp_type),
-        items=[schemas.FormLeaderRow(**r) for r in rows],
+        items=[
+            schemas.FormLeaderRow(**r)
+            for r in queries._attach_country(rows, queries._player_country_map(db, gender))
+        ],
     )
 
 
@@ -136,6 +139,7 @@ def performance_index(
         limit=limit,
         offset=offset,
     )
+    countries = queries._player_country_map(db, gender)
     return schemas.PerformanceIndexPage(
         scope=key or ctype or "international",
         gender=gender,
@@ -154,6 +158,8 @@ def performance_index(
                 index=r.index,
                 scores=r.scores,
                 raw=r.raw,
+                country=countries.get(r.player_identifier, (None, None))[0],
+                country_code=countries.get(r.player_identifier, (None, None))[1],
             )
             for r in items
         ],

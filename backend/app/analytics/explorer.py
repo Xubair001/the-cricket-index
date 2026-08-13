@@ -61,7 +61,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Integer, Select, String, func, select
 from sqlalchemy.orm import Session
 
 from ..models import Competition, Match, Player, PlayerMatchStat
@@ -116,6 +116,15 @@ class ExplorerFilters:
             # design rather than by accident.
             "roles_shown": sorted(ELIGIBLE[explorer]) if explorer in ELIGIBLE else None,
         }
+
+
+def _era_expr():
+    """The era bucket of a match, computed in SQL so it can be grouped on."""
+    from ..analytics import config as _cfg
+
+    span = _cfg.OPPOSITION_ERA_YEARS
+    year = func.cast(func.substr(Match.match_date_start, 1, 4), Integer)
+    return func.cast((year / span) * span, String)
 
 
 def _opponent_id():
@@ -338,13 +347,14 @@ def allround_rows(db: Session, f: ExplorerFilters) -> list[dict]:
         *_identity_columns(),
         Competition.key.label("comp_key"),
         _opponent_id().label("opponent_id"),
+        _era_expr().label("era"),
         func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
         func.sum(PlayerMatchStat.runs_scored).label("runs"),
         func.sum(PlayerMatchStat.balls_faced).label("balls_faced"),
         func.sum(PlayerMatchStat.wickets_taken).label("wickets"),
         func.sum(PlayerMatchStat.balls_bowled).label("balls_bowled"),
         func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
-    ).group_by(PlayerMatchStat.player_identifier, Competition.key, _opponent_id())
+    ).group_by(PlayerMatchStat.player_identifier, Competition.key, _opponent_id(), _era_expr())
     stmt = _scoped(stmt, f, db)
 
     # pid -> accumulated figures across every (competition, opponent) group
@@ -353,7 +363,8 @@ def allround_rows(db: Session, f: ExplorerFilters) -> list[dict]:
         p = par.lookup(r.comp_key, f.gender)
         if not p.mean_impact:
             continue
-        multiplier = opp.multiplier(r.opponent_id, r.comp_key)
+        # Era, not competition: a side's strength moves across decades.
+        multiplier = opp.multiplier_for_era(r.opponent_id, r.era)
 
         runs, bf = r.runs or 0, r.balls_faced or 0
         wkts, bb, conceded = r.wickets or 0, r.balls_bowled or 0, r.runs_conceded or 0

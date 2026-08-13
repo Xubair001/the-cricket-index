@@ -122,29 +122,45 @@ class OppositionTable:
 
     def __init__(
         self,
-        indices: dict[tuple[int, str], tuple[float, int]],
+        by_era: dict[tuple[int, str], tuple[float, int]],
         overall: dict[int, tuple[float, int]],
     ):
-        # (team_id, competition_key) -> (shrunk index, rows behind it)
-        self._indices = indices
-        # team_id -> (shrunk index, rows) across every competition
+        # (team_id, era) -> (shrunk index, matches in that era)
+        self._by_era = by_era
+        # team_id -> (shrunk index, matches) across every era
         self._overall = overall
 
-    def index(self, team_id: int | None, competition_key: str | None) -> tuple[float, int]:
-        """The concession index for a side, most specific slice first."""
+    def index(
+        self, team_id: int | None, era: str | None = None
+    ) -> tuple[float, int]:
+        """The concession index for a side, in an era if one is given."""
         if team_id is None:
             return 1.0, 0
-        if competition_key:
-            found = self._indices.get((team_id, competition_key))
+        if era:
+            found = self._by_era.get((team_id, era))
             if found is not None:
                 return found
         return self._overall.get(team_id, (1.0, 0))
 
-    def multiplier(self, team_id: int | None, competition_key: str | None) -> float:
-        """How much a performance against this side is worth, versus par."""
+    def multiplier_for_era(self, team_id: int | None, era: str | None) -> float:
+        """As `multiplier`, for callers that already grouped by era in SQL."""
         if not config.OPPOSITION_ADJUSTMENT_ENABLED:
             return 1.0
-        idx, _rows = self.index(team_id, competition_key)
+        idx, _n = self.index(team_id, era)
+        if idx <= 0:
+            return 1.0
+        low, high = config.OPPOSITION_MULTIPLIER_BOUNDS
+        return max(low, min(high, 1.0 / idx))
+
+    def multiplier(self, team_id: int | None, match_date: str | None = None) -> float:
+        """How much a performance against this side, at that time, is worth.
+
+        Passing the date is what makes this "standing at the time" rather than a
+        career average -- see the era note in `config`.
+        """
+        if not config.OPPOSITION_ADJUSTMENT_ENABLED:
+            return 1.0
+        idx, _n = self.index(team_id, era_of(match_date) if match_date else None)
         if idx <= 0:
             return 1.0
         low, high = config.OPPOSITION_MULTIPLIER_BOUNDS
@@ -155,9 +171,9 @@ class OppositionTable:
         rows = [
             {
                 "team_id": team_id,
-                "competition_key": None,
+                "era": None,
                 "concession_index": round(idx, 4),
-                "multiplier": round(self.multiplier(team_id, None), 4),
+                "multiplier": round(self.multiplier(team_id), 4),
                 "rows": n,
             }
             for team_id, (idx, n) in self._overall.items()
@@ -173,6 +189,19 @@ def invalidate() -> None:
     """Drop the cached table -- call after an ingest changes the dataset."""
     global _cache
     _cache = None
+
+
+def era_of(match_date: str | None) -> str:
+    """The era bucket a match falls in. Unknown dates get their own bucket.
+
+    Bucketing by fixed span rather than a rolling window keeps one fit per
+    (pool, era) instead of one per match, which is what makes this affordable.
+    """
+    if not match_date or len(match_date) < 4 or not match_date[:4].isdigit():
+        return "unknown"
+    year = int(match_date[:4])
+    span = config.OPPOSITION_ERA_YEARS
+    return str((year // span) * span)
 
 
 def _shrink(index: float, rows: int) -> float:
@@ -207,6 +236,7 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
             Competition.key,
             Competition.type,
             Match.gender,
+            Match.match_date_start,
             func.sum(PlayerMatchStat.runs_scored),
             func.sum(PlayerMatchStat.balls_faced),
             func.sum(PlayerMatchStat.wickets_taken),
@@ -228,7 +258,9 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
     sides: dict[str, list[tuple[int, float]]] = {}
     pool_of: dict[str, tuple[str, str]] = {}
 
-    for match_id, team_id, comp_key, comp_type, gender, runs, bf, wkts, bb, conceded in db.execute(stmt).all():
+    dates: dict[str, str | None] = {}
+    for match_id, team_id, comp_key, comp_type, gender, match_date, runs, bf, wkts, bb, conceded in db.execute(stmt).all():
+        dates[match_id] = match_date
         p = par.lookup(comp_key, gender)
         if not p.mean_impact:
             continue
@@ -242,10 +274,11 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
         sides.setdefault(match_id, []).append((team_id, impact_sum))
         pool_of[match_id] = (comp_type or "unknown", gender or "unknown")
 
-    # One Bradley-Terry pool per (competition type, gender): disconnected sets
-    # of sides must not be fitted onto a single scale.
-    pools: dict[tuple[str, str], list[tuple[int, int, float, float]]] = {}
+    # One Bradley-Terry pool per (competition type, gender, era). Disconnected
+    # sets of sides must not share a scale, and neither must different decades.
+    pools: dict[tuple, list[tuple[int, int, float, float]]] = {}
     played: dict[int, int] = {}
+    played_era: dict[tuple[int, str], int] = {}
 
     for match_id, entries in sides.items():
         if len(entries) != 2:
@@ -257,14 +290,61 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
             # Both sides negative-or-zero: a washout or a freak low-scorer.
             # There is no meaningful share to take.
             continue
-        pools.setdefault(pool_of[match_id], []).append(
+        era = era_of(dates.get(match_id))
+        pools.setdefault(pool_of[match_id] + (era,), []).append(
             (team_a, team_b, impact_a / total, impact_b / total)
         )
-        played[team_a] = played.get(team_a, 0) + 1
-        played[team_b] = played.get(team_b, 0) + 1
+        for t in (team_a, team_b):
+            played[t] = played.get(t, 0) + 1
+            played_era[(t, era)] = played_era.get((t, era), 0) + 1
+
+    # Fitted per (pool, era), then also pooled across eras so a thin era can be
+    # shrunk towards the side's own long-run figure rather than towards 1.0.
+    era_index: dict[tuple[int, str], float] = {}
+    all_era_pools: dict[tuple, list] = {}
+    for key, matches in pools.items():
+        all_era_pools.setdefault(key[:-1], []).extend(matches)
+
+    # The era reference is taken over a STABLE CORE, not over each era's whole
+    # population, and this is not a detail.
+    #
+    # In 2019 the ICC granted T20I status to all its members, so the 2020s pool
+    # contains dozens of associate sides that played no international cricket in
+    # the 2000s. Referenced against its own era's average, every established
+    # side therefore *inflates* in the 2020s -- Australia came out harder to face
+    # in 2020 than in 2000, which is not true, it is only that the average
+    # opponent got weaker. That breaks the one thing the multiplier exists for:
+    # making performances comparable across time.
+    #
+    # Sides appearing with real volume in most eras give a yardstick that means
+    # the same thing in every era, so an era index is measured against cricket's
+    # persistent core rather than against whoever happened to hold status.
+    eras_present: dict[int, set[str]] = {}
+    for (team, era), n in played_era.items():
+        if n >= config.OPPOSITION_CORE_MIN_MATCHES_PER_ERA:
+            eras_present.setdefault(team, set()).add(era)
+    core = {
+        t
+        for t, eras in eras_present.items()
+        if len(eras) >= config.OPPOSITION_CORE_MIN_ERAS
+    }
+
+    for key, matches in pools.items():
+        era = key[-1]
+        powers = _fit_bradley_terry(matches)
+        if not powers:
+            continue
+        anchors = {t: p for t, p in powers.items() if t in core} or powers
+        weight_total = sum(played_era.get((t, era), 0) for t in anchors)
+        reference = (
+            sum(p * played_era.get((t, era), 0) for t, p in anchors.items()) / weight_total
+            if weight_total else 1.0
+        ) or 1.0
+        for team, power in powers.items():
+            era_index[(team, era)] = (reference / (reference + power)) / 0.5
 
     overall: dict[int, tuple[float, int]] = {}
-    for matches in pools.values():
+    for matches in all_era_pools.values():
         powers = _fit_bradley_terry(matches)
         if not powers:
             continue
@@ -287,11 +367,16 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
             n = played.get(team, 0)
             overall[team] = (_shrink(index, n), n)
 
-    # Per-competition slices are left empty: a side's power is fitted across its
-    # whole pool, and re-fitting per competition splits already-thin fixture
-    # lists into components too sparse to rate. `index()` falls through to the
-    # pool figure, which is the honest resolution rather than a noisier one.
-    _cache = OppositionTable({}, overall)
+    # Each era's own fit, pulled towards the side's all-era figure in proportion
+    # to how little cricket that era holds for them.
+    by_era: dict[tuple[int, str], tuple[float, int]] = {}
+    k = config.OPPOSITION_ERA_SHRINKAGE_MATCHES
+    for (team, era), idx in era_index.items():
+        n = played_era.get((team, era), 0)
+        long_run = overall.get(team, (1.0, 0))[0]
+        by_era[(team, era)] = ((n * idx + k * long_run) / (n + k), n)
+
+    _cache = OppositionTable(by_era, overall)
     return _cache
 
 

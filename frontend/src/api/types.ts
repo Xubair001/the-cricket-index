@@ -22,10 +22,25 @@ export interface IccRankEntry {
   career_best: string | null
 }
 
+/**
+ * The national side a player turns out for, for the flag beside their name.
+ *
+ * Resolved on the server from the player's own appearances, so it means the
+ * same thing as the flag beside a team. Both are null for a franchise-only
+ * player; `country_code` alone is null for the West Indies, a real side with
+ * no ISO code, which renders as the neutral mark with the name on hover.
+ */
+export interface PlayerCountry {
+  country: string | null
+  country_code: string | null
+}
+
 export interface IccRankingRow {
   position: number
   player_name: string
   country: string | null
+  // Derived from ICC's own country string, not from our appearance data.
+  country_code: string | null
   points: number | null
   career_best: string | null
   player_identifier: string | null
@@ -68,7 +83,7 @@ export interface ComparisonMetric {
   format: 'int' | 'float' | 'none'
 }
 
-export interface ComparisonSide {
+export interface ComparisonSide extends PlayerCountry {
   identifier: string
   name: string
   scorecard_name: string | null
@@ -117,7 +132,7 @@ export interface SeasonCount {
   count: number
 }
 
-export interface BattingRankingRow {
+export interface BattingRankingRow extends PlayerCountry {
   player_name: string
   player_identifier: string | null
   matches: number
@@ -130,7 +145,7 @@ export interface BattingRankingRow {
   strike_rate: number | null
 }
 
-export interface BowlingRankingRow {
+export interface BowlingRankingRow extends PlayerCountry {
   player_name: string
   player_identifier: string | null
   matches: number
@@ -180,7 +195,7 @@ export interface HeadToHead {
   ties_or_no_result: number
 }
 
-export interface PlayerSummary {
+export interface PlayerSummary extends PlayerCountry {
   identifier: string
   // `name` is the display form ("Joe Root"); `scorecard_name` is the
   // initials-and-surname form that appears on a scorecard ("JE Root").
@@ -217,7 +232,7 @@ export interface PlayerBio {
   image_url: string | null
 }
 
-export interface PlayerDetail {
+export interface PlayerDetail extends PlayerCountry {
   identifier: string
   name: string
   scorecard_name: string | null
@@ -248,7 +263,7 @@ export interface MatchSummary {
   win_by_wickets: number | null
 }
 
-export interface MatchPerformer {
+export interface MatchPerformer extends PlayerCountry {
   player_name: string
   player_identifier: string | null
   team_id: number
@@ -372,7 +387,7 @@ export interface ParFigures {
   balls: number
 }
 
-export interface FormLeaderRow {
+export interface FormLeaderRow extends PlayerCountry {
   player_identifier: string
   player_name: string
   scorecard_name: string | null
@@ -399,7 +414,7 @@ export interface FormLeaderboard {
   items: FormLeaderRow[]
 }
 
-export interface DirectoryPlayer {
+export interface DirectoryPlayer extends PlayerCountry {
   identifier: string
   name: string | null
   scorecard_name: string | null
@@ -435,7 +450,7 @@ export interface PlayerDirectory {
 export type ExplorerKind = 'batting' | 'bowling' | 'allround'
 
 /** Row shape varies by explorer, so the numeric columns are indexed. */
-export interface ExplorerRow {
+export interface ExplorerRow extends PlayerCountry {
   player_name: string
   player_identifier: string | null
   matches: number
@@ -488,7 +503,7 @@ export interface IndexComponent {
   unavailable_because: string | null
 }
 
-export interface IndexRow {
+export interface IndexRow extends PlayerCountry {
   player_identifier: string
   player_name: string
   /** The percentile pool the score was taken against. Inferred, not sourced. */

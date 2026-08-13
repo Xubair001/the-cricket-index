@@ -30,7 +30,21 @@ class SeasonCount(BaseModel):
     count: int
 
 
-class BattingRankingRow(BaseModel):
+class PlayerCountry(BaseModel):
+    """The national side a player turns out for, for the flag beside their name.
+
+    Resolved from their appearances (`queries._player_country_map`), so it means
+    the same thing as the flag beside a team and carries no claim the data does
+    not support. Both fields are null for a franchise-only player, and
+    `country_code` alone is null for the West Indies — a real side with no ISO
+    code, which renders as the neutral mark with the name on hover.
+    """
+
+    country: str | None = None
+    country_code: str | None = None
+
+
+class BattingRankingRow(PlayerCountry):
     player_name: str
     player_identifier: str | None
     matches: int
@@ -43,7 +57,7 @@ class BattingRankingRow(BaseModel):
     strike_rate: float | None
 
 
-class BowlingRankingRow(BaseModel):
+class BowlingRankingRow(PlayerCountry):
     player_name: str
     player_identifier: str | None
     matches: int
@@ -110,7 +124,7 @@ class PlayerStatus(BaseModel):
     source: str | None             # provenance for a 'retired' state, else null
 
 
-class PlayerSummary(BaseModel):
+class PlayerSummary(PlayerCountry):
     identifier: str
     # `name` is the display form (Wikidata label where known, e.g. "Joe Root").
     # `scorecard_name` is Cricsheet's initials-and-surname form ("JE Root"),
@@ -158,7 +172,7 @@ class IccRankEntry(BaseModel):
     career_best: str | None
 
 
-class PlayerDetail(BaseModel):
+class PlayerDetail(PlayerCountry):
     identifier: str
     name: str
     scorecard_name: str | None = None
@@ -175,6 +189,11 @@ class IccRankingRow(BaseModel):
     position: int
     player_name: str            # as ICC spells it, which may differ from ours
     country: str | None
+    # Derived from ICC's own `country` string, not from our appearance data:
+    # this table is ICC's claim about their own list, and resolving the flag
+    # any other way would mix a derived figure into a published one. Most
+    # entries are not linked to one of our players at all.
+    country_code: str | None = None
     points: int | None
     career_best: str | None
     player_identifier: str | None   # null => not confidently matched, no link
@@ -207,7 +226,7 @@ class IccTeamRankingTable(BaseModel):
     rows: list[IccTeamRankingRow]
 
 
-class ComparisonSide(BaseModel):
+class ComparisonSide(PlayerCountry):
     identifier: str
     name: str
     scorecard_name: str | None = None
@@ -304,7 +323,7 @@ class MatchSummary(BaseModel):
     win_by_wickets: int | None
 
 
-class MatchPerformer(BaseModel):
+class MatchPerformer(PlayerCountry):
     player_name: str
     player_identifier: str | None
     team_id: int
@@ -338,7 +357,7 @@ class IndexComponent(BaseModel):
     unavailable_because: str | None  # non-null exactly when inactive
 
 
-class IndexRow(BaseModel):
+class IndexRow(PlayerCountry):
     player_identifier: str
     player_name: str
     # The percentile pool this score was taken against. Inferred, not sourced.
@@ -478,7 +497,7 @@ class ParFigures(BaseModel):
     balls: int
 
 
-class FormLeaderRow(BaseModel):
+class FormLeaderRow(PlayerCountry):
     player_identifier: str
     player_name: str
     scorecard_name: str | None
@@ -506,7 +525,7 @@ class FormLeaderboard(BaseModel):
     items: list[FormLeaderRow]
 
 
-class DirectoryPlayer(BaseModel):
+class DirectoryPlayer(PlayerCountry):
     identifier: str
     name: str | None
     scorecard_name: str | None

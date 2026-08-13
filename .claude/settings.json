@@ -83,7 +83,9 @@
       "Bash(curl -s \"http://127.0.0.1:8001/api/players?gender=male&search=Root&limit=3\")",
       "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/sweep.py)",
       "Bash(xargs sed -i -E 's/text-analytic\\([^-a-zA-Z0-9]\\)/text-analytic-ink\\\\1/g')",
-      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/shots.py)"
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/shots.py)",
+      "Bash(python -m compileall -q app/analytics/opposition.py)",
+      "Bash(ps -o args= -p 656112)"
     ]
   }
 }

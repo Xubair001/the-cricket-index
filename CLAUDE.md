@@ -272,6 +272,51 @@ nothing — don't treat them as dead code:
   `bio_source` are nullable and currently always `null`. The API and UI both
   render this as "Not available" — never infer or guess a value for these.
 
+### A "four" is a boundary, not four runs off the bat
+
+`ingestion/parsing.py` counts `fours`/`sixes` only when Cricsheet does NOT set
+`runs.non_boundary`. That flag exists precisely to mark all-run fours and
+overthrow-assisted ones, and ignoring it overstates boundaries. Found by
+validating against a published source rather than by reading the code: Joe Root
+came out at 1,523 Test fours against ESPNcricinfo's 1,515. After the fix he
+matches exactly, along with matches (166), runs (14,114) and sixes (46).
+
+`runs_scored` is unaffected — a non-boundary four is still four runs. What
+changes is `fours`, `sixes` and anything derived from them, notably the batting
+explorer's boundary %.
+
+### Fixing the parser does nothing until PARSER_VERSION is bumped
+
+Idempotency is a SHA-256 of the raw match JSON, and Cricsheet's bytes do not
+change when our parser does. `shared.PARSER_VERSION` is mixed into that hash for
+exactly this reason: without it, a parser fix plus a re-run skips all 10,040
+matches and **reports success**. This is the trap §5 names, and it is not
+hypothetical — the first attempt at the boundary fix returned "357 unchanged
+(skipped)".
+
+Two things are needed to land a parser change: bump `PARSER_VERSION`, **and
+restart the Temporal worker** — it holds the old module in memory and will
+happily keep using it.
+
+### Venue normalisation: comma-collapse is safe, substring merging is not
+
+`backend/app/venues.py` takes 593 raw venue strings to ~400 grounds. Three rules,
+and the reasoning behind the last two is the load-bearing part:
+
+- **Comma-collapse** (automatic, safe): the text before the first comma is the
+  ground. "Arnos Vale Ground, Kingstown, St Vincent" -> "Arnos Vale Ground".
+- **Curated aliases only.** The tempting rule — merge when one name contains the
+  other — is wrong invisibly. Dubai has "ICC Academy" *and* "ICC Academy Ground
+  No 2" (different pitches); Pakistan has "Arbab Niaz Stadium" in Peshawar and
+  "Niaz Stadium" in Hyderabad, 1,000km apart. Substring similarity is used only
+  to **report** candidates for review, never to merge.
+- **City qualifies only the names that actually collide** (`CITY_QUALIFIED`).
+  "County Ground" is EIGHT English grounds; "National Stadium" is Karachi *and*
+  Hamilton, Bermuda. But city cannot be part of the key generally, because the
+  column is itself inconsistent — the same ground appears under Bridgetown and
+  Barbados, Kingston and Jamaica, Port Elizabeth and Gqeberha, Dhaka and Mirpur.
+  Of 28 same-name-different-city cases, most are one ground written two ways.
+
 ### The Performance Index pools percentiles by discipline, or it rates discipline
 
 `backend/app/analytics/performance_index.py`. Two decisions that look like
@@ -359,6 +404,22 @@ official ratings out of derived figures).
 Conventional figures — average, strike rate, economy — are deliberately **not**
 adjusted, because they have to match what a scorecard source publishes. Only
 this project's own impact measures carry the adjustment.
+
+**Fitted per era, referenced against a stable core.** Team strength moves over 25
+years: on own-share of match output Bangladesh runs 0.387 in the early 2000s to
+0.505 in the mid-2020s, Australia 0.570 down to 0.488 — Bangladesh's swing alone
+is wider than the gap between many pairs of sides, so one career rating credits a
+2003 century against them exactly as much as a 2025 one. `opposition.multiplier`
+therefore takes the match date (§14's "opponent standing at the time").
+
+The era reference is taken over a **stable core** of sides present in most eras,
+not over each era's whole population, and this is load-bearing. In 2019 the ICC
+granted T20I status to every member, so the 2020s pool holds dozens of associates
+that played no international cricket in the 2000s; referenced against its own
+era's average, *every* established side inflated in the 2020s and Australia came
+out harder to face in 2020 than in 2000. Anchored to the core, the curves match
+cricket history instead — Australia 1.240 → 1.038, Bangladesh 0.796 → 0.964,
+Sri Lanka declining after the Murali era, Zimbabwe dipping in 2005.
 
 ### Form boards rank on par units, not on the percentage
 

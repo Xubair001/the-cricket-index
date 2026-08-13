@@ -6,6 +6,7 @@ import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * The analytics explorers (§21) — the power-user surface.
@@ -360,16 +361,18 @@ export function Explorer() {
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
                     <td className="px-3 py-2.5">
-                      {row.player_identifier ? (
-                        <Link
-                          to={`/${slug}/players/${row.player_identifier}`}
-                          className="font-medium text-ink hover:text-analytic-ink"
-                        >
-                          {row.player_name}
-                        </Link>
-                      ) : (
-                        <span className="text-muted">{row.player_name}</span>
-                      )}
+                      <PlayerName
+                        name={row.player_name}
+                        country={row.country}
+                        countryCode={row.country_code}
+                        to={
+                          row.player_identifier
+                            ? `/${slug}/players/${row.player_identifier}`
+                            : undefined
+                        }
+                        className={row.player_identifier ? '' : 'text-muted'}
+                        nameClassName="font-medium"
+                      />
                     </td>
                     <td className="px-3 py-2.5">
                       <span

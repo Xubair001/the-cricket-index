@@ -6,6 +6,7 @@ import { useGender } from '../gender/useGender'
 import { ParMeter } from '../components/ParMeter'
 import { SkeletonRows } from '../components/LoadingSpinner'
 import { Provenance, Uncertain } from '../components/ui'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * The landing page.
@@ -159,7 +160,12 @@ function FormBoard({
                   title={r.explanation}
                 >
                   <TrendGlyph trend={r.trend} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink">{r.player_name}</span>
+                  <PlayerName
+                    name={r.player_name}
+                    country={r.country}
+                    countryCode={r.country_code}
+                    className="min-w-0 flex-1 text-sm text-ink"
+                  />
 
                   {/* The absolute standard, drawn against the datum. A player
                       can post a huge percentage and still be below par, having

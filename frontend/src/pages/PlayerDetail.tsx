@@ -75,7 +75,10 @@ export function PlayerDetail() {
         <div className="mt-2 flex flex-wrap items-center gap-4">
           <PlayerAvatar src={player.bio.image_url} alt={player.name} />
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="u-display text-title text-ink">{player.name}</h1>
+            <h1 className="u-display flex items-center gap-2 text-title text-ink">
+              <Flag code={player.country_code} name={player.country ?? undefined} />
+              {player.name}
+            </h1>
             <StatusBadge status={player.status} />
             {/* Both name forms are shown when they differ: the scorecard form is
                 the one a cricket source will use, and it is not stale data. */}
@@ -89,9 +92,10 @@ export function PlayerDetail() {
             )}
           </div>
         </div>
-        {/* A player carries their side's flag — the platform holds no
-            nationality for most players, and team affiliation is the honest
-            proxy the scope names for exactly this reason. */}
+        {/* Every side they have turned out for, franchises included. The flag
+            on the heading above is the narrower claim — the *nation* they
+            represent — so a PSL player shows their country there and both
+            their country and their franchise here. */}
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
           {player.teams.map((t) => (
             <span key={t.team_id} className="inline-flex items-center gap-1.5">

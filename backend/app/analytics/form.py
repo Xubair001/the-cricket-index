@@ -208,7 +208,7 @@ def player_timeline(
         opponent = team2_id if team_id == team1_id else team1_id
         out.append(
             MatchImpact(
-                opposition_multiplier=opp.multiplier(opponent, comp_key),
+                opposition_multiplier=opp.multiplier(opponent, match_date),
                 match_id=match_id,
                 match_date=match_date,
                 competition_key=comp_key,
@@ -294,7 +294,7 @@ def all_timelines(
         opponent = team2_id if team_id == team1_id else team1_id
         out.setdefault(pid, []).append(
             MatchImpact(
-                opposition_multiplier=opp.multiplier(opponent, comp_key),
+                opposition_multiplier=opp.multiplier(opponent, match_date),
                 match_id=match_id,
                 match_date=match_date,
                 competition_key=comp_key,

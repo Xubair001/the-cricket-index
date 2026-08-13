@@ -37,6 +37,11 @@ SUBDIVISIONS = {
 
 # Name as it appears in `teams.name` -> ISO 3166-1 alpha-2.
 COUNTRY_CODES: dict[str, str] = {
+    # Afghanistan has no side in the Cricsheet archive this project ingests, so
+    # nothing here referenced it until ICC's rankings feed did -- 75 rows of
+    # Test nation with no flag. Listed because it is a cricketing nation, not
+    # because a particular table happens to mention it.
+    "Afghanistan": "AF",
     "Argentina": "AR", "Australia": "AU", "Austria": "AT", "Bahamas": "BS",
     "Bahrain": "BH", "Bangladesh": "BD", "Barbados": "BB", "Belgium": "BE",
     "Belize": "BZ", "Bermuda": "BM", "Bhutan": "BT", "Botswana": "BW",
@@ -75,6 +80,41 @@ COUNTRY_CODES: dict[str, str] = {
 # is correctly flagless.
 NO_NATION = {"Africa XI", "Asia XI", "ICC World XI", "West Indies"}
 
+# Composite sides picked from several countries. A subset of NO_NATION, and the
+# distinction matters when resolving which nation a *player* represents: the
+# West Indies is flagless but is absolutely a side you represent, whereas an
+# appearance for the ICC World XI says nothing about a player's nation. Without
+# the split, R Dravid (India, ICC World XI) and SO Tikolo (Kenya, Africa XI)
+# look like dual-nation players.
+INVITATIONAL = {"Africa XI", "Asia XI", "ICC World XI"}
+
+
+def is_national_side(team_name: str | None, team_type: str | None = None) -> bool:
+    """Whether turning out for this side means representing a nation.
+
+    True for the West Indies despite it having no flag, false for every
+    franchise and every invitational XI.
+    """
+    if not team_name:
+        return False
+    if team_type and team_type != "international":
+        return False
+    return team_name not in INVITATIONAL
+
+
+# Other feeds spell some nations differently from `teams.name`. Kept as an
+# alias layer rather than as extra keys in COUNTRY_CODES, so that map stays a
+# statement about cricketing nations and this stays a statement about how a
+# particular source writes them down. ICC's own rankings feed is the caller
+# that needs it.
+ALIASES = {
+    "USA": "United States of America",
+    "United States": "United States of America",
+    "UAE": "United Arab Emirates",
+    "Chinese Taipei": "Taiwan",
+    "Czechia": "Czech Republic",
+}
+
 
 def country_code(team_name: str | None, team_type: str | None = None) -> str | None:
     """ISO alpha-2 (or a GB subdivision tag) for a side, or None.
@@ -86,11 +126,19 @@ def country_code(team_name: str | None, team_type: str | None = None) -> str | N
         return None
     if team_type and team_type != "international":
         return None
-    if team_name in NO_NATION:
+    name = ALIASES.get(team_name, team_name)
+    if name in NO_NATION:
         return None
-    if team_name in SUBDIVISIONS:
-        return SUBDIVISIONS[team_name]
-    return COUNTRY_CODES.get(team_name)
+    if name in SUBDIVISIONS:
+        return SUBDIVISIONS[name]
+    return COUNTRY_CODES.get(name)
 
 
-__all__ = ["country_code", "COUNTRY_CODES", "SUBDIVISIONS", "NO_NATION"]
+__all__ = [
+    "country_code",
+    "is_national_side",
+    "COUNTRY_CODES",
+    "SUBDIVISIONS",
+    "NO_NATION",
+    "INVITATIONAL",
+]

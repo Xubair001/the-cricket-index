@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { DirectoryPlayer, FormState } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
+import { PlayerName } from '../components/PlayerName'
 
 /**
  * The player directory — the main discovery interface (§7).
@@ -248,9 +249,13 @@ export function Players() {
               : rows.map((p) => (
                   <tr key={p.identifier} className="border-b border-border-subtle last:border-0 hover:bg-elevated">
                     <td className="px-4 py-2.5">
-                      <Link to={`/${slug}/players/${p.identifier}`} className="font-medium text-ink hover:text-analytic-ink">
-                        {p.name}
-                      </Link>
+                      <PlayerName
+                        name={p.name ?? p.scorecard_name ?? p.identifier}
+                        country={p.country}
+                        countryCode={p.country_code}
+                        to={`/${slug}/players/${p.identifier}`}
+                        nameClassName="font-medium"
+                      />
                       {p.status?.state === 'retired' && (
                         <span className="ml-2 font-mono text-[9px] uppercase tracking-[0.1em] text-dim">retired</span>
                       )}

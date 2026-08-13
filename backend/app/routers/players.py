@@ -83,7 +83,12 @@ def player_directory(
         limit=limit,
         offset=offset,
         scope=form_board.scope_label(comp_key, comp_type),
-        items=[schemas.DirectoryPlayer(**r) for r in rows],
+        items=[
+            schemas.DirectoryPlayer(**r)
+            for r in queries._attach_country(
+                rows, queries._player_country_map(db, gender), key="identifier"
+            )
+        ],
     )
 
 

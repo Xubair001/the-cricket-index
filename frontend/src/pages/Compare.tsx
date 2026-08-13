@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   Bar,
   BarChart,
@@ -19,6 +19,7 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { StatusBadge } from '../components/StatusBadge'
 import { useGender } from '../gender/useGender'
 import { legendLabel, tooltipStyle, useChartTheme } from '../theme/useChartTheme'
+import { PlayerName } from '../components/PlayerName'
 import {
   EmptyState,
   PageHeader,
@@ -170,6 +171,8 @@ function PlayerPicker({
           name: p.name,
           scorecard_name: p.scorecard_name,
           gender: p.gender,
+          country: p.country,
+          country_code: p.country_code,
           matches: p.by_competition.reduce((sum, c) => sum + c.matches, 0),
           status: p.status,
         })
@@ -379,12 +382,13 @@ export function Compare() {
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <PlayerAvatar src={p.bio.image_url} alt={p.name} className="h-10 w-10" />
-                    <Link
+                    <PlayerName
+                      name={p.name}
+                      country={p.country}
+                      countryCode={p.country_code}
                       to={`/${slug}/players/${p.identifier}`}
-                      className="text-lg font-semibold text-ink hover:text-analytic-ink"
-                    >
-                      {p.name}
-                    </Link>
+                      className="text-lg font-semibold text-ink"
+                    />
                     <StatusBadge status={p.status} />
                   </div>
                   <p className="mt-1 text-sm text-muted">

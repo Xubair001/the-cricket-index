@@ -10,7 +10,7 @@ every impact score in the product is computed against these.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import schemas, validation
+from .. import queries, schemas, validation
 from sqlalchemy import func, select
 
 from ..models import Match
@@ -165,5 +165,12 @@ def explore(
         sort_by=sort_by,
         filters=filters.describe(explorer),
         sorts=sorted(sorts),
-        items=[schemas.ExplorerRow(**row) for row in items],
+        # ExplorerRow allows extra fields, so country/country_code ride along
+        # without the model having to know about them.
+        items=[
+            schemas.ExplorerRow(**row)
+            for row in queries._attach_country(
+                items, queries._player_country_map(db, filters.gender)
+            )
+        ],
     )
