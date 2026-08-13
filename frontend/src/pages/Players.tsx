@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { PlayerSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
+import { StatusBadge } from '../components/StatusBadge'
 import { useGender } from '../gender/useGender'
 
 const LIMIT = 25
@@ -77,12 +78,15 @@ export function Players() {
               {players.map((p) => (
                 <tr key={p.identifier} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                   <td className="py-2.5 pl-5">
-                    <Link
-                      to={`/${slug}/players/${p.identifier}`}
-                      className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100 dark:hover:text-emerald-400"
-                    >
-                      {p.name}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        to={`/${slug}/players/${p.identifier}`}
+                        className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100 dark:hover:text-emerald-400"
+                      >
+                        {p.name}
+                      </Link>
+                      <StatusBadge status={p.status} />
+                    </div>
                   </td>
                   <td className="py-2.5 pr-5 text-right text-slate-500 dark:text-slate-400">
                     {p.matches} matches

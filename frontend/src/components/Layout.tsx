@@ -5,9 +5,12 @@ import { useGender, type GenderSlug } from '../gender/useGender'
 const NAV_LINKS = [
   { to: '', label: 'Dashboard' },
   { to: 'rankings', label: 'Rankings' },
+  { to: 'icc-rankings', label: 'ICC' },
+  { to: 'compare', label: 'Compare' },
   { to: 'teams', label: 'Teams' },
   { to: 'players', label: 'Players' },
   { to: 'matches', label: 'Matches' },
+  { to: 'fixtures', label: 'Fixtures' },
 ]
 
 const GENDER_STORAGE_KEY = 'cricket-dashboard-gender'
@@ -90,7 +93,11 @@ export function Layout() {
         <Outlet />
       </main>
       <footer className="mx-auto max-w-6xl px-4 py-8 text-center text-xs text-slate-400 dark:text-slate-600">
-        Data from Cricsheet.org (ODC-BY 1.0) &middot; {slug === 'men' ? "Men's" : "Women's"} international cricket
+        {/* Deliberately not "international cricket" any more -- the dataset now
+            also carries franchise cricket (PSL), and naming the competitions
+            here would just be a second place to update per league. The
+            dashboard's per-competition breakdown is the accurate answer. */}
+        Data from Cricsheet.org (ODC-BY 1.0) &middot; {slug === 'men' ? "Men's" : "Women's"} cricket
       </footer>
     </div>
   )

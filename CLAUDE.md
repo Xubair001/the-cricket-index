@@ -22,9 +22,17 @@ cd frontend && npm run dev                                             # localho
 
 **Trigger ingestion** (worker must be running):
 ```bash
-cd ingestion && python starter.py tests   # or: odis, t20is
+cd ingestion && python starter.py tests   # or: odis, t20is, psl
+cd ingestion && python starter.py icc     # ICC rankings (also runs daily on a schedule)
+cd ingestion && python starter.py enrich  # cricinfo crosswalk + Wikidata bios
 ```
-Re-running is cheap — each match is content-hashed; unchanged matches are skipped, not re-parsed.
+Re-running match ingestion is cheap — each match is content-hashed; unchanged
+matches are skipped, not re-parsed.
+
+**Register the daily ICC schedule** (once; re-running updates it):
+```bash
+cd ingestion && python schedule.py        # --delete to remove
+```
 
 **Frontend lint/build** (this is what CI runs — no test suite exists in this repo):
 ```bash
@@ -67,6 +75,30 @@ mapped to the API's `male`/`female` via `frontend/src/gender/useGender.ts`).
 *list* page rather than trying to preserve a specific team/player/match ID
 when switching — an ID from one gender is meaningless in the other's context.
 
+### International vs franchise is the same kind of split as gender
+
+Adding the PSL needed no migration — `teams.team_type` and `competitions.type`
+already carried the vocabulary. The rule the code enforces is that the two
+never merge into one number:
+- `teams` are keyed by `(name, gender, team_type)`, and `GET /api/teams` takes
+  an optional `team_type` so a list is national sides *or* franchises, never
+  both interleaved. The frontend Teams page defaults to `international`.
+- Rankings are confined to one competition type at a time
+  (`queries._ranking_scope`). An unscoped request is **not** "everything" — it
+  falls back to `international`, and franchise cricket must be asked for via
+  `competition=psl` or `competition_type=domestic_league`. Blending a player's
+  Test/ODI/T20I runs with their PSL runs would produce a figure no cricket
+  source publishes.
+- `team_type` is derived from the competition
+  (`shared.TEAM_TYPE_BY_COMPETITION_TYPE`), **not** from the source data:
+  Cricsheet's own `info.team_type` says `"club"` for franchise leagues, which
+  isn't in the schema's CHECK vocabulary. That raw value is still stored on
+  `matches.team_type` as a display-only column.
+
+Competition keys and types are validated against the `competitions` table
+(`app/validation.py`), not a regex, so ingesting a new league stays a data
+change rather than an API code change.
+
 ### Ingestion: Temporal workflow, not child-workflow-per-match
 
 `CricsheetIngestionWorkflow` (`ingestion/ingestion_workflow.py`) downloads a
@@ -104,6 +136,57 @@ Don't "simplify" any of this without checking real figures against known
 career stats first — these rules were reverse-engineered from actual
 Cricsheet delivery records, not assumed.
 
+### Three data sources, kept visibly separate
+
+Cricsheet is still the only source of match data. Two others now feed
+non-match facts, and neither is allowed to blur into the first:
+
+- **ICC rankings** (`icc_player_rankings`, `icc_team_rankings`) come from
+  ICC's own JSON feed — the one their site consumes. They live behind
+  `/api/icc/*` and a separate "ICC" nav section, deliberately not merged with
+  `/api/rankings`, which this project *computes* from ball-by-ball data.
+  Conflating a derived figure with an official rating is the one mistake the
+  split exists to prevent.
+  - `IccRankingsWorkflow` runs daily via a Temporal Schedule (`schedule.py`).
+    ICC republishes roughly weekly, but `rank_date` is part of the key, so a
+    daily run that finds nothing new just rewrites the same snapshot.
+  - ICC marks ties with `'='` in the position column; `parse_icc_rankings`
+    carries the previous position forward. Treating `'='` as unparseable
+    silently drops every tied player (6 of the top 100 Test batters).
+    Because ties share a position, `player_name` is part of the primary key
+    **and must stay `primary_key=True` on the SQLAlchemy model** — omit it
+    there and tied rows collapse into one ORM identity, which the session then
+    emits twice.
+  - ICC names people "Travis Head" where Cricsheet says "TM Head", and
+    publishes no ID we share. `enrichment.resolve_player` matches on
+    (surname, first initial) with country as a tiebreak, and returns None
+    whenever more than one player fits — "Moeen Ali" will not be guessed at
+    between `M Ali` and `MM Ali`. Unlinked entries still display; they just
+    aren't links. ~72% link cleanly.
+
+- **Wikidata** fills player bio fields, joined on `players.cricinfo_id`. That
+  column is populated from Cricsheet's own people register
+  (`https://cricsheet.org/register/people.csv`, `key_cricinfo`, 99.8%
+  coverage), so the join is exact and involves no name matching at all.
+  Run via `python starter.py enrich`; not scheduled, since bios rarely change.
+
+### Playing status is derived, and "retired" is never guessed
+
+`queries.player_status` returns `active` / `inactive` / `retired`. The word
+**retired only appears when a source says so** — Wikidata's P2032 or a date of
+death. It is never inferred from a gap in appearances, because a gap covers
+retirement, injury, being dropped, and cricket this dataset doesn't cover, and
+nothing here distinguishes them. Those render as "Last played 2019".
+
+Be aware how thin the sourced signal is: **P2032 exists for 21 of ~31,700
+cricketers in Wikidata**, so exactly 2 players in this database have a
+retirement date (plus 41 with a date of death). MS Dhoni shows as *inactive*,
+not retired. That is correct behaviour, not a bug to "fix" by lowering the bar.
+
+`active` is measured against the newest match **in the dataset**, not today —
+anchoring to now would silently reclassify every current player the moment the
+Cricsheet archive went stale.
+
 ### Forward-looking schema, not yet populated
 
 Two things exist in `schema.sql` for a future phase and currently do
@@ -122,6 +205,14 @@ nothing — don't treat them as dead code:
 `backend/app/queries.py`'s `_batting_aggregate_rows` / `_bowling_aggregate_rows`
 run one SQL `GROUP BY` per call, then compute averages/strike-rate/economy
 and sort in Python across the full result set before slicing for pagination.
+
+They group by `player_identifier`, **not** `player_name` — 78 names in this
+dataset map to more than one real person (two distinct "SR Taylor"s, two
+"Shahid Afridi"s), and grouping by name silently summed their careers into a
+single ranking row. `max(player_name)` just picks a stable display spelling.
+Both helpers also take an optional `team_id`, which is what makes a team page
+show a player's figures *for that team* rather than their gender-wide career
+totals — without it a franchise page credits Babar Azam with his Test runs.
 This is intentional (average requires a divide-by-zero guard that's awkward
 in SQLite SQL) but means an unfiltered all-players query is O(total players)
 in Python — acceptable at this dataset's size (~9,300 players), worth

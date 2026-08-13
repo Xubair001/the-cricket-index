@@ -8,15 +8,27 @@ CRICSHEET_URLS = {
     "tests": "https://cricsheet.org/downloads/tests_json.zip",
     "odis": "https://cricsheet.org/downloads/odis_json.zip",
     "t20is": "https://cricsheet.org/downloads/t20s_json.zip",
+    "psl": "https://cricsheet.org/downloads/psl_json.zip",
 }
 
-# Archive key -> (competition display name, competition type). All three
-# current sources are international; a later PSL addition would map to
-# ("Pakistan Super League", "domestic_league").
+# Archive key -> (competition display name, competition type).
 COMPETITION_META = {
     "tests": ("Test", "international"),
     "odis": ("ODI", "international"),
     "t20is": ("T20I", "international"),
+    "psl": ("Pakistan Super League", "domestic_league"),
+}
+
+# Competition type -> the team_type its sides are keyed under.
+#
+# Deliberately NOT taken from the source data: Cricsheet's own info.team_type
+# says "club" for franchise leagues, which isn't in the schema's vocabulary
+# ('international' | 'franchise'), so passing it through would fail the CHECK
+# constraint. The competition already determines the answer, so derive it here
+# and let info.team_type remain a display-only column on matches.
+TEAM_TYPE_BY_COMPETITION_TYPE = {
+    "international": "international",
+    "domestic_league": "franchise",
 }
 
 # ingestion/ lives one level below the project root, where cricket.db and

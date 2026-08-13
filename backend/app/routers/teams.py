@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import queries, schemas
+from .. import queries, schemas, validation
 from ..database import get_db
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
@@ -10,9 +10,12 @@ router = APIRouter(prefix="/api/teams", tags=["teams"])
 @router.get("", response_model=list[schemas.TeamSummary])
 def list_teams(
     gender: str = Query(pattern="^(male|female)$"),
+    team_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[schemas.TeamSummary]:
-    return queries.get_teams_summary(db, gender)
+    return queries.get_teams_summary(
+        db, gender, validation.check_team_type(db, team_type)
+    )
 
 
 @router.get("/{team_id}", response_model=schemas.TeamDetail)

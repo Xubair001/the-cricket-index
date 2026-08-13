@@ -22,7 +22,18 @@
       "Bash(curl -sSL -I https://cricsheet.org/downloads/psl_json.zip)",
       "WebFetch(domain:www.kaggle.com)",
       "Bash(curl -s \"http://127.0.0.1:8001/api/dashboard?gender=female\")",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(kill 3347826)",
+      "Bash(curl -sL --max-time 25 https://www.icc-cricket.com/robots.txt)",
+      "Bash(curl -sL --max-time 25 -o /dev/null -w \"HTTP %{http_code}  final=%{url_effective}  bytes=%{size_download}\\\\n\" https://www.icc-cricket.com/rankings/mens/player-rankings/test/batting)",
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python probe_icc.py)",
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python probe_icc2.py)",
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python probe_icc3.py)",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(curl -s localhost:8001/api/health)",
+      "Bash(node scripts/validate_palette.js \"#0284c7,#d97706\" --mode light)",
+      "Bash(xargs -I{} echo \"lint issues: {}\")",
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python verify_phase3.py)"
     ]
   }
 }
