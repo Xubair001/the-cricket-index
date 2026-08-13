@@ -31,7 +31,7 @@ function TeamCell({ name, short, teamId, slug }: {
   // Only sides we actually hold data for become links; ICC lists many associate
   // teams this dataset has never covered, and a dead link is worse than text.
   return teamId ? (
-    <Link to={`/${slug}/teams/${teamId}`} className="font-medium text-ink hover:text-analytic">
+    <Link to={`/${slug}/teams/${teamId}`} className="font-medium text-ink hover:text-analytic-ink">
       {label}
     </Link>
   ) : (
@@ -54,7 +54,7 @@ function FixtureCard({ fixture, slug }: { fixture: FixtureRow; slug: string }) {
               takes the neutral analytic colour. Red stays reserved for below
               baseline / declining — a live match is neither. */}
           {f.is_live && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-analytic-dim px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-analytic ring-1 ring-inset ring-analytic/30">
+            <span className="inline-flex items-center gap-1 rounded-full bg-analytic-dim px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-analytic-ink ring-1 ring-inset ring-analytic/30">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-analytic" aria-hidden />
               Live
             </span>
@@ -123,7 +123,7 @@ export function Fixtures() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Fixtures</h1>
+        <h1 className="u-display text-title text-ink">Fixtures</h1>
         <p className="mt-1 text-sm text-muted">
           Schedule and results from the ICC feed, refreshed daily.
           {data?.last_synced && (
@@ -180,13 +180,13 @@ export function Fixtures() {
       {data && !loading && (
         <>
           {data.items.length === 0 ? (
-            <p className="rounded-lg border border-border-default bg-surface px-4 py-6 text-sm text-muted">
+            <p className="rounded-xl border border-border-subtle bg-surface shadow-card px-4 py-6 text-sm text-muted">
               {window_ === 'live'
                 ? 'No matches in progress right now.'
                 : `No ${window_} fixtures for this selection.`}
             </p>
           ) : (
-            <div className="rounded-lg border border-border-default bg-surface">
+            <div className="rounded-xl border border-border-subtle bg-surface shadow-card">
               {data.items.map((f) => (
                 <FixtureCard key={f.icc_match_id} fixture={f} slug={slug} />
               ))}

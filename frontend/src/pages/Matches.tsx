@@ -86,7 +86,7 @@ export function Matches() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Matches</h1>
+        <h1 className="u-display text-title text-ink">Matches</h1>
         <p className="mt-1 text-sm text-muted">
           {total.toLocaleString()} matches, most recent first
         </p>
@@ -144,7 +144,7 @@ export function Matches() {
       {loading && matches.length === 0 && <LoadingSpinner />}
 
       {!error && matches.length > 0 && (
-        <div className="scroll-x rounded-lg border border-border-default bg-surface">
+        <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
           <table className="w-full min-w-[720px] text-sm">
             <tbody>
               {matches.map((m) => (
@@ -161,7 +161,7 @@ export function Matches() {
                   <td className="px-3 py-2.5">
                     <Link
                       to={`/${slug}/matches/${m.match_id}`}
-                      className="font-medium text-ink hover:text-analytic"
+                      className="font-medium text-ink hover:text-analytic-ink"
                     >
                       <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
                       {m.team1?.name} v {m.team2?.name}{' '}
@@ -183,7 +183,7 @@ export function Matches() {
       )}
 
       {!loading && !error && matches.length === 0 && (
-        <p className="rounded-lg border border-border-default bg-surface px-4 py-6 text-sm text-muted">
+        <p className="rounded-xl border border-border-subtle bg-surface shadow-card px-4 py-6 text-sm text-muted">
           No matches match these filters.
         </p>
       )}

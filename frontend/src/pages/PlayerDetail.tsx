@@ -75,7 +75,7 @@ export function PlayerDetail() {
         <div className="mt-2 flex flex-wrap items-center gap-4">
           <PlayerAvatar src={player.bio.image_url} alt={player.name} />
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">{player.name}</h1>
+            <h1 className="u-display text-title text-ink">{player.name}</h1>
             <StatusBadge status={player.status} />
             {/* Both name forms are shown when they differ: the scorecard form is
                 the one a cricket source will use, and it is not stale data. */}
@@ -102,7 +102,7 @@ export function PlayerDetail() {
         </p>
         <Link
           to={`/${slug}/compare?a=${player.identifier}`}
-          className="mt-2 inline-block text-sm text-analytic hover:underline"
+          className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
         >
           Compare with another player &rarr;
         </Link>
@@ -116,10 +116,10 @@ export function PlayerDetail() {
       ) : form ? (
         <FormVerdictCard verdict={form} scopeLabel="international cricket" />
       ) : (
-        <div className="h-36 animate-pulse rounded-lg border border-border-default bg-surface" />
+        <div className="h-36 animate-pulse rounded-xl border border-border-subtle bg-surface shadow-card" />
       )}
 
-      <section className="rounded-lg border border-border-default bg-surface p-4">
+      <section className="rounded-xl border border-border-subtle bg-surface shadow-card p-4">
         <h3 className={`mb-3 ${sectionLabel}`}>Bio</h3>
         {hasAnyBio ? (
           <dl className="grid grid-cols-2 gap-y-3 text-sm sm:grid-cols-3">
@@ -135,7 +135,7 @@ export function PlayerDetail() {
       </section>
 
       {player.icc_rankings.length > 0 && (
-        <section className="rounded-lg border border-border-default bg-surface p-4">
+        <section className="rounded-xl border border-border-subtle bg-surface shadow-card p-4">
           <h3 className={`mb-3 ${sectionLabel}`}>Current ICC Ranking</h3>
           <div className="flex flex-wrap gap-3 text-sm">
             {player.icc_rankings.map((r) => (
@@ -161,7 +161,7 @@ export function PlayerDetail() {
 
       <div className="space-y-4">
         {player.by_competition.map((c) => (
-          <section key={c.competition_key} className="rounded-lg border border-border-default bg-surface">
+          <section key={c.competition_key} className="rounded-xl border border-border-subtle bg-surface shadow-card">
             <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
               <CompetitionBadge competition={c.competition_key} />
               <span className="tnum text-sm text-muted">{c.matches} matches</span>
@@ -196,7 +196,7 @@ export function PlayerDetail() {
         ))}
       </div>
 
-      <section className="rounded-lg border border-border-default bg-surface">
+      <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
         <h2 className="border-b border-border-subtle px-4 py-3 text-sm font-semibold text-ink">
           Recent Matches
         </h2>
@@ -216,7 +216,7 @@ export function PlayerDetail() {
                     </td>
                     <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
                     <td className="px-3 py-2.5">
-                      <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic">
+                      <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic-ink">
                         {m.team1?.name} v {m.team2?.name}
                       </Link>
                     </td>

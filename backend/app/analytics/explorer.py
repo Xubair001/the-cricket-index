@@ -65,6 +65,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from ..models import Competition, Match, Player, PlayerMatchStat
+from ..venues import canonical_key
 from ..names import preferred_name
 from . import config, impact as impact_mod, opposition as opposition_mod
 
@@ -88,6 +89,10 @@ class ExplorerFilters:
     date_to: str | None = None
     min_innings: int = DEFAULT_MIN_INNINGS
     min_balls: int = 0
+    # Canonical ground name (see app/venues.py). Matching happens on the
+    # normalised key, so asking for "Sharjah Cricket Stadium" also returns the
+    # seven matches Cricsheet filed under "Sharjah Cricket Association Stadium".
+    venue: str | None = None
     # Narrow further *within* an explorer's eligible set. None = whoever
     # belongs in this explorer, which already excludes the other specialism.
     role: str | None = None
@@ -104,6 +109,7 @@ class ExplorerFilters:
             "date_to": self.date_to,
             "min_innings": self.min_innings,
             "min_balls": self.min_balls,
+            "venue": self.venue,
             "role": self.role,
             # Which inferred roles this explorer admits at all, so the caller can
             # see that a specialist bowler is absent from a batting board by
@@ -119,7 +125,27 @@ def _opponent_id():
     )
 
 
-def _scoped(stmt: Select, f: ExplorerFilters) -> Select:
+def raw_venues_for(db: Session, canonical_name: str) -> list[str]:
+    """Every raw venue string that normalises to this ground.
+
+    Normalisation is a Python rule (comma-collapse plus a curated alias table),
+    so it cannot be expressed as a WHERE clause on the raw column. Resolving the
+    ground to its raw spellings first is what makes "matches at Sharjah" mean
+    all 122 rather than the 115 filed under the commonest spelling.
+    """
+    wanted = canonical_key(canonical_name)
+    if not wanted:
+        return []
+    # (venue, city) pairs, because a few ground names exist in more than one
+    # place and the city is part of their identity -- "County Ground" alone is
+    # eight different English grounds.
+    rows = db.execute(
+        select(Match.venue, Match.city).distinct().where(Match.venue.is_not(None))
+    ).all()
+    return sorted({v for v, c in rows if canonical_key(v, c) == wanted})
+
+
+def _scoped(stmt: Select, f: ExplorerFilters, db: Session | None = None) -> Select:
     """Apply every filter that is actually supported."""
     stmt = stmt.where(Match.gender == f.gender)
     if f.competition_key:
@@ -135,6 +161,11 @@ def _scoped(stmt: Select, f: ExplorerFilters) -> Select:
         stmt = stmt.where(Match.match_date_start >= f.date_from)
     if f.date_to:
         stmt = stmt.where(Match.match_date_start <= f.date_to)
+    if f.venue and db is not None:
+        raws = raw_venues_for(db, f.venue)
+        # An unknown ground matches nothing rather than everything -- a filter
+        # that silently stops filtering is the failure Phase 1's gate names.
+        stmt = stmt.where(Match.venue.in_(raws or [""]))
     return stmt
 
 
@@ -209,7 +240,7 @@ def batting_rows(db: Session, f: ExplorerFilters) -> list[dict]:
         func.sum(PlayerMatchStat.sixes).label("sixes"),
         func.sum(PlayerMatchStat.balls_bowled).label("balls_bowled"),
     ).group_by(PlayerMatchStat.player_identifier)
-    stmt = _scoped(stmt, f)
+    stmt = _scoped(stmt, f, db)
 
     out = []
     for r in db.execute(stmt).all():
@@ -256,7 +287,7 @@ def bowling_rows(db: Session, f: ExplorerFilters) -> list[dict]:
         func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
         func.sum(PlayerMatchStat.balls_faced).label("balls_faced"),
     ).group_by(PlayerMatchStat.player_identifier)
-    stmt = _scoped(stmt, f)
+    stmt = _scoped(stmt, f, db)
 
     out = []
     for r in db.execute(stmt).all():
@@ -314,7 +345,7 @@ def allround_rows(db: Session, f: ExplorerFilters) -> list[dict]:
         func.sum(PlayerMatchStat.balls_bowled).label("balls_bowled"),
         func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
     ).group_by(PlayerMatchStat.player_identifier, Competition.key, _opponent_id())
-    stmt = _scoped(stmt, f)
+    stmt = _scoped(stmt, f, db)
 
     # pid -> accumulated figures across every (competition, opponent) group
     acc: dict[str, dict] = {}

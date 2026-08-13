@@ -4,6 +4,21 @@ from typing import Optional
 
 TASK_QUEUE = "cricket-ingestion-queue"
 
+# Bump this whenever `parsing.py` changes what it derives from a match.
+#
+# Idempotency here is a SHA-256 of the raw match JSON, and Cricsheet's bytes do
+# not change when our parser does -- so without this, fixing a parsing bug and
+# re-running ingestion skips all 10,040 matches and reports success while
+# inserting nothing. The scope calls this out as one of two traps in the
+# deliveries migration, and it is not hypothetical: it is exactly what would
+# have happened to the boundary-counting fix in v2.
+#
+#   v1  original parser
+#   v2  fours/sixes honour Cricsheet's runs.non_boundary flag, so a boundary
+#       count is boundaries rather than "deliveries worth four runs"
+#       (validated: Joe Root 1,523 -> published 1,515 Test fours)
+PARSER_VERSION = 2
+
 CRICSHEET_URLS = {
     "tests": "https://cricsheet.org/downloads/tests_json.zip",
     "odis": "https://cricsheet.org/downloads/odis_json.zip",

@@ -125,10 +125,19 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
                     s = stats[batter_name]
                     s.runs_scored += batter_runs
                     s.balls_faced += 1
-                    if batter_runs == 4:
-                        s.fours += 1
-                    elif batter_runs == 6:
-                        s.sixes += 1
+                    # A four is a BOUNDARY, not "the batter took four runs".
+                    # Cricsheet marks all-run fours and overthrow-assisted ones
+                    # with runs.non_boundary, precisely so the two can be told
+                    # apart; counting on the run total alone overstates
+                    # boundaries. Validated against published figures: Joe Root
+                    # came out at 1,523 Test fours against ESPNcricinfo's 1,515,
+                    # and the flag appears on real deliveries in the archives
+                    # (10 of 14,557 four/six deliveries in the PSL set).
+                    if not runs.get("non_boundary"):
+                        if batter_runs == 4:
+                            s.fours += 1
+                        elif batter_runs == 6:
+                            s.sixes += 1
 
                 bowler_name = delivery.get("bowler")
                 if bowler_name in stats:

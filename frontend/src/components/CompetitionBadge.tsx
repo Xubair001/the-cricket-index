@@ -14,13 +14,18 @@ const FRANCHISE = new Set(['psl'])
 
 export function CompetitionBadge({ competition }: { competition: string }) {
   const label = LABELS[competition] ?? competition
-  const style = FRANCHISE.has(competition)
-    ? 'bg-analytic-dim text-analytic ring-analytic/30'
+  const franchise = FRANCHISE.has(competition)
+  // The analytic tier is the text-weight step (AA on its own tint); the mark
+  // tier is too light to read as 10px type.
+  const style = franchise
+    ? 'bg-analytic-dim text-analytic-ink ring-analytic/25'
     : 'bg-elevated text-muted ring-border-default'
   return (
     <span
       className={`inline-flex items-center rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] ring-1 ring-inset ${style}`}
-      title={FRANCHISE.has(competition) ? 'Franchise cricket — never blended with international figures' : undefined}
+      title={
+        franchise ? 'Franchise cricket — never blended with international figures' : undefined
+      }
     >
       {label}
     </span>

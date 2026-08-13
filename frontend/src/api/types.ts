@@ -510,3 +510,11 @@ export interface PerformanceIndexPage {
   components: IndexComponent[]
   items: IndexRow[]
 }
+
+/** A canonical ground. `raw_spellings` shows how fragmented it was in source. */
+export interface VenueOption {
+  venue: string
+  city: string | null
+  matches: number
+  raw_spellings: number
+}

@@ -363,6 +363,15 @@ class PerformanceIndexPage(BaseModel):
     items: list[IndexRow]
 
 
+class VenueOption(BaseModel):
+    """A canonical ground. `raw_spellings` shows how fragmented it was."""
+
+    venue: str
+    city: str | None
+    matches: int
+    raw_spellings: int
+
+
 class ExplorerRow(BaseModel):
     """One explorer row. Fields vary by explorer, so this stays open."""
 

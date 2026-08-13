@@ -32,7 +32,7 @@ const FORMATS = [
 
 const field = 'rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
 const fieldLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
-const notice = 'rounded-lg border border-border-default bg-surface px-4 py-6 text-sm text-muted'
+const notice = 'rounded-xl border border-border-subtle bg-surface shadow-card px-4 py-6 text-sm text-muted'
 
 export function IccRankings() {
   const { slug, apiGender } = useGender()
@@ -100,11 +100,11 @@ export function IccRankings() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">ICC Rankings</h1>
+        <h1 className="u-display text-title text-ink">ICC Rankings</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted">
           Official ratings published by the ICC, refreshed daily. These are not computed by this
           site — for figures derived from ball-by-ball data see{' '}
-          <Link to={`/${slug}/rankings`} className="text-analytic hover:underline">
+          <Link to={`/${slug}/rankings`} className="text-analytic-ink hover:underline">
             Rankings
           </Link>
           .
@@ -155,7 +155,7 @@ export function IccRankings() {
             </p>
           )}
 
-          <div className="scroll-x rounded-lg border border-border-default bg-surface">
+          <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
@@ -180,7 +180,7 @@ export function IccRankings() {
                       {r.player_identifier ? (
                         <Link
                           to={`/${slug}/players/${r.player_identifier}`}
-                          className="hover:text-analytic"
+                          className="hover:text-analytic-ink"
                         >
                           {r.player_name}
                         </Link>
@@ -210,7 +210,7 @@ export function IccRankings() {
                     <td className="tnum px-4 py-2.5 text-dim">{r.position}</td>
                     <td className="px-3 py-2.5 font-medium text-ink">
                       {r.team_id ? (
-                        <Link to={`/${slug}/teams/${r.team_id}`} className="hover:text-analytic">
+                        <Link to={`/${slug}/teams/${r.team_id}`} className="hover:text-analytic-ink">
                           {r.team_name}
                         </Link>
                       ) : (

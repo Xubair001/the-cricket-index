@@ -67,11 +67,11 @@ const QUALIFIED: Record<string, string> = {
 }
 
 const FORM_TONE: Record<FormState, string> = {
-  in_form: 'text-positive',
-  improving: 'text-positive',
+  in_form: 'text-positive-ink',
+  improving: 'text-positive-ink',
   stable: 'text-muted',
-  declining: 'text-warning',
-  out_of_form: 'text-negative',
+  declining: 'text-warning-ink',
+  out_of_form: 'text-negative-ink',
   insufficient_data: 'text-dim',
 }
 
@@ -180,14 +180,14 @@ export function Players() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Players</h1>
+        <h1 className="u-display text-title text-ink">Players</h1>
         <p className="mt-1 text-sm text-muted">
           {total.toLocaleString()} players in {scope || 'this scope'}
           {qualification && (
             <>
               {' '}
               · sorted on a rate, so a minimum of{' '}
-              <span className="text-warning">{qualification}</span> applies
+              <span className="text-warning-ink">{qualification}</span> applies
             </>
           )}
         </p>
@@ -222,7 +222,7 @@ export function Players() {
 
       {error && <ErrorMessage message={error} />}
 
-      <div className="scroll-x rounded-lg border border-border-default bg-surface">
+      <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
         <table className="w-full min-w-[840px] text-sm">
           <thead>
             <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
@@ -248,7 +248,7 @@ export function Players() {
               : rows.map((p) => (
                   <tr key={p.identifier} className="border-b border-border-subtle last:border-0 hover:bg-elevated">
                     <td className="px-4 py-2.5">
-                      <Link to={`/${slug}/players/${p.identifier}`} className="font-medium text-ink hover:text-analytic">
+                      <Link to={`/${slug}/players/${p.identifier}`} className="font-medium text-ink hover:text-analytic-ink">
                         {p.name}
                       </Link>
                       {p.status?.state === 'retired' && (

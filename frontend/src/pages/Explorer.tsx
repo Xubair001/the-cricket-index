@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary } from '../api/types'
+import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary, VenueOption } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
@@ -120,9 +120,11 @@ export function Explorer() {
   const minInnings = params.get('min_innings') ?? ''
   const minBalls = params.get('min_balls') ?? ''
   const role = params.get('role') ?? ''
+  const venue = params.get('venue') ?? ''
   const offset = Number(params.get('offset') ?? 0)
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
+  const [venues, setVenues] = useState<VenueOption[]>([])
   const [data, setData] = useState<ExplorerPage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -142,6 +144,10 @@ export function Explorer() {
       .teams(apiGender, undefined, { limit: 500 })
       .then((res) => setTeams(res.items))
       .catch(() => setTeams([]))
+    api
+      .venues(apiGender)
+      .then(setVenues)
+      .catch(() => setVenues([]))
   }, [apiGender])
 
   useEffect(() => {
@@ -157,6 +163,7 @@ export function Explorer() {
         min_innings: minInnings ? Number(minInnings) : undefined,
         min_balls: minBalls ? Number(minBalls) : undefined,
         role: role || undefined,
+        venue: venue || undefined,
         sort_by: sortBy || undefined,
         limit: LIMIT,
         offset,
@@ -167,7 +174,7 @@ export function Explorer() {
     return () => {
       cancelled = true
     }
-  }, [kind, apiGender, competition, opposition, dateFrom, dateTo, minInnings, minBalls, role, sortBy, offset])
+  }, [kind, apiGender, competition, opposition, dateFrom, dateTo, minInnings, minBalls, role, venue, sortBy, offset])
 
   const columns = COLUMNS[kind]
   const active = EXPLORERS.find((e) => e.key === kind)!
@@ -176,7 +183,7 @@ export function Explorer() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Analytics Explorer</h1>
+        <h1 className="u-display text-title text-ink">Analytics Explorer</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted">{active.blurb}</p>
       </div>
 
@@ -221,6 +228,20 @@ export function Explorer() {
             {teams.map((t) => (
               <option key={t.team_id} value={t.team_id}>
                 {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/* Ground, not raw venue string: Cricsheet spells one ground several
+            ways, so this list is normalised and each entry carries a ground's
+            whole history. */}
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Ground</span>
+          <select value={venue} onChange={(e) => update({ venue: e.target.value })} className={field}>
+            <option value="">Any ground</option>
+            {venues.map((v) => (
+              <option key={v.venue} value={v.venue}>
+                {v.venue} ({v.matches})
               </option>
             ))}
           </select>
@@ -295,7 +316,7 @@ export function Explorer() {
         </p>
       )}
 
-      <div className="scroll-x rounded-lg border border-border-default bg-surface">
+      <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
         <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
@@ -342,7 +363,7 @@ export function Explorer() {
                       {row.player_identifier ? (
                         <Link
                           to={`/${slug}/players/${row.player_identifier}`}
-                          className="font-medium text-ink hover:text-analytic"
+                          className="font-medium text-ink hover:text-analytic-ink"
                         >
                           {row.player_name}
                         </Link>
@@ -406,8 +427,10 @@ export function Explorer() {
         specialist bowler cannot appear on a batting board and a specialist batter cannot appear on
         a bowling one, while all-rounders appear on both. A volume floor alone could not do that:
         Kohli has bowled 989 balls and Tendulkar 2,812, enough to clear any sane minimum.
-        Wicketkeeper and opener remain unavailable at any threshold, and a venue filter is absent
-        rather than inert because venue strings are not yet normalised.
+        Wicketkeeper and opener remain unavailable at any threshold. The ground filter matches on
+        the normalised ground rather than the raw string — Cricsheet files 593 spellings for 396
+        grounds, so filtering the raw column would return part of a ground's history while
+        appearing to return all of it.
       </p>
     </div>
   )

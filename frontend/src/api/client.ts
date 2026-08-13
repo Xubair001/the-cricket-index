@@ -1,6 +1,7 @@
 import type {
   ExplorerKind,
   PerformanceIndexPage,
+  VenueOption,
   ExplorerPage,
   ApiGender,
   BattingRankingRow,
@@ -161,6 +162,7 @@ export const api = {
       min_innings?: number
       min_balls?: number
       role?: string
+      venue?: string
       sort_by?: string
       limit?: number
       offset?: number
@@ -174,6 +176,11 @@ export const api = {
     gender: ApiGender,
     params: { competition?: string; role?: string; limit?: number; offset?: number } = {}
   ) => getJson<PerformanceIndexPage>('/api/rankings/performance', { gender, ...params }),
+
+  // Canonical grounds - Cricsheet files one ground under several
+  // spellings, so this is the normalised list, not SELECT DISTINCT venue.
+  venues: (gender?: ApiGender) =>
+    getJson<VenueOption[]>('/api/analytics/venues', { gender }),
 
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 

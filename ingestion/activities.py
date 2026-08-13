@@ -34,6 +34,7 @@ from shared import (
     PROJECT_ROOT,
     COMPETITION_META,
     CRICSHEET_URLS,
+    PARSER_VERSION,
     TEAM_TYPE_BY_COMPETITION_TYPE,
     DownloadResult,
     MatchIngestionInput,
@@ -136,7 +137,11 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
             non_retryable=True,
         )
 
-    content_hash = hashlib.sha256(raw_bytes).hexdigest()
+    # Version-namespaced: the hash has to change when the PARSER changes, not
+    # only when Cricsheet's bytes do. See shared.PARSER_VERSION.
+    content_hash = hashlib.sha256(
+        f"v{PARSER_VERSION}\n".encode() + raw_bytes
+    ).hexdigest()
 
     with get_connection() as conn:
         row = conn.execute(

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 /**
  * Theme preference.
@@ -12,6 +12,12 @@ import { useCallback, useEffect, useState } from 'react'
  * keys both palettes off. `system` writes no attribute at all and lets the
  * `prefers-color-scheme` block in that file decide — the attribute is the
  * override, not the mechanism.
+ *
+ * State lives in a module-level store rather than in each hook call. With
+ * per-instance `useState`, the toggle would update its own copy and nothing
+ * else: the charts, which read resolved colours out of the stylesheet when the
+ * theme changes, would keep the palette they were mounted with until something
+ * unrelated re-rendered them.
  */
 export type ThemePreference = 'system' | 'light' | 'dark'
 
@@ -45,41 +51,85 @@ export function applyPreference(preference: ThemePreference) {
   else root.setAttribute('data-theme', preference)
 }
 
+/* ── Store ─────────────────────────────────────────────────── */
+
+const listeners = new Set<() => void>()
+let preference: ThemePreference = readStoredPreference()
+let systemIsDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+
+function emit() {
+  for (const listener of listeners) listener()
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+// A `system` preference has to react to the OS changing under it, so the
+// query is watched for the lifetime of the page rather than per component.
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  systemIsDark = e.matches
+  emit()
+})
+
+// Another tab of the same product changing the theme should not leave this one
+// on the old palette.
+window.addEventListener('storage', (e) => {
+  if (e.key !== THEME_STORAGE_KEY) return
+  const next = isPreference(e.newValue) ? e.newValue : 'system'
+  if (next === preference) return
+  preference = next
+  applyPreference(next)
+  emit()
+})
+
+/**
+ * The snapshot is cached rather than rebuilt per call: `useSyncExternalStore`
+ * compares snapshots by identity, and returning a fresh object each time is an
+ * infinite render loop.
+ */
+let snapshot = { preference, systemIsDark, resolved: resolve(preference, systemIsDark) }
+
+function resolve(pref: ThemePreference, dark: boolean): 'light' | 'dark' {
+  return pref === 'system' ? (dark ? 'dark' : 'light') : pref
+}
+
+function refreshSnapshot() {
+  snapshot = { preference, systemIsDark, resolved: resolve(preference, systemIsDark) }
+}
+
+listeners.add(refreshSnapshot)
+
+function getSnapshot() {
+  return snapshot
+}
+
+function set(next: ThemePreference) {
+  if (next === preference) return
+  // Colours animate only around a deliberate change. The class is added for
+  // the duration of the swap and removed after, so nothing transitions on page
+  // load — where it would read as the page failing to settle.
+  const root = document.documentElement
+  root.classList.add('theme-transition')
+  window.setTimeout(() => root.classList.remove('theme-transition'), 220)
+
+  preference = next
+  applyPreference(next)
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next)
+  } catch {
+    // Preference just doesn't persist. The UI is already correct.
+  }
+  emit()
+}
+
+/* ── Hook ──────────────────────────────────────────────────── */
+
 export function useTheme() {
-  const [preference, setPreferenceState] = useState<ThemePreference>(readStoredPreference)
-
-  // Tracked so the toggle can label the `system` option with what it currently
-  // resolves to, rather than leaving the reader to guess.
-  const [systemIsDark, setSystemIsDark] = useState(
-    () => window.matchMedia('(prefers-color-scheme: dark)').matches
-  )
-
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = (e: MediaQueryListEvent) => setSystemIsDark(e.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
-
-  const setPreference = useCallback((next: ThemePreference) => {
-    // Colours animate only around a deliberate change. The class is added for
-    // the duration of the swap and removed after, so nothing transitions on
-    // page load — where it would read as the page failing to settle.
-    const root = document.documentElement
-    root.classList.add('theme-transition')
-    window.setTimeout(() => root.classList.remove('theme-transition'), 220)
-
-    applyPreference(next)
-    setPreferenceState(next)
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, next)
-    } catch {
-      // Preference just doesn't persist. The UI is already correct.
-    }
-  }, [])
-
-  const resolved: 'light' | 'dark' =
-    preference === 'system' ? (systemIsDark ? 'dark' : 'light') : preference
-
-  return { preference, setPreference, resolved, systemIsDark }
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const setPreference = useCallback((next: ThemePreference) => set(next), [])
+  return { ...state, setPreference }
 }

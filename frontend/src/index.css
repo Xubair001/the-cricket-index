@@ -328,13 +328,20 @@ body {
   overflow: hidden;
 }
 
+/* The datum itself. 2px of ink rather than 1px of border colour: at the 56px
+ * width these render at in a form row, a hairline in a mid-grey disappeared
+ * against the fill entirely, which left the meter reading as a plain bar and
+ * took the whole device with it. */
 .par-track::after {
   content: '';
   position: absolute;
-  inset-block: 0;
+  inset-block: -1px;
   left: calc(var(--par-pos, 0.5) * 100%);
-  width: 1px;
-  background: var(--color-border-strong);
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--color-ink);
+  opacity: 0.55;
   z-index: 2;
 }
 

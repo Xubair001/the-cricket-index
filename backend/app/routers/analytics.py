@@ -11,6 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import schemas, validation
+from sqlalchemy import func, select
+
+from ..models import Match
+from .. import venues
 from ..analytics import explorer as explorer_mod, impact, periods
 from ..database import get_db
 
@@ -47,6 +51,35 @@ def par_figures(db: Session = Depends(get_db)) -> list[schemas.ParFigures]:
     ]
 
 
+@router.get("/venues", response_model=list[schemas.VenueOption])
+def list_venues(
+    gender: str | None = Query(default=None, pattern="^(male|female)$"),
+    db: Session = Depends(get_db),
+) -> list[schemas.VenueOption]:
+    """Canonical grounds, with how many matches each actually has.
+
+    The count is the point: it is the normalised figure, so a ground Cricsheet
+    spells six different ways appears once with its whole history.
+    """
+    stmt = select(Match.venue, Match.city, func.count()).where(Match.venue.is_not(None))
+    if gender:
+        stmt = stmt.where(Match.gender == gender)
+    stmt = stmt.group_by(Match.venue, Match.city)
+
+    grouped: dict[str, dict] = {}
+    for raw, city, count in db.execute(stmt).all():
+        name = venues.canonical(raw, city)
+        if not name:
+            continue
+        entry = grouped.setdefault(name, {"venue": name, "city": city, "matches": 0, "raw_spellings": 0})
+        entry["matches"] += count
+        entry["raw_spellings"] += 1
+        if not entry["city"]:
+            entry["city"] = city
+    out = sorted(grouped.values(), key=lambda e: (-e["matches"], e["venue"]))
+    return [schemas.VenueOption(**e) for e in out]
+
+
 # ---------------------------------------------------------------------------
 # Explorers (§21)
 # ---------------------------------------------------------------------------
@@ -56,10 +89,10 @@ def par_figures(db: Session = Depends(get_db)) -> list[schemas.ParFigures]:
 # and all-rounders on the bowling one, all-rounders alone on the all-round view
 # -- because a volume floor alone lets specialists leak into the wrong list.
 #
-# A venue filter is deliberately NOT accepted: venue strings are unnormalised
-# (593 raw values, 158 base names with variants), so it would be a control that
-# silently fails to do what it says, and Phase 1's exit gate is explicit that no
-# feature ships with a silently-ignored filter.
+# The venue filter matches on the CANONICAL ground (app/venues.py), not the raw
+# string. Cricsheet files one ground under several spellings -- 593 strings for
+# 396 grounds -- so a filter on the raw column would return a third of a
+# ground's matches while appearing to return all of them.
 
 
 @router.get("/{explorer}", response_model=schemas.ExplorerPage)
@@ -78,6 +111,9 @@ def explore(
     # excludes the opposite specialism, so this is for asking a batting board
     # for all-rounders only, not for putting a bowler on it.
     role: str | None = Query(default=None, pattern="^(batter|bowler|allrounder)$"),
+    # Canonical ground name. Now a real filter rather than an absent one: see
+    # app/venues.py for why it could not ship until venues were normalised.
+    venue: str | None = Query(default=None, max_length=120),
     sort_by: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -117,6 +153,7 @@ def explore(
         date_to=date_to,
         min_innings=min_innings,
         min_balls=min_balls,
+        venue=venue,
         role=role,
     )
     items, total = explorer_mod.page(db, explorer, filters, sort_by, limit, offset)

@@ -8,14 +8,19 @@ import type { PlayerStatus } from '../api/types'
  * injury, being dropped, and uncovered domestic cricket alike. "Retired" shows
  * only when a source says so, and says which source on hover.
  */
+/* The -ink tier throughout: these are 12px labels, and the mark tier is
+ * stepped for fills rather than for text. */
 const STYLES: Record<string, string> = {
-  active: 'bg-positive-dim text-positive ring-positive/30',
+  active: 'bg-positive-dim text-positive-ink ring-positive/25',
   // Sourced fact, stated plainly -- neutral rather than semantic, because
   // being retired is not a judgement about the player.
   retired: 'bg-elevated text-muted ring-border-default',
   // Amber is the product's uncertainty colour, which is exactly right here:
-  // "last played 2019" is an observation, not a conclusion about why.
-  inactive: 'bg-warning-dim text-warning ring-warning/30',
+  // "last played 2019" is an observation, not a conclusion about why. Safe as
+  // a hue in this one place because the badge is isolated -- the amber/red
+  // confusion the rest of the product designs around only bites when the two
+  // sit in adjacent columns of the same row.
+  inactive: 'bg-warning-dim text-warning-ink ring-warning/25',
 }
 
 function year(date: string | null): string | null {

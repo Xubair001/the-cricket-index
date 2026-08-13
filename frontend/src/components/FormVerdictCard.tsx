@@ -13,11 +13,11 @@ import type { FormState, FormVerdict } from '../api/types'
  */
 
 const TONE: Record<FormState, { fg: string; bg: string; ring: string }> = {
-  in_form: { fg: 'text-positive', bg: 'bg-positive-dim', ring: 'ring-positive/40' },
-  improving: { fg: 'text-positive', bg: 'bg-positive-dim', ring: 'ring-positive/30' },
-  stable: { fg: 'text-analytic', bg: 'bg-analytic-dim', ring: 'ring-analytic/30' },
-  declining: { fg: 'text-warning', bg: 'bg-warning-dim', ring: 'ring-warning/30' },
-  out_of_form: { fg: 'text-negative', bg: 'bg-negative-dim', ring: 'ring-negative/40' },
+  in_form: { fg: 'text-positive-ink', bg: 'bg-positive-dim', ring: 'ring-positive/40' },
+  improving: { fg: 'text-positive-ink', bg: 'bg-positive-dim', ring: 'ring-positive/30' },
+  stable: { fg: 'text-analytic-ink', bg: 'bg-analytic-dim', ring: 'ring-analytic/30' },
+  declining: { fg: 'text-warning-ink', bg: 'bg-warning-dim', ring: 'ring-warning/30' },
+  out_of_form: { fg: 'text-negative-ink', bg: 'bg-negative-dim', ring: 'ring-negative/40' },
   insufficient_data: { fg: 'text-muted', bg: 'bg-elevated', ring: 'ring-border-default' },
 }
 
@@ -53,19 +53,27 @@ function Sparkline({ verdict }: { verdict: FormVerdict }) {
       aria-label={`Impact across the ${verdict.recent_window}, oldest to newest`}
     >
       {/* The baseline is the thing every bar is being judged against, so it is
-          drawn rather than left implicit. */}
+          drawn rather than left implicit.
+
+          `non-scaling-stroke` is load-bearing: the SVG is stretched to the
+          card's width with preserveAspectRatio="none", which squashes a 0.5
+          unit stroke to well under a device pixel and made the line the label
+          promises invisible at every width the card is ever rendered at. */}
       <line
         x1="0"
         x2={width}
         y1={height - (baseline / peak) * height}
         y2={height - (baseline / peak) * height}
-        stroke="var(--color-muted)"
-        strokeWidth="0.5"
-        strokeDasharray="2 2"
+        stroke="var(--color-ink)"
+        strokeOpacity="0.5"
+        strokeWidth="1"
+        strokeDasharray="4 3"
+        vectorEffect="non-scaling-stroke"
       />
       {points.map((p, i) => {
         const value = Math.max(0, p.impact_normalized)
         const barHeight = (value / peak) * height
+        const above = p.impact_normalized >= baseline
         return (
           <rect
             key={p.match_id}
@@ -73,13 +81,15 @@ function Sparkline({ verdict }: { verdict: FormVerdict }) {
             y={height - barHeight}
             width={barWidth}
             height={Math.max(barHeight, 0.6)}
-            fill={
-              p.impact_normalized >= baseline
-                ? 'var(--color-positive)'
-                : 'var(--color-border-default)'
-            }
-            rx="0.5"
-          />
+            // Below-baseline reads red, the same above/below language the par
+            // meters use everywhere else. It was a neutral grey, which made a
+            // poor match look like a missing one.
+            fill={above ? 'var(--color-positive)' : 'var(--color-negative)'}
+          >
+            <title>
+              {`${p.impact_normalized.toFixed(2)} par units — ${above ? 'at or above' : 'below'} the baseline`}
+            </title>
+          </rect>
         )
       })}
     </svg>
@@ -99,7 +109,7 @@ export default function FormVerdictCard({
   const delta = verdict.delta_percent
 
   return (
-    <section className="rounded-lg border border-border-default bg-surface">
+    <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
         <div>
           <h2 className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
@@ -135,7 +145,7 @@ export default function FormVerdictCard({
             />
           </div>
           {lowConfidence && (
-            <p className="mt-1.5 text-[11px] leading-snug text-warning">
+            <p className="mt-1.5 text-[11px] leading-snug text-warning-ink">
               Thin sample — treat as indicative.
             </p>
           )}
@@ -166,7 +176,7 @@ export default function FormVerdictCard({
         <button
           type="button"
           onClick={() => setShowWorkings((v) => !v)}
-          className="mt-4 font-mono text-[11px] uppercase tracking-[0.1em] text-analytic hover:underline"
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-ink shadow-card transition-colors hover:bg-elevated"
           aria-expanded={showWorkings}
         >
           {showWorkings ? 'Hide workings' : 'How is this calculated?'}

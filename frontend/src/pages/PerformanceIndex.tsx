@@ -143,14 +143,14 @@ export function PerformanceIndex() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Performance Index</h1>
+        <h1 className="u-display text-title text-ink">Performance Index</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted">
           This project's own rating of who is playing the best cricket right now — distinct from{' '}
-          <Link to={`/${slug}/rankings`} className="text-analytic hover:underline">
+          <Link to={`/${slug}/rankings`} className="text-analytic-ink hover:underline">
             computed leaderboards
           </Link>{' '}
           (career totals) and{' '}
-          <Link to={`/${slug}/icc-rankings`} className="text-analytic hover:underline">
+          <Link to={`/${slug}/icc-rankings`} className="text-analytic-ink hover:underline">
             ICC ratings
           </Link>{' '}
           (official). Click any row to see the components behind its score.
@@ -188,7 +188,7 @@ export function PerformanceIndex() {
           is a statement about coverage — exactly what the colour is reserved for. */}
       {inactive.length > 0 && (
         <div className="rounded-lg border border-warning/30 bg-warning-dim/40 px-4 py-3">
-          <p className="text-sm text-warning">
+          <p className="text-sm text-warning-ink">
             Running on {data?.components.filter((c) => c.active).length} of 7 components —{' '}
             <span className="tnum">{Math.round(missingWeight * 100)}%</span> of the intended
             weighting cannot yet be computed.
@@ -213,7 +213,7 @@ export function PerformanceIndex() {
       {loading && !data && <LoadingSpinner />}
 
       {data && (
-        <div className="scroll-x rounded-lg border border-border-default bg-surface">
+        <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
           <table className="w-full min-w-[680px] text-sm">
             <thead>
               <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
@@ -237,7 +237,7 @@ export function PerformanceIndex() {
                     <td className="px-3 py-2.5">
                       <Link
                         to={`/${slug}/players/${row.player_identifier}`}
-                        className="font-medium text-ink hover:text-analytic"
+                        className="font-medium text-ink hover:text-analytic-ink"
                       >
                         {row.player_name}
                       </Link>
@@ -263,7 +263,7 @@ export function PerformanceIndex() {
                             true
                           )
                         }
-                        className="font-mono text-[10px] uppercase tracking-[0.1em] text-analytic hover:underline"
+                        className="font-mono text-[10px] uppercase tracking-[0.1em] text-analytic-ink hover:underline"
                       >
                         {open === row.player_identifier ? 'Hide' : 'How?'}
                       </button>

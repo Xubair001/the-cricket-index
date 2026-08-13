@@ -54,7 +54,7 @@ export function Teams() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Teams</h1>
+          <h1 className="u-display text-title text-ink">Teams</h1>
           <p className="mt-1 text-sm text-muted">
             {teams ? `${total.toLocaleString()} ${teamType} teams, by matches played` : 'Loading…'}
           </p>
@@ -82,11 +82,11 @@ export function Teams() {
       {!teams ? (
         <LoadingSpinner />
       ) : teams.length === 0 ? (
-        <p className="rounded-lg border border-border-default bg-surface px-4 py-6 text-sm text-muted">
+        <p className="rounded-xl border border-border-subtle bg-surface shadow-card px-4 py-6 text-sm text-muted">
           No {teamType} teams in this dataset.
         </p>
       ) : (
-        <div className="scroll-x rounded-lg border border-border-default bg-surface">
+        <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
           <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
@@ -114,7 +114,7 @@ export function Teams() {
                   <td className="px-3 py-2.5">
                     <Link
                       to={`/${slug}/teams/${t.team_id}`}
-                      className="inline-flex items-center gap-2 font-medium text-ink hover:text-analytic"
+                      className="inline-flex items-center gap-2 font-medium text-ink hover:text-analytic-ink"
                     >
                       <Flag code={t.country_code} name={t.name} />
                       {t.name}

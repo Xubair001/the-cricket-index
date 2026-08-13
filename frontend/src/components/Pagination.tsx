@@ -1,3 +1,5 @@
+import { buttonClass } from './ui'
+
 interface PaginationProps {
   total: number
   limit: number
@@ -11,22 +13,40 @@ export function Pagination({ total, limit, offset, onChange }: PaginationProps) 
 
   if (pageCount <= 1) return null
 
-  const button =
-    'rounded-md border border-border-default px-3 py-1.5 font-medium text-ink transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
+  // The range actually on screen, not just the page number. On a directory of
+  // ~9,400 players "Page 3 of 189" says much less than "101-150 of 9,442"
+  // about where you are in the list.
+  const first = offset + 1
+  const last = Math.min(offset + limit, total)
 
   return (
-    <div className="flex items-center justify-between gap-4 border-t border-border-subtle py-3 text-sm">
-      <span className="tnum text-muted">
-        Page {page} of {pageCount} &middot; {total.toLocaleString()} total
-      </span>
+    <nav
+      aria-label="Pagination"
+      className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle py-3 text-sm"
+    >
+      <p className="tnum text-xs text-muted">
+        <span className="text-ink">
+          {first.toLocaleString()}–{last.toLocaleString()}
+        </span>{' '}
+        of {total.toLocaleString()}
+        <span className="text-dim"> · page {page} of {pageCount.toLocaleString()}</span>
+      </p>
       <div className="flex gap-2">
-        <button className={button} onClick={() => onChange(Math.max(0, offset - limit))} disabled={offset === 0}>
+        <button
+          className={buttonClass}
+          onClick={() => onChange(Math.max(0, offset - limit))}
+          disabled={offset === 0}
+        >
           Previous
         </button>
-        <button className={button} onClick={() => onChange(offset + limit)} disabled={offset + limit >= total}>
+        <button
+          className={buttonClass}
+          onClick={() => onChange(offset + limit)}
+          disabled={offset + limit >= total}
+        >
           Next
         </button>
       </div>
-    </div>
+    </nav>
   )
 }

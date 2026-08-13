@@ -14,7 +14,19 @@
  * (see the note in index.css).
  */
 
-const DEFAULT_MAX = 2
+/**
+ * Top of the scale.
+ *
+ * 3.0, not 2.0. The in-form board routinely returns 2.0–3.0 par units, and at
+ * a ceiling of 2 every one of those rows drew an identical full-width bar —
+ * 2.94 and 2.01 were indistinguishable, which is the one thing the meter is
+ * there to prevent. Three puts the datum a third of the way in, keeps the
+ * observed below-par range (0.11–0.65) legible, and leaves headroom.
+ */
+const DEFAULT_MAX = 3
+
+/** Surface gap either side of the datum, so a fill never buries the line. */
+const DATUM_GAP = 0.012
 
 export function ParMeter({
   value,
@@ -45,8 +57,9 @@ export function ParMeter({
 
   // Width is measured from the datum, so a player at 1.4 and one at 0.6 draw
   // mirrored bars of the same length rather than one long bar and one short.
-  const left = above ? datum : position
-  const width = Math.abs(position - datum)
+  // The gap keeps the fill clear of the datum line on the side it grows from.
+  const left = above ? datum + DATUM_GAP : position
+  const width = Math.max(Math.abs(position - datum) - DATUM_GAP, 0.008)
 
   const description =
     label ??
@@ -66,7 +79,7 @@ export function ParMeter({
         className="par-fill"
         style={{
           left: `${left * 100}%`,
-          width: `${Math.max(width * 100, 0.6)}%`,
+          width: `${width * 100}%`,
           background: above ? 'var(--color-positive)' : 'var(--color-negative)',
         }}
       />

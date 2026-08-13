@@ -8,12 +8,20 @@ interface StatCardProps {
   subtext?: string
 }
 
+/**
+ * A single figure with its label.
+ *
+ * The figure is set in the display face because it is the thing being read —
+ * everything else on the card is apparatus. That is also why the label sits
+ * above rather than below: the reader needs to know what they are looking at
+ * before the number means anything.
+ */
 export function StatCard({ label, value, subtext }: StatCardProps) {
   return (
-    <div className="rounded-lg border border-border-default bg-surface p-4">
-      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{label}</p>
-      <p className="tnum mt-1.5 text-2xl font-semibold tracking-tight text-ink">{value}</p>
-      {subtext && <p className="mt-1 text-xs text-dim">{subtext}</p>}
+    <div className="rounded-xl border border-border-subtle bg-surface p-4 shadow-card">
+      <p className="u-eyebrow">{label}</p>
+      <p className="u-display tnum mt-2 text-2xl text-ink">{value}</p>
+      {subtext && <p className="mt-1 text-xs leading-relaxed text-dim">{subtext}</p>}
     </div>
   )
 }

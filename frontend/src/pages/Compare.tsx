@@ -18,29 +18,26 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { StatusBadge } from '../components/StatusBadge'
 import { useGender } from '../gender/useGender'
+import { legendLabel, tooltipStyle, useChartTheme } from '../theme/useChartTheme'
+import {
+  EmptyState,
+  PageHeader,
+  Panel,
+  Provenance,
+  fieldClass,
+  fieldLabelClass,
+} from '../components/ui'
 
-// Two series, one categorical pair, validated for colour-vision deficiency and
-// contrast against the dark chart surface (#111922): OKLCH lightness in band,
-// chroma above floor, adjacent ΔE 23.4 protan / 30.6 normal, contrast ≥ 3:1.
-// Colour follows the player, not their rank, so the mapping learned in the
-// identity header holds for every mark below it.
-const SERIES = { a: '#0284c7', b: '#d97706' }
-
-// Recharts takes literal colours rather than classes, so the chart chrome
-// mirrors the design tokens by hand. Grid and axes stay recessive; the data is
-// the only thing meant to carry weight.
-const CHART = {
-  grid: '#1b2530',
-  axis: '#8b98a5',
-  tooltip: {
-    borderRadius: 6,
-    fontSize: 13,
-    background: '#17212b',
-    border: '1px solid #25313c',
-    color: '#f4f7fa',
-  },
-}
-
+/*
+ * Colour here follows the player, not their rank, so the mapping learned in
+ * the identity header holds for every mark below it. Player A takes
+ * categorical slot 1 and player B slot 2 — the first two of the fixed order
+ * defined in index.css, which is validated as a set in both themes.
+ *
+ * The values are read from the stylesheet rather than written here. They used
+ * to be literals copied from the dark palette, which was correct until a light
+ * theme existed and then rendered a dark-tuned pair on white.
+ */
 const SCOPES = [
   { value: '', label: 'All Internationals' },
   { value: 'tests', label: 'Tests' },
@@ -48,9 +45,6 @@ const SCOPES = [
   { value: 't20is', label: 'T20Is' },
   { value: 'psl', label: 'PSL' },
 ]
-
-const field = 'w-full rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
-const fieldLabel = 'block font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 function fmt(value: number | null, format: string): string {
   if (value === null || value === undefined) return '—'
@@ -60,6 +54,7 @@ function fmt(value: number | null, format: string): string {
 
 /** One head-to-head row: both values, with the winning side emphasised. */
 function MetricRow({ metric, nameA, nameB }: { metric: ComparisonMetric; nameA: string; nameB: string }) {
+  const chart = useChartTheme()
   const total = (Math.abs(metric.a ?? 0) || 0) + (Math.abs(metric.b ?? 0) || 0)
   const pctA = total > 0 ? ((Math.abs(metric.a ?? 0) / total) * 100).toFixed(1) : '50'
   const win = (side: 'a' | 'b') => metric.better === side
@@ -93,15 +88,15 @@ function MetricRow({ metric, nameA, nameB }: { metric: ComparisonMetric; nameA: 
           <span>{metric.better === 'b' ? 'better ▲' : ''}</span>
         </div>
       ) : (
-        <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+        <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-sunken">
           <div
-            style={{ width: `${pctA}%`, backgroundColor: SERIES.a }}
+            style={{ width: `${pctA}%`, backgroundColor: chart.series[0] }}
             className="rounded-l-full"
             title={`${nameA}: ${fmt(metric.a, metric.format)}`}
           />
           <div className="w-0.5 shrink-0 bg-surface" />
           <div
-            style={{ width: `calc(${100 - Number(pctA)}% - 2px)`, backgroundColor: SERIES.b }}
+            style={{ width: `calc(${100 - Number(pctA)}% - 2px)`, backgroundColor: chart.series[1] }}
             className="rounded-r-full"
             title={`${nameB}: ${fmt(metric.b, metric.format)}`}
           />
@@ -197,12 +192,12 @@ function PlayerPicker({
 
   return (
     <div className="space-y-2">
-      <label className={fieldLabel}>{label}</label>
+      <label className={fieldLabelClass}>{label}</label>
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search all players…"
-        className={`${field} placeholder:text-dim`}
+        className={fieldClass}
       />
       <select
         value={value}
@@ -210,7 +205,7 @@ function PlayerPicker({
           onChange(e.target.value)
           setSelected(options.find((p) => p.identifier === e.target.value) ?? selected)
         }}
-        className={field}
+        className={fieldClass}
       >
         <option value="">Select a player…</option>
         {listed.map((p) => (
@@ -228,28 +223,9 @@ function PlayerPicker({
   )
 }
 
-function Panel({
-  title,
-  children,
-  aside,
-}: {
-  title: string
-  children: React.ReactNode
-  aside?: React.ReactNode
-}) {
-  return (
-    <section className="rounded-lg border border-border-default bg-surface p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-ink">{title}</h2>
-        {aside}
-      </div>
-      {children}
-    </section>
-  )
-}
-
 export function Compare() {
   const { slug, apiGender } = useGender()
+  const chart = useChartTheme()
   const [params, setParams] = useSearchParams()
 
   // The selection lives in the URL, not in component state, so a comparison is
@@ -329,7 +305,11 @@ export function Compare() {
     <div className="flex gap-3 text-xs text-muted">
       {(['a', 'b'] as const).map((s) => (
         <span key={s} className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SERIES[s] }} aria-hidden />
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: chart.series[s === 'a' ? 0 : 1] }}
+            aria-hidden
+          />
           {data[s].name}
         </span>
       ))}
@@ -338,15 +318,13 @@ export function Compare() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Compare Players</h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted">
-          Head-to-head within one competition at a time — international and franchise figures are
-          never summed together.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Scout"
+        title="Compare Players"
+        blurb="Head-to-head within one competition at a time — international and franchise figures are never summed together."
+      />
 
-      <div className="grid gap-4 rounded-lg border border-border-default bg-surface p-4 sm:grid-cols-3">
+      <div className="grid gap-4 rounded-xl border border-border-subtle bg-surface p-4 shadow-card sm:grid-cols-3">
         <PlayerPicker
           label="Player A"
           value={a}
@@ -362,8 +340,8 @@ export function Compare() {
           onChange={(v) => update({ b: v })}
         />
         <div className="space-y-2">
-          <label className={fieldLabel}>Scope</label>
-          <select value={scope} onChange={(e) => update({ scope: e.target.value })} className={field}>
+          <label className={fieldLabelClass}>Scope</label>
+          <select value={scope} onChange={(e) => update({ scope: e.target.value })} className={fieldClass}>
             {SCOPES.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -377,9 +355,10 @@ export function Compare() {
       {loading && <LoadingSpinner />}
 
       {!a || !b ? (
-        <p className="rounded-lg border border-dashed border-border-default px-4 py-8 text-center text-sm text-muted">
-          Pick two players to compare.
-        </p>
+        <EmptyState
+          title="Pick two players to compare"
+          hint="Search either picker above by name. Both players must be in the same gender's register — an identifier from one is meaningless in the other."
+        />
       ) : null}
 
       {data && !loading && (
@@ -392,14 +371,17 @@ export function Compare() {
               return (
                 <div
                   key={side}
-                  className="rounded-lg border border-border-default bg-surface p-4"
-                  style={{ borderTopColor: SERIES[side], borderTopWidth: 3 }}
+                  className="rounded-xl border border-border-subtle bg-surface shadow-card p-4"
+                  style={{
+                    borderTopColor: chart.series[side === 'a' ? 0 : 1],
+                    borderTopWidth: 3,
+                  }}
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <PlayerAvatar src={p.bio.image_url} alt={p.name} className="h-10 w-10" />
                     <Link
                       to={`/${slug}/players/${p.identifier}`}
-                      className="text-lg font-semibold text-ink hover:text-analytic"
+                      className="text-lg font-semibold text-ink hover:text-analytic-ink"
                     >
                       {p.name}
                     </Link>
@@ -434,27 +416,29 @@ export function Compare() {
             {data.metrics.map((m) => (
               <MetricRow key={m.key} metric={m} nameA={data.a.name} nameB={data.b.name} />
             ))}
-            <p className="mt-3 text-xs leading-relaxed text-dim">
-              Rate metrics (averages, strike rate, economy) declare a winner only when both players
-              clear a minimum volume — otherwise the numbers are shown without a verdict.
-            </p>
+            <div className="mt-3">
+              <Provenance>
+                Rate metrics (averages, strike rate, economy) declare a winner only when both
+                players clear a minimum volume — otherwise the numbers are shown without a verdict.
+              </Provenance>
+            </div>
           </Panel>
 
           <div className="grid gap-5 lg:grid-cols-2">
             <Panel title="Runs by season">
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={data.season_runs} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
-                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="season" tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} />
-                  <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={CHART.tooltip} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="season" tick={{ fill: chart.axis, fontSize: 11 }} tickLine={false} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={tooltipStyle(chart)} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendLabel(chart)} />
                   <Line
-                    type="monotone" dataKey="a" name={data.a.name} stroke={SERIES.a}
+                    type="monotone" dataKey="a" name={data.a.name} stroke={chart.series[0]}
                     strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                   />
                   <Line
-                    type="monotone" dataKey="b" name={data.b.name} stroke={SERIES.b}
+                    type="monotone" dataKey="b" name={data.b.name} stroke={chart.series[1]}
                     strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                   />
                 </LineChart>
@@ -468,17 +452,17 @@ export function Compare() {
                     data={data.season_wickets}
                     margin={{ top: 4, right: 8, bottom: 0, left: -12 }}
                   >
-                    <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="season" tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} />
-                    <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={CHART.tooltip} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="season" tick={{ fill: chart.axis, fontSize: 11 }} tickLine={false} />
+                    <YAxis tick={{ fill: chart.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={tooltipStyle(chart)} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendLabel(chart)} />
                     <Line
-                      type="monotone" dataKey="a" name={data.a.name} stroke={SERIES.a}
+                      type="monotone" dataKey="a" name={data.a.name} stroke={chart.series[0]}
                       strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                     />
                     <Line
-                      type="monotone" dataKey="b" name={data.b.name} stroke={SERIES.b}
+                      type="monotone" dataKey="b" name={data.b.name} stroke={chart.series[1]}
                       strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                     />
                   </LineChart>
@@ -490,13 +474,13 @@ export function Compare() {
               <p className="-mt-2 mb-2 text-xs text-dim">Shown side by side, never added together.</p>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={byCompetition} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
-                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="competition" tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} />
-                  <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={CHART.tooltip} cursor={{ fill: 'transparent' }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="a" name={data.a.name} fill={SERIES.a} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                  <Bar dataKey="b" name={data.b.name} fill={SERIES.b} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="competition" tick={{ fill: chart.axis, fontSize: 11 }} tickLine={false} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={tooltipStyle(chart)} cursor={{ fill: 'transparent' }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendLabel(chart)} />
+                  <Bar dataKey="a" name={data.a.name} fill={chart.series[0]} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <Bar dataKey="b" name={data.b.name} fill={chart.series[1]} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </Panel>

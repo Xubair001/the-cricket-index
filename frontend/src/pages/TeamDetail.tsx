@@ -19,7 +19,7 @@ import { percent, rate } from '../format'
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-border-default bg-surface">
+    <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
       <h2 className="border-b border-border-subtle px-4 py-3 text-sm font-semibold text-ink">
         {title}
       </h2>
@@ -37,7 +37,7 @@ function Result({ match, teamId }: { match: MatchSummary; teamId: number }) {
   }
   const won = match.winner.team_id === teamId
   return (
-    <span className={won ? 'text-positive' : 'text-negative'}>
+    <span className={won ? 'text-positive-ink' : 'text-negative-ink'}>
       {won ? 'Won' : `Lost — ${match.winner.name}`}
     </span>
   )
@@ -79,7 +79,7 @@ export function TeamDetail() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <Flag code={team.country_code} name={team.name} className="text-2xl" />
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">{team.name}</h1>
+          <h1 className="u-display text-title text-ink">{team.name}</h1>
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-dim">
             {team.team_type}
           </span>
@@ -112,7 +112,7 @@ export function TeamDetail() {
                     <td className="px-4 py-2.5">
                       <Link
                         to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic"
+                        className="font-medium text-ink hover:text-analytic-ink"
                       >
                         {p.player_name}
                       </Link>
@@ -142,7 +142,7 @@ export function TeamDetail() {
                     <td className="px-4 py-2.5">
                       <Link
                         to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic"
+                        className="font-medium text-ink hover:text-analytic-ink"
                       >
                         {p.player_name}
                       </Link>
@@ -176,7 +176,7 @@ export function TeamDetail() {
                     </td>
                     <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
                     <td className="px-3 py-2.5">
-                      <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic">
+                      <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic-ink">
                         <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
                         {m.team1?.name} v {m.team2?.name}{' '}
                         <Flag code={m.team2?.country_code} name={m.team2?.name} />

@@ -20,7 +20,7 @@ import { useGender } from '../gender/useGender'
 function PerformerTable({ performers, team }: { performers: MatchPerformer[]; team: TeamRef }) {
   const teamPerformers = performers.filter((p) => p.team_id === team.team_id)
   return (
-    <section className="rounded-lg border border-border-default bg-surface">
+    <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
       <h3 className="border-b border-border-subtle px-4 py-3 text-sm font-semibold text-ink">
         {team.name}
       </h3>
@@ -118,7 +118,7 @@ export function MatchDetail() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <CompetitionBadge competition={match.competition_key} />
-          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-ink">
+          <h1 className="flex flex-wrap items-center gap-2 u-display text-title text-ink">
             <Flag code={match.team1?.country_code} name={match.team1?.name} />
             {match.team1?.name} v {match.team2?.name}
             <Flag code={match.team2?.country_code} name={match.team2?.name} />
@@ -133,7 +133,7 @@ export function MatchDetail() {
 
       {/* The result is a recorded fact, not a verdict, so it carries no
           semantic colour — it earns its weight from size and position. */}
-      <div className="rounded-lg border border-border-default bg-surface p-4">
+      <div className="rounded-xl border border-border-subtle bg-surface shadow-card p-4">
         <p className="text-lg font-semibold text-ink">
           {match.winner ? `${match.winner.name} won${margin}` : (match.outcome_result ?? 'Result unknown')}
         </p>

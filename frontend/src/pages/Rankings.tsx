@@ -136,11 +136,11 @@ export function Rankings() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Rankings</h1>
+        <h1 className="u-display text-title text-ink">Rankings</h1>
         <p className="mt-1 text-sm text-muted">
           Career leaderboards computed from ball-by-ball aggregates — not the ICC's official
           ratings, which are{' '}
-          <Link to={`/${slug}/icc-rankings`} className="text-analytic hover:underline">
+          <Link to={`/${slug}/icc-rankings`} className="text-analytic-ink hover:underline">
             published separately
           </Link>
           .
@@ -198,7 +198,7 @@ export function Rankings() {
       {loading && rows.length === 0 && <LoadingSpinner />}
 
       {!error && !(loading && rows.length === 0) && (
-        <div className="scroll-x rounded-lg border border-border-default bg-surface">
+        <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
           {tab === 'batting' ? (
             <table className="w-full min-w-[720px] text-sm">
               <thead>
@@ -223,7 +223,7 @@ export function Rankings() {
                     <td className="px-3 py-2.5">
                       <Link
                         to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic"
+                        className="font-medium text-ink hover:text-analytic-ink"
                       >
                         {p.player_name}
                       </Link>
@@ -263,7 +263,7 @@ export function Rankings() {
                     <td className="px-3 py-2.5">
                       <Link
                         to={p.player_identifier ? `/${slug}/players/${p.player_identifier}` : '#'}
-                        className="font-medium text-ink hover:text-analytic"
+                        className="font-medium text-ink hover:text-analytic-ink"
                       >
                         {p.player_name}
                       </Link>
