@@ -7,6 +7,7 @@ import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { StatusBadge } from '../components/StatusBadge'
+import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
 
@@ -88,7 +89,17 @@ export function PlayerDetail() {
             )}
           </div>
         </div>
-        <p className="mt-1 text-sm text-muted">{player.teams.map((t) => t.name).join(', ')}</p>
+        {/* A player carries their side's flag — the platform holds no
+            nationality for most players, and team affiliation is the honest
+            proxy the scope names for exactly this reason. */}
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+          {player.teams.map((t) => (
+            <span key={t.team_id} className="inline-flex items-center gap-1.5">
+              <Flag code={t.country_code} name={t.name} />
+              {t.name}
+            </span>
+          ))}
+        </p>
         <Link
           to={`/${slug}/compare?a=${player.identifier}`}
           className="mt-2 inline-block text-sm text-analytic hover:underline"

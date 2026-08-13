@@ -6,6 +6,9 @@ Gender = str  # 'male' | 'female' -- kept as str (not Literal) for forward-compa
 class TeamRef(BaseModel):
     team_id: int
     name: str
+    # ISO 3166-1 alpha-2, or a GB subdivision tag. None for franchises,
+    # invitational sides and the West Indies -- see app/flags.py.
+    country_code: str | None = None
 
 
 class CompetitionRef(BaseModel):
@@ -65,6 +68,7 @@ class DashboardStats(BaseModel):
 class TeamSummary(BaseModel):
     team_id: int
     name: str
+    country_code: str | None = None
     gender: Gender
     team_type: str
     matches: int
@@ -180,6 +184,9 @@ class IccRankingTable(BaseModel):
     rank_type: str
     rank_date: str
     fetched_at: str | None
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
     rows: list[IccRankingRow]
 
 
@@ -194,6 +201,9 @@ class IccTeamRankingTable(BaseModel):
     rank_type: str
     rank_date: str
     fetched_at: str | None
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
     rows: list[IccTeamRankingRow]
 
 
@@ -316,6 +326,36 @@ class MatchDetail(MatchSummary):
     performers: list[MatchPerformer]
 
 
+class ExplorerRow(BaseModel):
+    """One explorer row. Fields vary by explorer, so this stays open."""
+
+    model_config = ConfigDict(extra="allow")
+
+    player_name: str
+    player_identifier: str | None
+    matches: int
+
+
+class ExplorerPage(BaseModel):
+    explorer: str
+    total: int
+    limit: int
+    offset: int
+    sort_by: str
+    # Echoed back so the caller can see exactly what qualification was applied,
+    # rather than wondering why an expected player is absent (§21).
+    filters: dict
+    sorts: list[str]
+    items: list[ExplorerRow]
+
+
+class PaginatedTeams(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[TeamSummary]
+
+
 class PaginatedMatches(BaseModel):
     total: int
     limit: int
@@ -403,6 +443,12 @@ class FormLeaderRow(BaseModel):
     confidence: float
     recent_matches: int
     baseline_matches: int
+    # Absolute standard in par units (1.0 = an average appearance in this
+    # competition). Carried alongside the percentage because the two answer
+    # different questions: a player can post a large delta and still be below
+    # par, having improved from very poor.
+    recent_mean: float | None = None
+    baseline_mean: float | None = None
     explanation: str
 
 

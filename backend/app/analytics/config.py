@@ -122,6 +122,68 @@ BOWLING_WICKET_WEIGHT = 1.0
 BOWLING_ECONOMY_WEIGHT = 1.0
 
 # --------------------------------------------------------------------------
+# Discipline (crude playing role)
+# --------------------------------------------------------------------------
+
+# §5 puts "playing role" in Tier C because wicketkeeper and opener cannot be
+# inferred from anything this dataset holds. It also says explicitly that a
+# crude batter / bowler / all-rounder split *can* be inferred from balls faced
+# versus balls bowled -- and that split is what stops a specialist batter
+# appearing in a bowling leaderboard.
+#
+# The measure is a player's share of their own deliveries spent bowling:
+#
+#     bowling_share = balls_bowled / (balls_faced + balls_bowled)
+#
+# A volume floor alone does NOT do this job. Over a long career a top-order
+# batter's occasional overs still clear any sane minimum: Virat Kohli has bowled
+# 989 balls and Sachin Tendulkar 2,812, so both qualified for a bowling board
+# that gated only on volume.
+#
+# THRESHOLDS ARE READ OFF THE DISTRIBUTION, not chosen. Over the 1,782 men's
+# internationals with 20+ matches the share runs 0.00 at the 5th percentile to
+# 0.94 at the 95th, and these two cuts sit either side of the crowded middle.
+# They classify every well-known player correctly:
+#   batter      Kohli .03  Rohit .04  Smith .09  Williamson .11  Root .19
+#   all-rounder Maxwell .50  Stokes .52  Shakib .62  Flintoff .66  Afridi .76
+#   bowler      Ashwin .83  Starc .85  Anderson .93  Bumrah .94  Muralitharan .96
+#
+# The middle band is deliberately WIDE. The error that matters is excluding a
+# genuine all-rounder from a list they belong on; including a marginal one is
+# cheap by comparison, so the cuts are permissive rather than tight.
+BATTER_MAX_BOWLING_SHARE = 0.25
+BOWLER_MIN_BOWLING_SHARE = 0.78
+
+# --------------------------------------------------------------------------
+# Opposition strength
+# --------------------------------------------------------------------------
+
+# Whether performances are scaled by the strength of the side they came
+# against. Off, the form board ranks by weakness of opposition: a player whose
+# recent cricket was against Norway, Portugal and Malta outranks one facing
+# Australia and England, having done nothing harder. See `opposition.py`.
+OPPOSITION_ADJUSTMENT_ENABLED = True
+
+# A side's concession index is measured as its opponents' share of the impact in
+# their shared matches, then pulled towards 1.0 (no adjustment) as though the
+# side had this many extra matches at an exactly even split. Thin sides get
+# almost no adjustment, which is the right default: absent evidence, assume
+# average opposition rather than invent a correction.
+OPPOSITION_SHRINKAGE_ROWS = 30
+
+# Below this many matches, a (side, competition) slice doesn't get its own index
+# and falls back to the side's figure across all competitions.
+OPPOSITION_MIN_MATCHES_FOR_SLICE = 20
+
+# MM iterations for the Bradley-Terry fit. It converges monotonically and this
+# many rounds is comfortably past the point where the powers stop moving.
+OPPOSITION_FIT_ITERATIONS = 60
+
+# Hard bounds on the multiplier. Even after shrinkage the tails are not to be
+# trusted far enough to halve or double a performance.
+OPPOSITION_MULTIPLIER_BOUNDS = (0.55, 1.60)
+
+# --------------------------------------------------------------------------
 # Form leaderboards
 # --------------------------------------------------------------------------
 

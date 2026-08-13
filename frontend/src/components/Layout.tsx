@@ -67,10 +67,11 @@ const NAV: NavGroup[] = [
   {
     label: 'Analytics',
     items: [
-      { label: 'Batting Explorer', blocked: 'Next up' },
-      { label: 'Bowling Explorer', blocked: 'Next up' },
+      { label: 'Batting Explorer', to: 'analytics/batting' },
+      { label: 'Bowling Explorer', to: 'analytics/bowling' },
+      { label: 'All-Round Explorer', to: 'analytics/allround' },
       { label: 'Venue Analytics', blocked: 'Needs venue normalisation' },
-      { label: 'Opposition Analytics', blocked: 'Next up' },
+      { label: 'Opposition Analytics', to: 'analytics/batting' },
     ],
   },
   {

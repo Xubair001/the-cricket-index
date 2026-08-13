@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Compare } from './pages/Compare'
+import { Explorer } from './pages/Explorer'
 import { Home } from './pages/Home'
 import { Fixtures } from './pages/Fixtures'
 import { IccRankings } from './pages/IccRankings'
@@ -33,6 +34,8 @@ function App() {
         <Route path="/:gender" element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="rankings" element={<Rankings />} />
+          <Route path="analytics" element={<Navigate to="batting" replace />} />
+          <Route path="analytics/:explorer" element={<Explorer />} />
           <Route path="icc-rankings" element={<IccRankings />} />
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />

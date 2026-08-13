@@ -35,16 +35,18 @@ batted or bowled) cannot produce a meaningful percentage change; below
 `MIN_MEANINGFUL_BASELINE` the delta is reported in absolute impact units and
 confidence is capped.
 
-**Opposition is not adjusted for.** Par is measured per competition, so a T20I
-is judged against T20I norms -- but every T20I shares one par, whether it was
-played against Australia or Indonesia. Associate-nation players consequently
-rise up a form board faster than their cricket warrants, because runs against
-weak attacks cost the same as runs against strong ones. This is visible in the
-current output and is not a bug in the shrinkage or the banding; it is the
-missing opposition-strength term, which the Performance Index carries at 15%
-(scope §10) and the form engine does not yet have. Until it exists, a form board
-answers "who has improved against the cricket they happen to have played",
-which is a narrower question than it appears.
+**Opposition is adjusted for**, via `opposition.py`. Par is measured per
+competition, so a T20I is judged against T20I norms -- but every T20I shares one
+par, whether it was played against Australia or Indonesia. Left there, the board
+ranked by weakness of opposition: players whose recent cricket was against
+Norway, Portugal and Malta outranked Virat Kohli, having done nothing harder.
+Each performance is therefore scaled by how much resistance the opposing side
+actually offers, measured from what every other player scores against them. The
+displayed figure is still what the player did; only the comparison is adjusted.
+
+What remains unadjusted is *situation*: a match-winning 40 in a collapse and a
+dead-rubber 40 still score alike, because that needs the per-delivery data Tier B
+unlocks.
 """
 
 from __future__ import annotations
@@ -56,7 +58,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Competition, Match, PlayerMatchStat
-from . import config, impact as impact_mod
+from . import config, impact as impact_mod, opposition as opposition_mod
 
 
 @dataclass
@@ -74,6 +76,19 @@ class MatchImpact:
     balls_bowled: int
     runs_conceded: int
     impact: impact_mod.Impact
+    # How much this performance is worth given who it came against (1.0 = an
+    # average side, so no adjustment). See `opposition.py`.
+    opposition_multiplier: float = 1.0
+
+    @property
+    def value(self) -> float:
+        """Impact in par units, adjusted for the strength of the opposition.
+
+        This -- not `impact.normalized` -- is what the form engine measures. The
+        raw figure stays on `impact` so the UI can still show what the player
+        actually did; only the comparison is adjusted.
+        """
+        return self.impact.normalized * self.opposition_multiplier
 
     def as_dict(self) -> dict:
         return {
@@ -87,6 +102,8 @@ class MatchImpact:
             "runs_conceded": self.runs_conceded,
             "impact": round(self.impact.total, 2),
             "impact_normalized": round(self.impact.normalized, 3),
+            "opposition_multiplier": round(self.opposition_multiplier, 3),
+            "adjusted_value": round(self.value, 3),
         }
 
 
@@ -147,6 +164,7 @@ def player_timeline(
     two requests and the form verdict flickers.
     """
     par = impact_mod.par_table(db)
+    opp = opposition_mod.table(db)
 
     stmt = (
         select(
@@ -185,6 +203,7 @@ def player_timeline(
         opponent = team2_id if team_id == team1_id else team1_id
         out.append(
             MatchImpact(
+                opposition_multiplier=opp.multiplier(opponent, comp_key),
                 match_id=match_id,
                 match_date=match_date,
                 competition_key=comp_key,
@@ -224,6 +243,7 @@ def all_timelines(
     and a profile can never disagree about a player's form.
     """
     par = impact_mod.par_table(db)
+    opp = opposition_mod.table(db)
 
     stmt = (
         select(
@@ -265,13 +285,15 @@ def all_timelines(
             team1_id, team2_id, team_id,
             runs, balls_faced, wickets, balls_bowled, conceded,
         ) = row
+        opponent = team2_id if team_id == team1_id else team1_id
         out.setdefault(pid, []).append(
             MatchImpact(
+                opposition_multiplier=opp.multiplier(opponent, comp_key),
                 match_id=match_id,
                 match_date=match_date,
                 competition_key=comp_key,
                 gender=row_gender,
-                opponent_team_id=team2_id if team_id == team1_id else team1_id,
+                opponent_team_id=opponent,
                 runs_scored=runs or 0,
                 balls_faced=balls_faced or 0,
                 wickets_taken=wickets or 0,
@@ -297,20 +319,32 @@ class FormLeader:
 
     @property
     def rank_score(self) -> float:
-        """Evidence-weighted move, used for ordering only.
+        """Evidence-weighted move in par units, used for ordering only.
 
-        Ranking on the raw delta puts the thinnest verdicts on top: the largest
-        percentage swings belong to players with the shortest baselines, because
-        that is where the noise is. Weighting by confidence is the same
-        empirical-Bayes reasoning as the shrinkage applied inside `assess`,
-        extended to baseline size -- a +200% move off seven matches ranks below
-        a +90% move off forty, which is the correct ordering for "who should I
-        look at".
+        Two corrections to "sort by the percentage", both of which were visibly
+        wrong on the board before they were made:
 
-        The displayed figure stays the unweighted delta; this only decides
-        position, so the board never shows a number the player didn't produce.
+        1. **Weight by confidence.** The largest percentage swings belong to the
+           players with the shortest baselines, because that is where the noise
+           is. This is the same empirical-Bayes reasoning as the shrinkage
+           inside `assess`, extended to sample size.
+
+        2. **Measure the move in par units, not as a percentage.** A percentage
+           is a ratio against the player's own baseline, so a player who was
+           dreadful and is now merely below average posts a huge one. Sharvin
+           Muniandy reached the in-form board at +97% while producing 0.70 par
+           units -- below what an average appearance is worth -- because he had
+           improved from 0.27. Meanwhile Virat Kohli at 2.94 par units scored a
+           smaller percentage off a higher base. Ranking on `delta_absolute`
+           (par units gained against their own norm) puts them in the order a
+           selector would: it takes real cricket to gain a par unit, and no
+           amount of arithmetic off a tiny base manufactures one.
+
+        The displayed figure stays the percentage, because that is what the
+        player actually produced; this only decides position. `recent_mean`
+        travels with every row so the absolute standard is visible next to it.
         """
-        return (self.verdict.delta_ratio or 0.0) * self.verdict.confidence
+        return (self.verdict.delta_absolute or 0.0) * self.verdict.confidence
 
 
 def leaderboard(
@@ -391,8 +425,8 @@ def _trend(recent: list[MatchImpact]) -> str:
         return "unknown"
     # `recent` is newest-first; split so `newer` really is the later cricket.
     half = len(recent) // 2
-    newer = _mean([m.impact.normalized for m in recent[:half]])
-    older = _mean([m.impact.normalized for m in recent[half:]])
+    newer = _mean([m.value for m in recent[:half]])
+    older = _mean([m.value for m in recent[half:]])
     if newer is None or older is None:
         return "unknown"
     spread = max(abs(older), 1.0)
@@ -480,7 +514,7 @@ def assess(
         baseline = older
         baseline_window_label = "career before this run"
 
-    recent_mean = _mean([m.impact.normalized for m in recent]) or 0.0
+    recent_mean = _mean([m.value for m in recent]) or 0.0
     trend = _trend(recent)
 
     if len(baseline) < config.MIN_BASELINE_MATCHES:
@@ -500,7 +534,7 @@ def assess(
             timeline=[m.as_dict() for m in recent],
         )
 
-    baseline_mean = _mean([m.impact.normalized for m in baseline]) or 0.0
+    baseline_mean = _mean([m.value for m in baseline]) or 0.0
 
     # Shrink the recent mean towards the baseline in proportion to how little
     # cricket it rests on -- equivalent to crediting the player with

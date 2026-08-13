@@ -1,4 +1,6 @@
 import type {
+  ExplorerKind,
+  ExplorerPage,
   ApiGender,
   BattingRankingRow,
   BowlingRankingRow,
@@ -53,8 +55,12 @@ export const api = {
 
   // team_type is optional: the Teams page scopes to one kind at a time, but
   // the Matches filter deliberately omits it so you can filter by any side.
-  teams: (gender: ApiGender, teamType?: TeamType) =>
-    getJson<TeamSummary[]>('/api/teams', { gender, team_type: teamType }),
+  // Paginated server-side. `limit` is explicit at every call site rather than
+  // defaulted here, because the two uses want opposite things: a browsing page
+  // wants a page, and the Matches team filter wants every side to populate its
+  // select.
+  teams: (gender: ApiGender, teamType?: TeamType, params: { limit?: number; offset?: number } = {}) =>
+    getJson<Paginated<TeamSummary>>('/api/teams', { gender, team_type: teamType, ...params }),
 
   teamDetail: (teamId: number) => getJson<TeamDetail>(`/api/teams/${teamId}`),
 
@@ -138,13 +144,35 @@ export const api = {
     params: { competition?: string; competition_type?: string } = {}
   ) => getJson<PlayerComparison>('/api/players/compare', { a, b, ...params }),
 
+  // The explorers (§21). Every filter, sort and page is applied server-side —
+  // the unfiltered population is ~5,400 players, and sorting a page of them in
+  // the browser would give a different answer from the ranking endpoints.
+  explorer: (
+    explorer: ExplorerKind,
+    gender: ApiGender,
+    params: {
+      competition?: string
+      competition_type?: string
+      team_id?: number
+      opposition_team_id?: number
+      date_from?: string
+      date_to?: string
+      min_innings?: number
+      min_balls?: number
+      role?: string
+      sort_by?: string
+      limit?: number
+      offset?: number
+    } = {}
+  ) => getJson<ExplorerPage>(`/api/analytics/${explorer}`, { gender, ...params }),
+
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 
-  iccPlayerRanking: (rankType: string) =>
-    getJson<IccRankingTable>(`/api/icc/players/${encodeURIComponent(rankType)}`),
+  iccPlayerRanking: (rankType: string, params: { limit?: number; offset?: number } = {}) =>
+    getJson<IccRankingTable>(`/api/icc/players/${encodeURIComponent(rankType)}`, params),
 
-  iccTeamRanking: (rankType: string) =>
-    getJson<IccTeamRankingTable>(`/api/icc/teams/${encodeURIComponent(rankType)}`),
+  iccTeamRanking: (rankType: string, params: { limit?: number; offset?: number } = {}) =>
+    getJson<IccTeamRankingTable>(`/api/icc/teams/${encodeURIComponent(rankType)}`, params),
 
   fixtures: (params: {
     gender?: string

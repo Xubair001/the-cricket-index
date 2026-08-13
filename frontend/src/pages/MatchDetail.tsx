@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { MatchDetail as MatchDetailType, MatchPerformer, TeamRef } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
+import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 
 /**
@@ -117,8 +118,10 @@ export function MatchDetail() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <CompetitionBadge competition={match.competition_key} />
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-ink">
+            <Flag code={match.team1?.country_code} name={match.team1?.name} />
             {match.team1?.name} v {match.team2?.name}
+            <Flag code={match.team2?.country_code} name={match.team2?.name} />
           </h1>
         </div>
         <p className="mt-1 text-sm text-muted">

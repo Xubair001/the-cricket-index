@@ -451,11 +451,11 @@ export function Compare() {
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Line
                     type="monotone" dataKey="a" name={data.a.name} stroke={SERIES.a}
-                    strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }}
+                    strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                   />
                   <Line
                     type="monotone" dataKey="b" name={data.b.name} stroke={SERIES.b}
-                    strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }}
+                    strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -475,11 +475,11 @@ export function Compare() {
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Line
                       type="monotone" dataKey="a" name={data.a.name} stroke={SERIES.a}
-                      strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }}
+                      strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                     />
                     <Line
                       type="monotone" dataKey="b" name={data.b.name} stroke={SERIES.b}
-                      strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }}
+                      strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -495,8 +495,8 @@ export function Compare() {
                   <YAxis tick={{ fill: CHART.axis, fontSize: 11 }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={CHART.tooltip} cursor={{ fill: 'transparent' }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="a" name={data.a.name} fill={SERIES.a} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="b" name={data.b.name} fill={SERIES.b} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="a" name={data.a.name} fill={SERIES.a} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <Bar dataKey="b" name={data.b.name} fill={SERIES.b} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </Panel>

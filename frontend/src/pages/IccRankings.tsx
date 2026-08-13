@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { IccRankingTable, IccTeamRankingTable } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
+import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 
 /**
@@ -21,6 +22,8 @@ const DISCIPLINES = [
   { value: 'team', label: 'Team' },
 ]
 
+const LIMIT = 25
+
 const FORMATS = [
   { value: 'test', label: 'Test' },
   { value: 'odi', label: 'ODI' },
@@ -38,6 +41,7 @@ export function IccRankings() {
   const [available, setAvailable] = useState<{ players: string[]; teams: string[] } | null>(null)
   const [players, setPlayers] = useState<IccRankingTable | null>(null)
   const [teams, setTeams] = useState<IccTeamRankingTable | null>(null)
+  const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -50,6 +54,11 @@ export function IccRankings() {
   useEffect(() => {
     api.iccRankTypes().then(setAvailable).catch((e) => setError(String(e)))
   }, [])
+
+  // A new table is a new list; carrying an offset into it can land past the end.
+  useEffect(() => {
+    setOffset(0)
+  }, [rankType])
 
   const known = available
     ? [...available.players, ...available.teams].includes(rankType)
@@ -73,17 +82,18 @@ export function IccRankings() {
     setError(null)
     setPlayers(null)
     setTeams(null)
+    const page = { limit: LIMIT, offset }
     const request =
       discipline === 'team'
-        ? api.iccTeamRanking(rankType).then((t) => !cancelled && setTeams(t))
-        : api.iccPlayerRanking(rankType).then((t) => !cancelled && setPlayers(t))
+        ? api.iccTeamRanking(rankType, page).then((t) => !cancelled && setTeams(t))
+        : api.iccPlayerRanking(rankType, page).then((t) => !cancelled && setPlayers(t))
     request
       .catch((e) => !cancelled && setError(String(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [rankType, discipline, womensTest])
+  }, [rankType, discipline, womensTest, offset])
 
   const published = players ?? teams
 
@@ -214,6 +224,16 @@ export function IccRankings() {
                 ))}
               </tbody>
             </table>
+            {published && (
+              <div className="px-4">
+                <Pagination
+                  total={published.total}
+                  limit={published.limit || LIMIT}
+                  offset={published.offset}
+                  onChange={setOffset}
+                />
+              </div>
+            )}
           </div>
 
           <p className="max-w-3xl text-xs leading-relaxed text-dim">

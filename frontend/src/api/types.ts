@@ -35,6 +35,9 @@ export interface IccRankingTable {
   rank_type: string
   rank_date: string
   fetched_at: string | null
+  total: number
+  limit: number
+  offset: number
   rows: IccRankingRow[]
 }
 
@@ -49,6 +52,9 @@ export interface IccTeamRankingTable {
   rank_type: string
   rank_date: string
   fetched_at: string | null
+  total: number
+  limit: number
+  offset: number
   rows: IccTeamRankingRow[]
 }
 
@@ -95,6 +101,9 @@ export interface PlayerComparison {
 export interface TeamRef {
   team_id: number
   name: string
+  // ISO 3166-1 alpha-2, or a GB subdivision tag. null for franchises, the
+  // invitational XIs and the West Indies — see backend/app/flags.py.
+  country_code: string | null
 }
 
 export interface CompetitionCount {
@@ -146,6 +155,7 @@ export interface DashboardStats {
 export interface TeamSummary {
   team_id: number
   name: string
+  country_code: string | null
   gender: ApiGender
   team_type: string
   matches: number
@@ -373,6 +383,11 @@ export interface FormLeaderRow {
   confidence: number
   recent_matches: number
   baseline_matches: number
+  // Absolute standard in par units, where 1.0 is an average appearance.
+  // A large delta with a recent_mean below 1.0 means "improved, but still
+  // below par" — the percentage alone cannot say that.
+  recent_mean: number | null
+  baseline_mean: number | null
   explanation: string
 }
 
@@ -413,4 +428,47 @@ export interface PlayerDirectory {
   offset: number
   scope: string
   items: DirectoryPlayer[]
+}
+
+// --- Analytics explorers (§21) --------------------------------------------
+
+export type ExplorerKind = 'batting' | 'bowling' | 'allround'
+
+/** Row shape varies by explorer, so the numeric columns are indexed. */
+export interface ExplorerRow {
+  player_name: string
+  player_identifier: string | null
+  matches: number
+  // INFERRED from balls faced vs balls bowled — never a sourced fact.
+  role: PlayerRole
+  [metric: string]: string | number | null
+}
+
+export type PlayerRole = 'batter' | 'bowler' | 'allrounder' | 'unknown'
+
+export interface ExplorerFilters {
+  gender: string
+  competition_key: string | null
+  competition_type: string | null
+  team_id: number | null
+  opposition_team_id: number | null
+  date_from: string | null
+  date_to: string | null
+  min_innings: number
+  min_balls: number
+  role: PlayerRole | null
+  // Which inferred roles this explorer admits at all — a specialist bowler is
+  // absent from a batting board by design, not by accident.
+  roles_shown: PlayerRole[] | null
+}
+
+export interface ExplorerPage {
+  explorer: ExplorerKind
+  total: number
+  limit: number
+  offset: number
+  sort_by: string
+  filters: ExplorerFilters
+  sorts: string[]
+  items: ExplorerRow[]
 }

@@ -48,7 +48,22 @@
       "Bash(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:5173/api/rankings/form?gender=male&state=in_form&limit=3')",
       "Bash(timeout 300 /home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python -m playwright install chromium)",
       "Bash(nohup /home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python -m playwright install chromium)",
-      "Bash(echo \"install restarted detached \\(pid $!\\)\")"
+      "Bash(echo \"install restarted detached \\(pid $!\\)\")",
+      "Bash(curl -s \"http://localhost:8001/api/players/compare?a=a343262c&b=ba607b88\")",
+      "Bash(curl -s \"http://localhost:8001/api/teams?gender=male&team_type=international\")",
+      "Bash(curl -s \"http://localhost:8001/api/teams?gender=male&team_type=franchise\")",
+      "Bash(curl -s 'http://localhost:8001/api/analytics/bowling?gender=male&sort_by=economy&limit=4')",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,1150 --virtual-time-budget=15000 --screenshot=/tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/abec755d-b508-4bcf-a33f-2644b864c137/scratchpad/shots/explorer.png http://localhost:5173/men/analytics/allround?min_innings=40)",
+      "Bash(python -m compileall -q .)",
+      "Bash(python -c \"from main import app\")",
+      "Bash(curl -s \"http://localhost:8001/api/analytics/bowling?gender=male&sort_by=economy&min_innings=20&limit=200\")",
+      "Bash(curl -s \"http://localhost:8001/api/analytics/batting?gender=male&sort_by=matches&min_innings=20&limit=300\")",
+      "Bash(curl -s \"http://localhost:8001/api/analytics/bowling?gender=male&sort_by=economy&min_innings=20&limit=100\")",
+      "Bash(python -m compileall -q app/analytics/config.py)",
+      "Bash(sed -i 's/filters=filters.describe\\(\\),/filters=filters.describe\\(explorer\\),/' app/routers/analytics.py)",
+      "Bash(python -m compileall -q app/)",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,900 --virtual-time-budget=15000 --screenshot=/tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/abec755d-b508-4bcf-a33f-2644b864c137/scratchpad/shots/explorer_bowling.png http://localhost:5173/men/analytics/bowling?sort=wickets)",
+      "Bash(curl -s 'http://localhost:8001/api/analytics/batting?gender=male&role=keeper')"
     ]
   }
 }

@@ -272,6 +272,72 @@ nothing — don't treat them as dead code:
   `bio_source` are nullable and currently always `null`. The API and UI both
   render this as "Not available" — never infer or guess a value for these.
 
+### A volume floor does not keep specialists out of the wrong leaderboard
+
+The explorers (`backend/app/analytics/explorer.py`) gate on minimum balls, and
+that is **not** sufficient to keep a batter off a bowling board. Over a long
+career a top-order batter's occasional overs clear any sane minimum: Kohli has
+bowled 989 balls, Tendulkar 2,812, Root 8,120 — all past a 300-ball gate. The
+mirror held too, with Muralitharan, Bumrah and Anderson all clearing a 200-ball
+batting gate.
+
+`discipline()` infers a crude role from `balls_bowled / (balls_faced +
+balls_bowled)`, which §5 sanctions explicitly (it is *wicketkeeper* and *opener*
+that are unreachable, not the batter/bowler/all-rounder split). `ELIGIBLE` maps
+it: batting admits batters and all-rounders, bowling admits bowlers and
+all-rounders, all-round admits only all-rounders.
+
+The two cuts (0.25 / 0.78) are read off the observed distribution over the 1,782
+men's internationals with 20+ matches, and classify every well-known player
+correctly — Kohli .03, Root .19 (batters); Maxwell .50, Shakib .62, Afridi .76
+(all-rounders); Ashwin .83, Bumrah .94, Muralitharan .96 (bowlers). The middle
+band is deliberately wide: excluding a genuine all-rounder from a list they
+belong on is the expensive error; admitting a marginal one is cheap.
+
+The role is **inferred and labelled as such on every row**. It is never a
+sourced fact about a player.
+
+### Opposition strength is fitted, and two obvious versions of it are wrong
+
+`backend/app/analytics/opposition.py` scales every performance by how hard the
+side it came against actually is. Without it the form board ranked by *weakness*
+of opposition — players whose recent cricket was against Norway, Portugal and
+Malta outranked Virat Kohli.
+
+Two measures were tried and rejected **against data**, so don't reach for them:
+
+- **Mean impact conceded to opponents.** Ranked Indonesia the strongest side and
+  Pakistan among the weakest. Impact is not zero-sum within a match and a
+  competition slice is too coarse a control: associate matches are low-scoring
+  for *both* sides, so a side that only plays them looks miserly. What was
+  measured was the run-scoring environment, not the side.
+- **Opponents' raw share of match impact.** Cancels the environment (it is a
+  ratio within one match) and fixed the above, but still put UAE, Uganda and
+  Japan above Australia — a share measures dominance over *whoever you played*.
+
+What works is fitting those shares with **Bradley-Terry**, which makes strength
+transitive, and referencing the fitted powers against the opposition in an
+**average match** rather than the average team. That last part matters: there
+are ~110 men's international sides and most play rarely, so a team-count
+reference puts "par opposition" at roughly Malta and pins every Test nation to
+the multiplier clamp. Validated against ICC team ratings at Spearman ρ ≈ +0.81
+to +0.83 across all three formats — ICC is the *check*, never an input (it ranks
+only ~10-20 sides, is a current snapshot against 25 years of data, and §6 keeps
+official ratings out of derived figures).
+
+Conventional figures — average, strike rate, economy — are deliberately **not**
+adjusted, because they have to match what a scorecard source publishes. Only
+this project's own impact measures carry the adjustment.
+
+### Form boards rank on par units, not on the percentage
+
+`FormLeader.rank_score` is `delta_absolute × confidence`, not
+`delta_ratio × confidence`. A percentage is a ratio against the player's own
+baseline, so a player who was dreadful and is now merely below average posts a
+huge one — Sharvin Muniandy reached the in-form board at +97% while producing
+**0.70 par units**, below what an average appearance is worth. Every leaderboard
+row carries `recent_mean` so the absolute standard is visible beside the change.
+
 ### Rankings are computed in Python, not SQL, after a GROUP BY
 
 `backend/app/queries.py`'s `_batting_aggregate_rows` / `_bowling_aggregate_rows`

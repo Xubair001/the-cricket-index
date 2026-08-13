@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
-from . import schemas
+from . import schemas, flags
 from .names import preferred_name
 from .models import (
     Competition,
@@ -121,7 +121,11 @@ def _safe_div(numerator: float, denominator: float) -> float | None:
 def _team_ref(team: Team | None) -> schemas.TeamRef | None:
     if team is None:
         return None
-    return schemas.TeamRef(team_id=team.team_id, name=team.name)
+    return schemas.TeamRef(
+        team_id=team.team_id,
+        name=team.name,
+        country_code=flags.country_code(team.name, team.team_type),
+    )
 
 
 def _match_summary(m: Match, comp: Competition, team1: Team | None, team2: Team | None, winner: Team | None) -> schemas.MatchSummary:
@@ -498,6 +502,7 @@ def _team_summary(db: Session, team: Team) -> schemas.TeamSummary:
     return schemas.TeamSummary(
         team_id=team.team_id,
         name=team.name,
+        country_code=flags.country_code(team.name, team.team_type),
         gender=team.gender,
         team_type=team.team_type,
         matches=matches,
@@ -541,8 +546,20 @@ def _team_record_map(db: Session) -> dict[int, tuple[int, int, int]]:
 
 
 def get_teams_summary(
-    db: Session, gender: str, team_type: str | None = None
-) -> list[schemas.TeamSummary]:
+    db: Session,
+    gender: str,
+    team_type: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[schemas.TeamSummary], int]:
+    """One page of team records, plus the total after filtering.
+
+    The win/loss record has to be assembled before a side can be ranked or even
+    included -- sides with no completed matches are dropped -- so the slice is
+    taken after that work rather than in SQL. At ~119 sides that is immaterial,
+    and it keeps `total` honest: it counts sides that actually appear, not rows
+    in the table.
+    """
     # Without a team_type filter this lists Karachi Kings next to Australia --
     # they're both male teams, but they aren't comparable entities. The caller
     # picks a side; the API doesn't blend them by default.
@@ -563,6 +580,7 @@ def get_teams_summary(
             schemas.TeamSummary(
                 team_id=team.team_id,
                 name=team.name,
+                country_code=flags.country_code(team.name, team.team_type),
                 gender=team.gender,
                 team_type=team.team_type,
                 matches=played,
@@ -573,7 +591,10 @@ def get_teams_summary(
             )
         )
     summaries.sort(key=lambda s: s.matches, reverse=True)
-    return summaries
+    total = len(summaries)
+    if limit is not None:
+        summaries = summaries[offset : offset + limit]
+    return summaries, total
 
 
 def get_team_detail(db: Session, team_id: int) -> schemas.TeamDetail | None:
@@ -912,7 +933,9 @@ def icc_team_rank_types(db: Session) -> list[str]:
     return sorted(t for (t,) in db.execute(select(IccTeamRanking.rank_type).distinct()))
 
 
-def get_icc_player_ranking(db: Session, rank_type: str) -> schemas.IccRankingTable | None:
+def get_icc_player_ranking(
+    db: Session, rank_type: str, limit: int | None = None, offset: int = 0
+) -> schemas.IccRankingTable | None:
     rank_date = db.execute(
         select(func.max(IccPlayerRanking.rank_date)).where(
             IccPlayerRanking.rank_type == rank_type
@@ -920,15 +943,24 @@ def get_icc_player_ranking(db: Session, rank_type: str) -> schemas.IccRankingTab
     ).scalar_one_or_none()
     if not rank_date:
         return None
-    rows = db.execute(
-        select(IccPlayerRanking)
-        .where(IccPlayerRanking.rank_type == rank_type, IccPlayerRanking.rank_date == rank_date)
-        .order_by(IccPlayerRanking.position)
-    ).scalars().all()
+    scoped = (
+        IccPlayerRanking.rank_type == rank_type,
+        IccPlayerRanking.rank_date == rank_date,
+    )
+    total = db.execute(
+        select(func.count()).select_from(IccPlayerRanking).where(*scoped)
+    ).scalar_one()
+    stmt = select(IccPlayerRanking).where(*scoped).order_by(IccPlayerRanking.position)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
+    rows = db.execute(stmt).scalars().all()
     return schemas.IccRankingTable(
         rank_type=rank_type,
         rank_date=rank_date,
         fetched_at=rows[0].fetched_at if rows else None,
+        total=total,
+        limit=limit if limit is not None else total,
+        offset=offset,
         rows=[
             schemas.IccRankingRow(
                 position=r.position,
@@ -943,21 +975,32 @@ def get_icc_player_ranking(db: Session, rank_type: str) -> schemas.IccRankingTab
     )
 
 
-def get_icc_team_ranking(db: Session, rank_type: str) -> schemas.IccTeamRankingTable | None:
+def get_icc_team_ranking(
+    db: Session, rank_type: str, limit: int | None = None, offset: int = 0
+) -> schemas.IccTeamRankingTable | None:
     rank_date = db.execute(
         select(func.max(IccTeamRanking.rank_date)).where(IccTeamRanking.rank_type == rank_type)
     ).scalar_one_or_none()
     if not rank_date:
         return None
-    rows = db.execute(
-        select(IccTeamRanking)
-        .where(IccTeamRanking.rank_type == rank_type, IccTeamRanking.rank_date == rank_date)
-        .order_by(IccTeamRanking.position)
-    ).scalars().all()
+    scoped = (
+        IccTeamRanking.rank_type == rank_type,
+        IccTeamRanking.rank_date == rank_date,
+    )
+    total = db.execute(
+        select(func.count()).select_from(IccTeamRanking).where(*scoped)
+    ).scalar_one()
+    stmt = select(IccTeamRanking).where(*scoped).order_by(IccTeamRanking.position)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
+    rows = db.execute(stmt).scalars().all()
     return schemas.IccTeamRankingTable(
         rank_type=rank_type,
         rank_date=rank_date,
         fetched_at=rows[0].fetched_at if rows else None,
+        total=total,
+        limit=limit if limit is not None else total,
+        offset=offset,
         rows=[
             schemas.IccTeamRankingRow(
                 position=r.position, team_name=r.team_name, points=r.points, team_id=r.team_id

@@ -5,6 +5,7 @@ import type { MatchSummary, TeamDetail as TeamDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { StatCard } from '../components/StatCard'
+import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { percent, rate } from '../format'
 
@@ -77,6 +78,7 @@ export function TeamDetail() {
           &larr; All teams
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
+          <Flag code={team.country_code} name={team.name} className="text-2xl" />
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{team.name}</h1>
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-dim">
             {team.team_type}
@@ -175,7 +177,9 @@ export function TeamDetail() {
                     <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
                     <td className="px-3 py-2.5">
                       <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic">
-                        {m.team1?.name} v {m.team2?.name}
+                        <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
+                        {m.team1?.name} v {m.team2?.name}{' '}
+                        <Flag code={m.team2?.country_code} name={m.team2?.name} />
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-right">

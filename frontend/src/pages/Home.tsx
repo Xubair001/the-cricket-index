@@ -69,6 +69,23 @@ function FormList({
               >
                 <span className="min-w-0 flex-1 truncate text-sm text-ink">{r.player_name}</span>
                 <TrendGlyph trend={r.trend} />
+                {/* The absolute standard, not just the change. A player can
+                    post a huge percentage and still be below par, having
+                    improved from very poor — the board is ordered on par units
+                    gained, so this is the figure that explains the order. */}
+                <span
+                  className={`tnum w-10 text-right font-mono text-[11px] ${
+                    (r.recent_mean ?? 0) >= 1 ? 'text-muted' : 'text-warning'
+                  }`}
+                  title={
+                    r.recent_mean === null
+                      ? 'Standard unavailable'
+                      : `Producing ${r.recent_mean.toFixed(2)}× what an average appearance is worth` +
+                        (r.recent_mean < 1 ? ' — still below par despite the change' : '')
+                  }
+                >
+                  {r.recent_mean !== null ? `${r.recent_mean.toFixed(1)}x` : '—'}
+                </span>
                 <span
                   className={`tnum w-16 text-right text-sm font-semibold ${
                     tone === 'positive' ? 'text-positive' : 'text-negative'
@@ -213,10 +230,14 @@ export function Home() {
 
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
         Form compares a player against their own preceding 12 months, scoped to international
-        cricket — never blended with franchise cricket. The number beside each name is the change
-        against that baseline; the small figure after it is confidence, and it turns amber when the
-        verdict rests on a thin sample. Opposition strength is not yet adjusted for, so players
-        facing weaker attacks rise faster than their cricket warrants.
+        cricket — never blended with franchise cricket. The percentage is the change against that
+        baseline; the figure before it is the absolute standard, where 1.0x is an average
+        appearance and anything below turns amber; the last figure is confidence. Every
+        performance is weighted by the strength of the side it came against, fitted from what
+        every team concedes across the whole fixture list — so runs against a weak attack count
+        for less. Boards are ordered on par units gained rather than on the percentage, because a
+        player improving from poor to below-average can post a bigger percentage than one playing
+        the best cricket in the world.
       </p>
     </div>
   )

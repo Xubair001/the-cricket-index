@@ -20,7 +20,9 @@
  */
 
 @theme {
-  --font-sans: 'Inter', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* 'Inter Variable' is the family the self-hosted variable font registers as;
+   * plain 'Inter' stays next in line for anyone who has it installed locally. */
+  --font-sans: 'Inter Variable', 'Inter', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   /* Ground and surfaces */

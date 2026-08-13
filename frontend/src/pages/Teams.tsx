@@ -3,12 +3,16 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TeamSummary, TeamType } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
+import { Pagination } from '../components/Pagination'
+import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { percent } from '../format'
 
 // National sides and franchises are both "teams" but aren't comparable: a
 // win % against Australia doesn't mean what a win % against Multan Sultans
 // means. One kind at a time, the same way the app never mixes genders.
+const LIMIT = 25
+
 const TEAM_TYPES: { value: TeamType; label: string }[] = [
   { value: 'international', label: 'International' },
   { value: 'franchise', label: 'Franchise' },
@@ -18,6 +22,8 @@ export function Teams() {
   const { slug, apiGender } = useGender()
   const [teamType, setTeamType] = useState<TeamType>('international')
   const [teams, setTeams] = useState<TeamSummary[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -25,9 +31,11 @@ export function Teams() {
     setTeams(null)
     setError(null)
     api
-      .teams(apiGender, teamType)
+      .teams(apiGender, teamType, { limit: LIMIT, offset })
       .then((res) => {
-        if (!cancelled) setTeams(res)
+        if (cancelled) return
+        setTeams(res.items)
+        setTotal(res.total)
       })
       .catch((e) => {
         if (!cancelled) setError(String(e))
@@ -35,7 +43,7 @@ export function Teams() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, teamType])
+  }, [apiGender, teamType, offset])
 
   if (error) return <ErrorMessage message={error} />
 
@@ -48,7 +56,7 @@ export function Teams() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Teams</h1>
           <p className="mt-1 text-sm text-muted">
-            {teams ? `${teams.length} ${teamType} teams, by matches played` : 'Loading…'}
+            {teams ? `${total.toLocaleString()} ${teamType} teams, by matches played` : 'Loading…'}
           </p>
         </div>
         <div className="inline-flex rounded-lg border border-border-default bg-surface p-0.5">
@@ -56,7 +64,10 @@ export function Teams() {
             <button
               key={t.value}
               type="button"
-              onClick={() => setTeamType(t.value)}
+              onClick={() => {
+                setTeamType(t.value)
+                setOffset(0)
+              }}
               className={
                 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors ' +
                 (teamType === t.value ? 'bg-elevated text-ink' : 'text-muted hover:text-ink')
@@ -99,12 +110,13 @@ export function Teams() {
                   key={t.team_id}
                   className="border-b border-border-subtle last:border-0 hover:bg-elevated"
                 >
-                  <td className="tnum px-4 py-2.5 text-dim">{i + 1}</td>
+                  <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
                   <td className="px-3 py-2.5">
                     <Link
                       to={`/${slug}/teams/${t.team_id}`}
-                      className="font-medium text-ink hover:text-analytic"
+                      className="inline-flex items-center gap-2 font-medium text-ink hover:text-analytic"
                     >
+                      <Flag code={t.country_code} name={t.name} />
                       {t.name}
                     </Link>
                   </td>
@@ -119,6 +131,9 @@ export function Teams() {
               ))}
             </tbody>
           </table>
+          <div className="px-4">
+            <Pagination total={total} limit={LIMIT} offset={offset} onChange={setOffset} />
+          </div>
         </div>
       )}
 

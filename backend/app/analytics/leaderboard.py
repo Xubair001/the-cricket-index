@@ -78,6 +78,12 @@ def _build(
                 "confidence": round(v.confidence, 3),
                 "recent_matches": v.recent_matches,
                 "baseline_matches": v.baseline_matches,
+                # The absolute standard, in par units where 1.0 is an average
+                # appearance. Travels with every row because a percentage alone
+                # cannot distinguish "improved to excellent" from "improved to
+                # still below average" -- and both appear on a form board.
+                "recent_mean": round(v.recent_mean, 2) if v.recent_mean is not None else None,
+                "baseline_mean": round(v.baseline_mean, 2) if v.baseline_mean is not None else None,
                 "explanation": v.explanation,
             }
         )

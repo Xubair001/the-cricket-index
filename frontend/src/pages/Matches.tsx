@@ -5,6 +5,7 @@ import type { MatchSummary, TeamSummary } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
+import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 
 const LIMIT = 25
@@ -37,7 +38,11 @@ export function Matches() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.teams(apiGender).then(setTeams).catch(() => {})
+    // The filter is a select, so it needs every side rather than a page.
+    api
+      .teams(apiGender, undefined, { limit: 500 })
+      .then((res) => setTeams(res.items))
+      .catch(() => {})
   }, [apiGender])
 
   useEffect(() => {
@@ -158,7 +163,9 @@ export function Matches() {
                       to={`/${slug}/matches/${m.match_id}`}
                       className="font-medium text-ink hover:text-analytic"
                     >
-                      {m.team1?.name} v {m.team2?.name}
+                      <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
+                      {m.team1?.name} v {m.team2?.name}{' '}
+                      <Flag code={m.team2?.country_code} name={m.team2?.name} />
                     </Link>
                     <div className="mt-0.5 text-xs text-dim">{m.venue ?? 'Venue not recorded'}</div>
                   </td>
