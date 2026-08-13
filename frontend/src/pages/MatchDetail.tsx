@@ -6,39 +6,60 @@ import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { useGender } from '../gender/useGender'
 
+/**
+ * A single match, at the granularity this dataset actually holds.
+ *
+ * There is no scorecard here and there cannot be one: ingestion accumulates
+ * per-player totals and discards the deliveries, so there is no batting order,
+ * no fall of wickets and no innings sequence to render. What is shown is what
+ * was derived — runs, balls, and bowling figures — and nothing is inferred to
+ * fill the gap.
+ */
+
 function PerformerTable({ performers, team }: { performers: MatchPerformer[]; team: TeamRef }) {
   const teamPerformers = performers.filter((p) => p.team_id === team.team_id)
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <h3 className="border-b border-slate-200 px-5 py-3 font-semibold text-slate-800 dark:border-slate-800 dark:text-slate-100">
+    <section className="rounded-lg border border-border-default bg-surface">
+      <h3 className="border-b border-border-subtle px-4 py-3 text-sm font-semibold text-ink">
         {team.name}
       </h3>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
-            <th className="py-2 pl-5">Player</th>
-            <th className="py-2 text-right">Runs</th>
-            <th className="py-2 text-right">Balls</th>
-            <th className="py-2 pr-5 text-right">Wkts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {teamPerformers.map((p) => (
-            <tr key={p.player_name} className="border-b border-slate-100 last:border-0 dark:border-slate-800/50">
-              <td className="py-2 pl-5 text-slate-700 dark:text-slate-200">{p.player_name}</td>
-              <td className="py-2 text-right text-slate-600 dark:text-slate-300">
-                {p.runs_scored}
-                {p.dismissals === 0 && p.balls_faced > 0 ? '*' : ''}
-              </td>
-              <td className="py-2 text-right text-slate-500 dark:text-slate-400">{p.balls_faced || '-'}</td>
-              <td className="py-2 pr-5 text-right text-slate-600 dark:text-slate-300">
-                {p.balls_bowled > 0 ? `${p.wickets_taken}/${p.runs_conceded}` : '-'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      {teamPerformers.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-muted">No per-player figures recorded for this side.</p>
+      ) : (
+        <div className="scroll-x">
+          <table className="w-full min-w-[380px] text-sm">
+            <thead>
+              <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <th className="px-4 py-2">Player</th>
+                <th className="px-3 py-2 text-right">Runs</th>
+                <th className="px-3 py-2 text-right">Balls</th>
+                <th className="px-4 py-2 text-right">Bowling</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamPerformers.map((p) => (
+                <tr
+                  key={p.player_name}
+                  className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                >
+                  <td className="px-4 py-2 text-ink">{p.player_name}</td>
+                  <td className="tnum px-3 py-2 text-right text-ink">
+                    {p.runs_scored}
+                    {/* Not out, in the scorecard sense: they faced deliveries and
+                        were never dismissed in this match. */}
+                    {p.dismissals === 0 && p.balls_faced > 0 ? '*' : ''}
+                  </td>
+                  <td className="tnum px-3 py-2 text-right text-muted">{p.balls_faced || '—'}</td>
+                  <td className="tnum px-4 py-2 text-right text-muted">
+                    {p.balls_bowled > 0 ? `${p.wickets_taken}/${p.runs_conceded}` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -70,42 +91,59 @@ export function MatchDetail() {
   if (error) return <ErrorMessage message={error} />
   if (!match) return <LoadingSpinner />
 
+  const margin = match.win_by_runs
+    ? ` by ${match.win_by_runs} runs`
+    : match.win_by_wickets
+      ? ` by ${match.win_by_wickets} wickets`
+      : ''
+
+  const where = [match.venue, match.city].filter(Boolean).join(', ')
+
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/matches`} className="text-sm text-emerald-600 hover:underline dark:text-emerald-400">
+        <Link to={`/${slug}/matches`} className="text-sm text-muted transition-colors hover:text-ink">
           &larr; All matches
         </Link>
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           <CompetitionBadge competition={match.competition_key} />
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {match.team1?.name} vs {match.team2?.name}
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+            {match.team1?.name} v {match.team2?.name}
           </h1>
         </div>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <p className="mt-1 text-sm text-muted">
           {match.event_name && `${match.event_name} · `}
-          {match.venue}, {match.city} &middot; {match.match_date_start}
+          {where || 'Venue not recorded'}
+          {match.match_date_start && <span className="tnum"> · {match.match_date_start}</span>}
         </p>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-          {match.winner
-            ? `${match.winner.name} won${match.win_by_runs ? ` by ${match.win_by_runs} runs` : ''}${
-                match.win_by_wickets ? ` by ${match.win_by_wickets} wickets` : ''
-              }`
-            : (match.outcome_result ?? 'Result unknown')}
+      {/* The result is a recorded fact, not a verdict, so it carries no
+          semantic colour — it earns its weight from size and position. */}
+      <div className="rounded-lg border border-border-default bg-surface p-4">
+        <p className="text-lg font-semibold text-ink">
+          {match.winner ? `${match.winner.name} won${margin}` : (match.outcome_result ?? 'Result unknown')}
         </p>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-500 dark:text-slate-400 sm:grid-cols-3">
-          <p>Toss: {match.toss_winner?.name} chose to {match.toss_decision}</p>
-          {match.player_of_match && <p>Player of the Match: {match.player_of_match}</p>}
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+          {match.toss_winner && (
+            <p>
+              Toss: {match.toss_winner.name} chose to {match.toss_decision}
+            </p>
+          )}
+          {match.player_of_match && <p>Player of the match: {match.player_of_match}</p>}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         {match.team1 && <PerformerTable performers={match.performers} team={match.team1} />}
         {match.team2 && <PerformerTable performers={match.performers} team={match.team2} />}
       </div>
+
+      <p className="max-w-3xl text-xs leading-relaxed text-dim">
+        These are per-match totals, not a scorecard. Batting order, fall of wickets and the sequence
+        of innings need per-delivery records, which this pipeline aggregates and then discards. An
+        asterisk means the player faced deliveries and was not dismissed.
+      </p>
     </div>
   )
 }

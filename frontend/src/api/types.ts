@@ -304,3 +304,113 @@ export interface PaginatedFixtures {
   last_synced: string | null
   items: FixtureRow[]
 }
+
+// --- Analytics: form -------------------------------------------------------
+
+export type FormState =
+  | 'in_form'
+  | 'improving'
+  | 'stable'
+  | 'declining'
+  | 'out_of_form'
+  | 'insufficient_data'
+
+export interface FormTimelineEntry {
+  match_id: string
+  match_date: string | null
+  competition_key: string
+  runs_scored: number
+  balls_faced: number
+  wickets_taken: number
+  balls_bowled: number
+  runs_conceded: number
+  impact: number
+  impact_normalized: number
+}
+
+export interface FormVerdict {
+  state: FormState
+  label: string
+  recent_mean: number | null
+  baseline_mean: number | null
+  recent_matches: number
+  baseline_matches: number
+  delta_ratio: number | null
+  delta_absolute: number | null
+  delta_percent: number | null
+  trend: 'rising' | 'flat' | 'falling' | 'unknown'
+  confidence: number
+  explanation: string
+  recent_window: string
+  baseline_window: string
+  timeline: FormTimelineEntry[]
+}
+
+export interface PeriodOption {
+  key: string
+  label: string
+  kind: string
+}
+
+export interface ParFigures {
+  competition_key: string
+  gender: ApiGender
+  scoring_rate: number
+  economy: number
+  runs_per_wicket: number
+  mean_impact: number
+  balls: number
+}
+
+export interface FormLeaderRow {
+  player_identifier: string
+  player_name: string
+  scorecard_name: string | null
+  state: FormState
+  label: string
+  delta_percent: number | null
+  trend: 'rising' | 'flat' | 'falling' | 'unknown'
+  confidence: number
+  recent_matches: number
+  baseline_matches: number
+  explanation: string
+}
+
+export interface FormLeaderboard {
+  total: number
+  limit: number
+  offset: number
+  scope: string
+  items: FormLeaderRow[]
+}
+
+export interface DirectoryPlayer {
+  identifier: string
+  name: string | null
+  scorecard_name: string | null
+  image_url: string | null
+  nationality: string | null
+  date_of_birth: string | null
+  matches: number
+  balls_faced: number
+  balls_bowled: number
+  runs: number
+  batting_average: number | null
+  strike_rate: number | null
+  wickets: number
+  bowling_average: number | null
+  economy: number | null
+  status: PlayerStatus | null
+  form_state: FormState | null
+  form_label: string | null
+  form_delta: number | null
+  form_confidence: number | null
+}
+
+export interface PlayerDirectory {
+  total: number
+  limit: number
+  offset: number
+  scope: string
+  items: DirectoryPlayer[]
+}

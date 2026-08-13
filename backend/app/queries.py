@@ -1,9 +1,10 @@
 from datetime import date
 
-from sqlalchemy import case, func, select, union_all
+from sqlalchemy import case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from . import schemas
+from .names import preferred_name
 from .models import (
     Competition,
     Fixture,
@@ -176,14 +177,16 @@ def _batting_aggregate_rows(
             # into a single ranking row. player_match_stats.player_identifier is
             # populated for every Cricsheet-sourced row.
             #
-            # Display uses the Wikidata label ("Joe Root") where we have one and
-            # the scorecard name ("JE Root") otherwise -- max() wrappers keep it
-            # valid under GROUP BY even though the join is 1:1 on the group key.
+            # Both name forms are selected and resolved by names.preferred_name
+            # in Python: which one to show depends on whether the scorecard name
+            # is initials, which no SQL dialect expresses cleanly, and keeping
+            # the rule in one module is what stops rankings and profiles
+            # disagreeing about what a player is called. max() wrappers keep
+            # these valid under GROUP BY -- the join is 1:1 on the group key.
             func.coalesce(
-                func.max(Player.display_name),
-                func.max(Player.name),
-                func.max(PlayerMatchStat.player_name),
-            ).label("player_name"),
+                func.max(Player.name), func.max(PlayerMatchStat.player_name)
+            ).label("scorecard_name"),
+            func.max(Player.display_name).label("wikidata_name"),
             PlayerMatchStat.player_identifier,
             func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
             func.sum(PlayerMatchStat.runs_scored).label("runs"),
@@ -211,7 +214,7 @@ def _batting_aggregate_rows(
         balls_faced = r.balls_faced or 0
         results.append(
             {
-                "player_name": r.player_name,
+                "player_name": preferred_name(r.scorecard_name, r.wikidata_name),
                 "player_identifier": r.player_identifier,
                 "matches": r.matches,
                 "runs": runs,
@@ -238,10 +241,9 @@ def _bowling_aggregate_rows(
         select(
             # Grouped by identifier, not name -- see _batting_aggregate_rows.
             func.coalesce(
-                func.max(Player.display_name),
-                func.max(Player.name),
-                func.max(PlayerMatchStat.player_name),
-            ).label("player_name"),
+                func.max(Player.name), func.max(PlayerMatchStat.player_name)
+            ).label("scorecard_name"),
+            func.max(Player.display_name).label("wikidata_name"),
             PlayerMatchStat.player_identifier,
             func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
             func.sum(PlayerMatchStat.wickets_taken).label("wickets"),
@@ -267,7 +269,7 @@ def _bowling_aggregate_rows(
         balls_bowled = r.balls_bowled or 0
         results.append(
             {
-                "player_name": r.player_name,
+                "player_name": preferred_name(r.scorecard_name, r.wikidata_name),
                 "player_identifier": r.player_identifier,
                 "matches": r.matches,
                 "wickets": wickets,
@@ -648,7 +650,15 @@ def search_players(
         .having(func.count(func.distinct(PlayerMatchStat.match_id)) > 0)
     )
     if search:
-        stmt = stmt.where(Player.name.ilike(f"%{search}%"))
+        # Both name forms are searched. Matching only the scorecard name means a
+        # player cannot be found by the name the product itself displays --
+        # "Joe Root" returned nothing while "JE Root" worked.
+        stmt = stmt.where(
+            or_(
+                Player.name.ilike(f"%{search}%"),
+                Player.display_name.ilike(f"%{search}%"),
+            )
+        )
 
     all_rows = db.execute(stmt).all()
     all_rows = sorted(all_rows, key=lambda r: r.matches, reverse=True)
@@ -669,8 +679,12 @@ def search_players(
     items = [
         schemas.PlayerSummary(
             identifier=r.identifier,
-            name=(page_players[r.identifier].display_name if r.identifier in page_players
-                  and page_players[r.identifier].display_name else r.name),
+            name=preferred_name(
+                r.name,
+                page_players[r.identifier].display_name
+                if r.identifier in page_players
+                else None,
+            ),
             scorecard_name=r.name,
             gender=r.gender,
             matches=r.matches,
@@ -1280,3 +1294,194 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
             for p in performers
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Player directory
+# ---------------------------------------------------------------------------
+
+# What a directory row can be ordered by. Kept as a mapping rather than accepting
+# an arbitrary column name so the API can validate against it and the UI can
+# render exactly the options that exist.
+PLAYER_SORTS = {
+    "matches": "matches",
+    "runs": "runs",
+    "batting_average": "batting_average",
+    "strike_rate": "strike_rate",
+    "wickets": "wickets",
+    "bowling_average": "bowling_average",
+    "economy": "economy",
+    "form": "form_delta",
+}
+
+# Ascending is right for these: a lower bowling average or economy is better.
+PLAYER_SORTS_ASCENDING = {"bowling_average", "economy"}
+
+# You cannot rank a player on a discipline they didn't perform. Sorting by
+# economy without this puts batters who bowled six balls and conceded nothing at
+# the top with an economy of 0.00, which is not the best bowling in the dataset
+# -- it is the absence of bowling. Each sort declares what participation it
+# requires, and rows without it are excluded from that ordering rather than
+# being ranked as though a missing figure were a perfect one.
+# ...and merely requiring "more than zero" is not enough: two balls bowled for
+# no run is still an economy of 0.00 at the top of the table. A rate needs a
+# sample before it means anything, so a sort on one applies a default
+# qualification the caller can raise or explicitly lower.
+DEFAULT_QUALIFY_BALLS_FACED = 200
+DEFAULT_QUALIFY_BALLS_BOWLED = 300
+
+SORT_REQUIRES = {
+    "runs": "balls_faced",
+    "batting_average": "balls_faced",
+    "strike_rate": "balls_faced",
+    "wickets": "balls_bowled",
+    "bowling_average": "balls_bowled",
+    "economy": "balls_bowled",
+}
+
+
+def browse_players(
+    db: Session,
+    gender: str,
+    *,
+    search: str | None = None,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    team_id: int | None = None,
+    min_matches: int = 1,
+    min_balls_faced: int = 0,
+    min_balls_bowled: int = 0,
+    status: str | None = None,
+    form_state: str | None = None,
+    sort_by: str = "matches",
+    limit: int = 25,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """The player directory: aggregates, status and form in one row per player.
+
+    Scoped like every other aggregate -- an unqualified request is
+    internationals, not "everything summed together" (see _ranking_scope).
+
+    Sorting and filtering happen after the GROUP BY, in Python, for the same
+    reason the rankings do: batting average needs a divide-by-zero guard that is
+    awkward in SQL. That makes this O(players in scope) per call, which is fine
+    at this dataset's size and is the first thing to revisit if it grows.
+    """
+    from .analytics import leaderboard as form_board
+
+    scope_type = _ranking_scope(competition_key, competition_type)
+
+    batting = {
+        r["player_identifier"]: r
+        for r in _batting_aggregate_rows(
+            db, gender, competition_key, scope_type, team_id=team_id
+        )
+    }
+    bowling = {
+        r["player_identifier"]: r
+        for r in _bowling_aggregate_rows(
+            db, gender, competition_key, scope_type, team_id=team_id
+        )
+    }
+
+    # Form comes from the cached board so the directory and the leaderboards
+    # can't disagree, and so the directory doesn't pay to recompute it.
+    form_rows, _ = form_board.leaderboard_page(
+        db,
+        gender=gender,
+        competition_key=competition_key,
+        competition_type=scope_type,
+        limit=100_000,
+        offset=0,
+    )
+    form_by_player = {r["player_identifier"]: r for r in form_rows}
+
+    reference = dataset_latest_date(db)
+    last_played = _last_played_map(db, gender)
+    players = {
+        p.identifier: p
+        for p in db.execute(select(Player).where(Player.gender == gender)).scalars()
+    }
+
+    needle = (search or "").strip().lower()
+    rows: list[dict] = []
+    for identifier, bat in batting.items():
+        player = players.get(identifier)
+        if player is None:
+            continue
+
+        bowl = bowling.get(identifier, {})
+        matches = bat["matches"]
+        if matches < min_matches:
+            continue
+
+        display = preferred_name(player.name, player.display_name)
+        if needle and needle not in (display or "").lower() and needle not in (player.name or "").lower():
+            continue
+
+        state = player_status(player, last_played.get(identifier), reference)
+        if status and state.state != status:
+            continue
+
+        form_row = form_by_player.get(identifier)
+        if form_state and (not form_row or form_row["state"] != form_state):
+            continue
+
+        rows.append(
+            {
+                "identifier": identifier,
+                "name": display,
+                "scorecard_name": player.name,
+                "image_url": player.image_url,
+                "nationality": player.nationality,
+                "date_of_birth": player.date_of_birth,
+                "matches": matches,
+                "balls_faced": bat["balls_faced"],
+                "balls_bowled": bowl.get("balls_bowled", 0),
+                "runs": bat["runs"],
+                "batting_average": bat["average"],
+                "strike_rate": bat["strike_rate"],
+                "wickets": bowl.get("wickets", 0),
+                "bowling_average": bowl.get("average"),
+                "economy": bowl.get("economy"),
+                "status": state,
+                "form_state": form_row["state"] if form_row else None,
+                "form_label": form_row["label"] if form_row else None,
+                "form_delta": form_row["delta_percent"] if form_row else None,
+                "form_confidence": form_row["confidence"] if form_row else None,
+            }
+        )
+
+    # Qualification, applied after the rows are built so the thresholds can read
+    # the aggregated figures.
+    required = SORT_REQUIRES.get(sort_by)
+    faced_floor, bowled_floor = min_balls_faced, min_balls_bowled
+    if required == "balls_faced" and min_balls_faced == 0:
+        faced_floor = DEFAULT_QUALIFY_BALLS_FACED
+    if required == "balls_bowled" and min_balls_bowled == 0:
+        bowled_floor = DEFAULT_QUALIFY_BALLS_BOWLED
+    rows = [
+        r
+        for r in rows
+        if r["balls_faced"] >= faced_floor and r["balls_bowled"] >= bowled_floor
+    ]
+
+    field = PLAYER_SORTS.get(sort_by, "matches")
+    ascending = field in PLAYER_SORTS_ASCENDING
+    # Identifier first as a stable tiebreak, so paging never repeats or skips a
+    # row when two players share a figure. Missing values sort last in both
+    # directions -- a player with no bowling average is not the best bowler.
+    rows.sort(key=lambda r: r["identifier"])
+    if ascending:
+        rows.sort(key=lambda r: (r[field] is None, r[field] if r[field] is not None else 0))
+    else:
+        # The "is not None" flag has to invert with the sort direction. Reusing
+        # the ascending key under reverse=True would sort missing values to the
+        # TOP -- a form-sorted directory would open with the players who have no
+        # form verdict at all.
+        rows.sort(
+            key=lambda r: (r[field] is not None, r[field] if r[field] is not None else 0),
+            reverse=True,
+        )
+
+    return rows[offset : offset + limit], len(rows)

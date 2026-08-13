@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Compare } from './pages/Compare'
-import { Dashboard } from './pages/Dashboard'
+import { Home } from './pages/Home'
 import { Fixtures } from './pages/Fixtures'
 import { IccRankings } from './pages/IccRankings'
 import { MatchDetail } from './pages/MatchDetail'
@@ -26,7 +26,7 @@ function App() {
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/:gender" element={<Layout />}>
-            <Route index element={<Dashboard />} />
+            <Route index element={<Home />} />
             <Route path="rankings" element={<Rankings />} />
             <Route path="icc-rankings" element={<IccRankings />} />
             <Route path="compare" element={<Compare />} />

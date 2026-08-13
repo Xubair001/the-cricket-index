@@ -38,26 +38,27 @@ export function Teams() {
 
   if (error) return <ErrorMessage message={error} />
 
+  const th = 'px-3 py-2.5 text-right'
+  const td = 'tnum px-3 py-2.5 text-right text-muted'
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Teams</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {teams ? `${teams.length} teams, ranked by matches played` : 'Loading…'}
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Teams</h1>
+          <p className="mt-1 text-sm text-muted">
+            {teams ? `${teams.length} ${teamType} teams, by matches played` : 'Loading…'}
           </p>
         </div>
-        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-800 dark:bg-slate-900">
+        <div className="inline-flex rounded-lg border border-border-default bg-surface p-0.5">
           {TEAM_TYPES.map((t) => (
             <button
               key={t.value}
               type="button"
               onClick={() => setTeamType(t.value)}
               className={
-                'rounded-md px-3 py-1.5 text-sm font-medium transition ' +
-                (teamType === t.value
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white')
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors ' +
+                (teamType === t.value ? 'bg-elevated text-ink' : 'text-muted hover:text-ink')
               }
             >
               {t.label}
@@ -69,49 +70,62 @@ export function Teams() {
       {!teams ? (
         <LoadingSpinner />
       ) : teams.length === 0 ? (
-        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+        <p className="rounded-lg border border-border-default bg-surface px-4 py-6 text-sm text-muted">
           No {teamType} teams in this dataset.
         </p>
       ) : (
-
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
-              <th className="py-3 pl-5">#</th>
-              <th className="py-3">Team</th>
-              <th className="py-3 text-right">Matches</th>
-              <th className="py-3 text-right">Won</th>
-              <th className="py-3 text-right">Lost</th>
-              <th className="py-3 text-right">Tied/NR</th>
-              <th className="py-3 pr-5 text-right">Win %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {teams.map((t, i) => (
-              <tr key={t.team_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
-                <td className="py-2.5 pl-5 text-slate-400">{i + 1}</td>
-                <td className="py-2.5">
-                  <Link
-                    to={`/${slug}/teams/${t.team_id}`}
-                    className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100 dark:hover:text-emerald-400"
-                  >
-                    {t.name}
-                  </Link>
-                </td>
-                <td className="py-2.5 text-right text-slate-600 dark:text-slate-300">{t.matches}</td>
-                <td className="py-2.5 text-right text-emerald-600 dark:text-emerald-400">{t.wins}</td>
-                <td className="py-2.5 text-right text-red-500 dark:text-red-400">{t.losses}</td>
-                <td className="py-2.5 text-right text-slate-500 dark:text-slate-400">{t.ties_or_no_result}</td>
-                <td className="py-2.5 pr-5 text-right font-semibold text-slate-800 dark:text-slate-100">
-                  {t.win_pct !== null ? `${t.win_pct}%` : '-'}
-                </td>
+        <div className="scroll-x rounded-lg border border-border-default bg-surface">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead>
+              <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <th className="px-4 py-2.5">#</th>
+                <th className="px-3 py-2.5">Team</th>
+                <th className={th}>Matches</th>
+                <th className={th}>Won</th>
+                <th className={th}>Lost</th>
+                <th className={th}>Tied/NR</th>
+                <th className="px-4 py-2.5 text-right">Win %</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {/* Wins and losses render neutrally. Colouring a whole column
+                  green or red carries no per-row information — every cell in it
+                  would be the same colour — and green/red are reserved for
+                  above/below baseline elsewhere. Win % is the comparative
+                  figure, so that is the one given weight. */}
+              {teams.map((t, i) => (
+                <tr
+                  key={t.team_id}
+                  className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                >
+                  <td className="tnum px-4 py-2.5 text-dim">{i + 1}</td>
+                  <td className="px-3 py-2.5">
+                    <Link
+                      to={`/${slug}/teams/${t.team_id}`}
+                      className="font-medium text-ink hover:text-analytic"
+                    >
+                      {t.name}
+                    </Link>
+                  </td>
+                  <td className={td}>{t.matches.toLocaleString()}</td>
+                  <td className={td}>{t.wins}</td>
+                  <td className={td}>{t.losses}</td>
+                  <td className={td}>{t.ties_or_no_result}</td>
+                  <td className="tnum px-4 py-2.5 text-right font-semibold text-ink">
+                    {t.win_pct !== null ? `${t.win_pct}%` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      <p className="max-w-3xl text-xs leading-relaxed text-dim">
+        Win % counts decided matches only; ties and no-results sit in their own column rather than
+        being folded into either side. International and franchise sides are listed separately
+        because their records are not comparable.
+      </p>
     </div>
   )
 }

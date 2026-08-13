@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { PlayerDetail as PlayerDetailType } from '../api/types'
+import type { FormVerdict, PlayerDetail as PlayerDetailType } from '../api/types'
+import FormVerdictCard from '../components/FormVerdictCard'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -13,6 +14,8 @@ export function PlayerDetail() {
   const { identifier = '' } = useParams()
   const [player, setPlayer] = useState<PlayerDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [form, setForm] = useState<FormVerdict | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     // Guards against a slower request for a previous `identifier` resolving
@@ -27,6 +30,26 @@ export function PlayerDetail() {
       })
       .catch((e) => {
         if (!cancelled) setError(String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [identifier])
+
+  // Fetched separately from the profile so a slow form computation never holds
+  // up the page, and so a failure here degrades to "form unavailable" rather
+  // than taking the whole profile down with it.
+  useEffect(() => {
+    let cancelled = false
+    setForm(null)
+    setFormError(null)
+    api
+      .playerForm(identifier, { competition_type: 'international' })
+      .then((res) => {
+        if (!cancelled) setForm(res)
+      })
+      .catch((e) => {
+        if (!cancelled) setFormError(String(e))
       })
     return () => {
       cancelled = true
@@ -70,6 +93,17 @@ export function PlayerDetail() {
           Compare with another player &rarr;
         </Link>
       </div>
+
+      {/* Form sits above the career record deliberately: Rule 3 treats "how is
+          this player going now" as a different question from "what have they
+          done", and it is the one a selector opens the page to answer. */}
+      {formError ? (
+        <p className="text-sm text-muted">Form unavailable: {formError}</p>
+      ) : form ? (
+        <FormVerdictCard verdict={form} scopeLabel="international cricket" />
+      ) : (
+        <div className="h-36 animate-pulse rounded-lg border border-border-default bg-surface" />
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Bio</h3>

@@ -207,11 +207,29 @@ CricketArchive and ESPNcricinfo's own scorecard guidelines use; it is **not**
 stale or wrong data, and it is not to be "fixed" by replacing the source.
 
 `players.display_name` holds the Wikidata label alongside it, and the API
-returns that as `name` with the scorecard form as `scorecard_name`. Coverage is
-~4,100 of 9,442, so the fallback is load-bearing: a player Wikidata doesn't
-know keeps their scorecard name rather than getting a fabricated full name.
-The aggregate helpers coalesce in the same order, so rankings and team pages
-read the same way as profiles.
+returns the preferred form as `name` with the scorecard form as
+`scorecard_name`. Coverage is ~4,100 of 9,442, so the fallback is load-bearing:
+a player Wikidata doesn't know keeps their scorecard name rather than getting a
+fabricated full name.
+
+**Preferring the Wikidata label unconditionally is wrong**, and `app/names.py`
+owns the rule that replaced it. Wikidata stores a *formal* name, so where the
+scorecard form is already natural the label makes it less recognisable, not
+more — `Babar Azam` → `Mohammad Babar Azam`, `Imran Khan` →
+`Mohammad Imran Khan`, `Liton Das` → `Litton Das`. The label is therefore used
+only when the scorecard name needs expanding, i.e. its first token is an
+initials cluster (`JE Root` → `Joe Root`, `HMRKB Herath` → `Rangana Herath`).
+That pattern allows up to eight letters: Sri Lankan initials run long
+(`CBRLS Kumara`, `PADLR Sandakan`), and a narrower bound leaves them displayed
+as initials. 3,103 of the 4,119 labelled players take the label; of the 1,016
+that keep their scorecard name, 102 would otherwise have been renamed wrongly.
+Known limit: players best known *by* their initials (`MS Dhoni`) get expanded,
+because nothing distinguishes them from `JE Root` — the sourced label wins over
+a guess.
+
+Search matches **both** columns. Matching only `players.name` meant a player
+could not be found by the name the product itself displayed: "Joe Root"
+returned nothing while "JE Root" worked.
 
 `players.image_url` is a Wikimedia Commons photo (P18), for ~1,000 players.
 Two non-obvious details:

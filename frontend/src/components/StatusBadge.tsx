@@ -9,12 +9,13 @@ import type { PlayerStatus } from '../api/types'
  * only when a source says so, and says which source on hover.
  */
 const STYLES: Record<string, string> = {
-  active:
-    'bg-emerald-100 text-emerald-800 ring-emerald-600/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/20',
-  retired:
-    'bg-slate-200 text-slate-700 ring-slate-500/20 dark:bg-slate-500/20 dark:text-slate-300 dark:ring-slate-400/20',
-  inactive:
-    'bg-amber-100 text-amber-800 ring-amber-600/20 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/20',
+  active: 'bg-positive-dim text-positive ring-positive/30',
+  // Sourced fact, stated plainly -- neutral rather than semantic, because
+  // being retired is not a judgement about the player.
+  retired: 'bg-elevated text-muted ring-border-default',
+  // Amber is the product's uncertainty colour, which is exactly right here:
+  // "last played 2019" is an observation, not a conclusion about why.
+  inactive: 'bg-warning-dim text-warning ring-warning/30',
 }
 
 function year(date: string | null): string | null {
@@ -61,10 +62,10 @@ export function StatusBadge({ status }: { status: PlayerStatus | null }) {
         aria-hidden
         className={`h-1.5 w-1.5 rounded-full ${
           status.state === 'active'
-            ? 'bg-emerald-500'
+            ? 'bg-positive'
             : status.state === 'retired'
-              ? 'bg-slate-400'
-              : 'bg-amber-500'
+              ? 'bg-muted'
+              : 'bg-warning'
         }`}
       />
       {statusLabel(status)}

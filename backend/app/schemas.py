@@ -328,3 +328,118 @@ class PaginatedPlayers(BaseModel):
     limit: int
     offset: int
     items: list[PlayerSummary]
+
+
+# ---------------------------------------------------------------------------
+# Analytics: form
+# ---------------------------------------------------------------------------
+
+
+class FormTimelineEntry(BaseModel):
+    match_id: str
+    match_date: str | None
+    competition_key: str
+    runs_scored: int
+    balls_faced: int
+    wickets_taken: int
+    balls_bowled: int
+    runs_conceded: int
+    impact: float
+    impact_normalized: float
+
+
+class FormVerdict(BaseModel):
+    """A form classification with everything needed to justify it.
+
+    The verdict is never returned alone. Rule 5 applies here as much as to a
+    recommendation: the means it compares, the sample sizes behind them, the
+    windows they cover and a confidence figure all travel with the label, so the
+    UI can show why a player is called "in form" and how much to trust it.
+    """
+
+    state: str
+    label: str
+    recent_mean: float | None
+    baseline_mean: float | None
+    recent_matches: int
+    baseline_matches: int
+    delta_ratio: float | None
+    delta_absolute: float | None
+    delta_percent: float | None
+    trend: str
+    confidence: float
+    explanation: str
+    recent_window: str
+    baseline_window: str
+    timeline: list[FormTimelineEntry]
+
+
+class PeriodOption(BaseModel):
+    key: str
+    label: str
+    kind: str
+
+
+class ParFigures(BaseModel):
+    """What a par performance looks like in one competition, as measured."""
+
+    competition_key: str
+    gender: str
+    scoring_rate: float
+    economy: float
+    runs_per_wicket: float
+    mean_impact: float
+    balls: int
+
+
+class FormLeaderRow(BaseModel):
+    player_identifier: str
+    player_name: str
+    scorecard_name: str | None
+    state: str
+    label: str
+    delta_percent: float | None
+    trend: str
+    confidence: float
+    recent_matches: int
+    baseline_matches: int
+    explanation: str
+
+
+class FormLeaderboard(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    scope: str
+    items: list[FormLeaderRow]
+
+
+class DirectoryPlayer(BaseModel):
+    identifier: str
+    name: str | None
+    scorecard_name: str | None
+    image_url: str | None
+    nationality: str | None
+    date_of_birth: str | None
+    matches: int
+    balls_faced: int
+    balls_bowled: int
+    runs: int
+    batting_average: float | None
+    strike_rate: float | None
+    wickets: int
+    bowling_average: float | None
+    economy: float | None
+    status: PlayerStatus | None
+    form_state: str | None
+    form_label: str | None
+    form_delta: float | None
+    form_confidence: float | None
+
+
+class PlayerDirectory(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    scope: str
+    items: list[DirectoryPlayer]

@@ -11,24 +11,19 @@ export function Pagination({ total, limit, offset, onChange }: PaginationProps) 
 
   if (pageCount <= 1) return null
 
+  const button =
+    'rounded-md border border-border-default px-3 py-1.5 font-medium text-ink transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
+
   return (
-    <div className="flex items-center justify-between gap-4 py-4 text-sm">
-      <span className="text-slate-500 dark:text-slate-400">
+    <div className="flex items-center justify-between gap-4 border-t border-border-subtle py-3 text-sm">
+      <span className="tnum text-muted">
         Page {page} of {pageCount} &middot; {total.toLocaleString()} total
       </span>
       <div className="flex gap-2">
-        <button
-          className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
-          onClick={() => onChange(Math.max(0, offset - limit))}
-          disabled={offset === 0}
-        >
+        <button className={button} onClick={() => onChange(Math.max(0, offset - limit))} disabled={offset === 0}>
           Previous
         </button>
-        <button
-          className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
-          onClick={() => onChange(offset + limit)}
-          disabled={offset + limit >= total}
-        >
+        <button className={button} onClick={() => onChange(offset + limit)} disabled={offset + limit >= total}>
           Next
         </button>
       </div>

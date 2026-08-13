@@ -1,0 +1,559 @@
+"""The form engine -- is this player playing better or worse than they usually do?
+
+Method
+------
+1. Every match in scope becomes an impact figure (`impact.py`), normalized so
+   that 1.0 is a par appearance in that competition. Batting and bowling become
+   comparable, and so do formats -- without that second step a player who moves
+   from Tests to T20Is shows a collapse in form having changed nothing, because
+   a Test appearance is worth nearly four times a T20I one in raw runs.
+2. The **recent window** is the player's last N matches (default 10).
+3. The **baseline** is the same player over the preceding 12 months, with the
+   recent window removed. Form is measured against the player's own normal
+   level, never against other players -- that is what makes "in form" mean
+   *changed*, rather than *good*.
+4. The verdict is the change in mean impact per match, banded by `config`.
+5. A trend is taken *within* the recent window by comparing its older half with
+   its newer half, so "improving" and "declining" describe direction rather than
+   just position against the baseline.
+
+Every step is reported, not just the verdict. `FormVerdict` carries the two
+means, the sample sizes, the delta, the trend and a confidence figure, because a
+classification drawn from four innings and one drawn from forty must not look
+identical in the UI.
+
+Deliberate limits
+-----------------
+Self-relative comparison means an ordinary player having a good month and a
+great player having a good month both read "in form". That is correct for this
+question -- "who has changed" is not "who is best", and conflating them is how
+form tables end up just re-listing the best players. Ranking by standard is the
+Performance Index's job, and the two are shown side by side rather than merged.
+
+A player whose baseline is near zero (a tail-ender, or someone who has barely
+batted or bowled) cannot produce a meaningful percentage change; below
+`MIN_MEANINGFUL_BASELINE` the delta is reported in absolute impact units and
+confidence is capped.
+
+**Opposition is not adjusted for.** Par is measured per competition, so a T20I
+is judged against T20I norms -- but every T20I shares one par, whether it was
+played against Australia or Indonesia. Associate-nation players consequently
+rise up a form board faster than their cricket warrants, because runs against
+weak attacks cost the same as runs against strong ones. This is visible in the
+current output and is not a bug in the shrinkage or the banding; it is the
+missing opposition-strength term, which the Performance Index carries at 15%
+(scope §10) and the form engine does not yet have. Until it exists, a form board
+answers "who has improved against the cricket they happen to have played",
+which is a narrower question than it appears.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from ..models import Competition, Match, PlayerMatchStat
+from . import config, impact as impact_mod
+
+
+@dataclass
+class MatchImpact:
+    """One match in a player's timeline, with its impact decomposed."""
+
+    match_id: str
+    match_date: str | None
+    competition_key: str
+    gender: str
+    opponent_team_id: int | None
+    runs_scored: int
+    balls_faced: int
+    wickets_taken: int
+    balls_bowled: int
+    runs_conceded: int
+    impact: impact_mod.Impact
+
+    def as_dict(self) -> dict:
+        return {
+            "match_id": self.match_id,
+            "match_date": self.match_date,
+            "competition_key": self.competition_key,
+            "runs_scored": self.runs_scored,
+            "balls_faced": self.balls_faced,
+            "wickets_taken": self.wickets_taken,
+            "balls_bowled": self.balls_bowled,
+            "runs_conceded": self.runs_conceded,
+            "impact": round(self.impact.total, 2),
+            "impact_normalized": round(self.impact.normalized, 3),
+        }
+
+
+@dataclass
+class FormVerdict:
+    state: str
+    label: str
+    recent_mean: float | None
+    baseline_mean: float | None
+    recent_matches: int
+    baseline_matches: int
+    delta_ratio: float | None      # None when the baseline is too small to divide by
+    delta_absolute: float | None
+    trend: str                     # rising | flat | falling | unknown
+    confidence: float              # 0..1
+    explanation: str
+    recent_window_label: str
+    baseline_window_label: str
+    timeline: list[dict] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "state": self.state,
+            "label": self.label,
+            "recent_mean": _round(self.recent_mean),
+            "baseline_mean": _round(self.baseline_mean),
+            "recent_matches": self.recent_matches,
+            "baseline_matches": self.baseline_matches,
+            "delta_ratio": _round(self.delta_ratio, 4),
+            "delta_absolute": _round(self.delta_absolute),
+            "delta_percent": _round(self.delta_ratio * 100) if self.delta_ratio is not None else None,
+            "trend": self.trend,
+            "confidence": _round(self.confidence, 3),
+            "explanation": self.explanation,
+            "recent_window": self.recent_window_label,
+            "baseline_window": self.baseline_window_label,
+            "timeline": self.timeline,
+        }
+
+
+def _round(value: float | None, places: int = 2) -> float | None:
+    return None if value is None else round(value, places)
+
+
+def player_timeline(
+    db: Session,
+    player_identifier: str,
+    *,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    limit: int | None = None,
+) -> list[MatchImpact]:
+    """Every match this player appears in, newest first, scored for impact.
+
+    Ordered by date descending with match_id as a tiebreak so that two matches
+    on the same date -- common in a tournament -- always order the same way.
+    Without it, "last 10 matches" can quietly return a different ten between
+    two requests and the form verdict flickers.
+    """
+    par = impact_mod.par_table(db)
+
+    stmt = (
+        select(
+            PlayerMatchStat.match_id,
+            Match.match_date_start,
+            Competition.key,
+            Match.gender,
+            Match.team1_id,
+            Match.team2_id,
+            PlayerMatchStat.team_id,
+            PlayerMatchStat.runs_scored,
+            PlayerMatchStat.balls_faced,
+            PlayerMatchStat.wickets_taken,
+            PlayerMatchStat.balls_bowled,
+            PlayerMatchStat.runs_conceded,
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(PlayerMatchStat.player_identifier == player_identifier)
+        .order_by(Match.match_date_start.desc(), PlayerMatchStat.match_id.desc())
+    )
+    if competition_key:
+        stmt = stmt.where(Competition.key == competition_key)
+    if competition_type:
+        stmt = stmt.where(Competition.type == competition_type)
+    if limit:
+        stmt = stmt.limit(limit)
+
+    out: list[MatchImpact] = []
+    for row in db.execute(stmt).all():
+        (
+            match_id, match_date, comp_key, gender,
+            team1_id, team2_id, team_id,
+            runs, balls_faced, wickets, balls_bowled, conceded,
+        ) = row
+        opponent = team2_id if team_id == team1_id else team1_id
+        out.append(
+            MatchImpact(
+                match_id=match_id,
+                match_date=match_date,
+                competition_key=comp_key,
+                gender=gender,
+                opponent_team_id=opponent,
+                runs_scored=runs or 0,
+                balls_faced=balls_faced or 0,
+                wickets_taken=wickets or 0,
+                balls_bowled=balls_bowled or 0,
+                runs_conceded=conceded or 0,
+                impact=impact_mod.score(
+                    runs_scored=runs or 0,
+                    balls_faced=balls_faced or 0,
+                    wickets_taken=wickets or 0,
+                    balls_bowled=balls_bowled or 0,
+                    runs_conceded=conceded or 0,
+                    par=par.lookup(comp_key, gender),
+                ),
+            )
+        )
+    return out
+
+
+def all_timelines(
+    db: Session,
+    *,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+) -> dict[str, list[MatchImpact]]:
+    """Every player's scored timeline, in one query.
+
+    `player_timeline` is fine for one profile but issues a query per player,
+    which makes a leaderboard over ~2,600 players 2,600 round trips. This pulls
+    the whole scope once and groups in Python; the per-player verdict is then
+    computed by the same `assess` used on a profile page, so a leaderboard row
+    and a profile can never disagree about a player's form.
+    """
+    par = impact_mod.par_table(db)
+
+    stmt = (
+        select(
+            PlayerMatchStat.player_identifier,
+            PlayerMatchStat.match_id,
+            Match.match_date_start,
+            Competition.key,
+            Match.gender,
+            Match.team1_id,
+            Match.team2_id,
+            PlayerMatchStat.team_id,
+            PlayerMatchStat.runs_scored,
+            PlayerMatchStat.balls_faced,
+            PlayerMatchStat.wickets_taken,
+            PlayerMatchStat.balls_bowled,
+            PlayerMatchStat.runs_conceded,
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(
+            PlayerMatchStat.player_identifier.is_not(None),
+            Match.gender == gender,
+        )
+        .order_by(
+            PlayerMatchStat.player_identifier,
+            Match.match_date_start.desc(),
+            PlayerMatchStat.match_id.desc(),
+        )
+    )
+    if competition_key:
+        stmt = stmt.where(Competition.key == competition_key)
+    if competition_type:
+        stmt = stmt.where(Competition.type == competition_type)
+
+    out: dict[str, list[MatchImpact]] = {}
+    for row in db.execute(stmt).all():
+        (
+            pid, match_id, match_date, comp_key, row_gender,
+            team1_id, team2_id, team_id,
+            runs, balls_faced, wickets, balls_bowled, conceded,
+        ) = row
+        out.setdefault(pid, []).append(
+            MatchImpact(
+                match_id=match_id,
+                match_date=match_date,
+                competition_key=comp_key,
+                gender=row_gender,
+                opponent_team_id=team2_id if team_id == team1_id else team1_id,
+                runs_scored=runs or 0,
+                balls_faced=balls_faced or 0,
+                wickets_taken=wickets or 0,
+                balls_bowled=balls_bowled or 0,
+                runs_conceded=conceded or 0,
+                impact=impact_mod.score(
+                    runs_scored=runs or 0,
+                    balls_faced=balls_faced or 0,
+                    wickets_taken=wickets or 0,
+                    balls_bowled=balls_bowled or 0,
+                    runs_conceded=conceded or 0,
+                    par=par.lookup(comp_key, row_gender),
+                ),
+            )
+        )
+    return out
+
+
+@dataclass
+class FormLeader:
+    player_identifier: str
+    verdict: FormVerdict
+
+    @property
+    def rank_score(self) -> float:
+        """Evidence-weighted move, used for ordering only.
+
+        Ranking on the raw delta puts the thinnest verdicts on top: the largest
+        percentage swings belong to players with the shortest baselines, because
+        that is where the noise is. Weighting by confidence is the same
+        empirical-Bayes reasoning as the shrinkage applied inside `assess`,
+        extended to baseline size -- a +200% move off seven matches ranks below
+        a +90% move off forty, which is the correct ordering for "who should I
+        look at".
+
+        The displayed figure stays the unweighted delta; this only decides
+        position, so the board never shows a number the player didn't produce.
+        """
+        return (self.verdict.delta_ratio or 0.0) * self.verdict.confidence
+
+
+def leaderboard(
+    db: Session,
+    *,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    recent_matches: int = config.DEFAULT_RECENT_MATCHES,
+    baseline_days: int = config.DEFAULT_BASELINE_DAYS,
+    active_within_days: int = config.LEADERBOARD_ACTIVE_WINDOW_DAYS,
+    min_confidence: float = config.LEADERBOARD_MIN_CONFIDENCE,
+) -> list[FormLeader]:
+    """Form verdicts for every currently-active player in scope.
+
+    Two filters keep the board honest rather than merely long:
+
+    * `active_within_days` drops players who aren't playing. A retired player's
+      last ten matches are still "recent" to a naive window, and a form table
+      that opens with someone who stopped playing in 2019 is wrong in the way
+      that matters most to a selector.
+    * `min_confidence` drops verdicts resting on too little cricket. Without it
+      the extremes of the board are exactly the players with the fewest matches,
+      because that is where the noise is.
+
+    Anchored to the newest match in the dataset, not today -- same reason as
+    everywhere else: a stale archive must not silently retire everyone.
+    """
+    anchor = db.execute(select(func.max(Match.match_date_start))).scalar_one_or_none()
+    cutoff: str | None = None
+    if anchor:
+        try:
+            cutoff = (
+                date.fromisoformat(anchor[:10]) - timedelta(days=active_within_days)
+            ).isoformat()
+        except ValueError:
+            cutoff = None
+
+    timelines = all_timelines(
+        db,
+        gender=gender,
+        competition_key=competition_key,
+        competition_type=competition_type,
+    )
+
+    leaders: list[FormLeader] = []
+    for pid, timeline in timelines.items():
+        if not timeline:
+            continue
+        newest = timeline[0].match_date
+        if cutoff and (not newest or newest[:10] < cutoff):
+            continue
+        verdict = assess(
+            db,
+            pid,
+            recent_matches=recent_matches,
+            baseline_days=baseline_days,
+            timeline=timeline,
+        )
+        if verdict.state == "insufficient_data" or verdict.confidence < min_confidence:
+            continue
+        leaders.append(FormLeader(player_identifier=pid, verdict=verdict))
+
+    # Best-first, with identifier as a stable tiebreak so paging can't repeat or
+    # skip a row when two players share a delta.
+    leaders.sort(key=lambda l: l.player_identifier)
+    leaders.sort(key=lambda l: l.rank_score, reverse=True)
+    return leaders
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _trend(recent: list[MatchImpact]) -> str:
+    """Direction within the recent window: older half versus newer half."""
+    if len(recent) < 4:
+        return "unknown"
+    # `recent` is newest-first; split so `newer` really is the later cricket.
+    half = len(recent) // 2
+    newer = _mean([m.impact.normalized for m in recent[:half]])
+    older = _mean([m.impact.normalized for m in recent[half:]])
+    if newer is None or older is None:
+        return "unknown"
+    spread = max(abs(older), 1.0)
+    change = (newer - older) / spread
+    if change > 0.15:
+        return "rising"
+    if change < -0.15:
+        return "falling"
+    return "flat"
+
+
+def _confidence(recent_n: int, baseline_n: int, low_baseline: bool) -> float:
+    recent_factor = min(1.0, recent_n / config.CONFIDENCE_FULL_RECENT)
+    baseline_factor = min(1.0, baseline_n / config.CONFIDENCE_FULL_BASELINE)
+    value = recent_factor * baseline_factor
+    if low_baseline:
+        value = min(value, config.LOW_BASELINE_CONFIDENCE_CAP)
+    return round(value, 3)
+
+
+def _band(delta_ratio: float) -> str:
+    for state, threshold in config.FORM_BANDS:
+        if delta_ratio >= threshold:
+            return state
+    return "out_of_form"
+
+
+def assess(
+    db: Session,
+    player_identifier: str,
+    *,
+    recent_matches: int = config.DEFAULT_RECENT_MATCHES,
+    baseline_days: int = config.DEFAULT_BASELINE_DAYS,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    timeline: list[MatchImpact] | None = None,
+) -> FormVerdict:
+    """Classify a player's current form against their own recent baseline."""
+    matches = timeline if timeline is not None else player_timeline(
+        db,
+        player_identifier,
+        competition_key=competition_key,
+        competition_type=competition_type,
+    )
+
+    recent_window_label = f"last {recent_matches} matches"
+    baseline_window_label = f"preceding {baseline_days // 30} months"
+
+    recent = matches[:recent_matches]
+    if len(recent) < config.MIN_RECENT_MATCHES:
+        return FormVerdict(
+            state="insufficient_data",
+            label=config.FORM_LABELS["insufficient_data"],
+            recent_mean=None, baseline_mean=None,
+            recent_matches=len(recent), baseline_matches=0,
+            delta_ratio=None, delta_absolute=None,
+            trend="unknown", confidence=0.0,
+            explanation=(
+                f"Only {len(recent)} match{'' if len(recent) == 1 else 'es'} on record "
+                f"in this scope — too few to judge form against a baseline."
+            ),
+            recent_window_label=recent_window_label,
+            baseline_window_label=baseline_window_label,
+            timeline=[m.as_dict() for m in recent],
+        )
+
+    # The baseline runs back from the oldest match of the recent window, so the
+    # two sets never overlap (config.BASELINE_EXCLUDES_RECENT).
+    anchor = recent[-1].match_date
+    cutoff: str | None = None
+    if anchor:
+        try:
+            cutoff = (date.fromisoformat(anchor[:10]) - timedelta(days=baseline_days)).isoformat()
+        except ValueError:
+            cutoff = None
+
+    older = matches[recent_matches:] if config.BASELINE_EXCLUDES_RECENT else matches
+    baseline = [
+        m for m in older
+        if cutoff is None or (m.match_date and m.match_date[:10] >= cutoff)
+    ]
+    # A player whose whole career predates the baseline window would otherwise
+    # get no baseline at all; fall back to everything before the recent window.
+    if len(baseline) < config.MIN_BASELINE_MATCHES:
+        baseline = older
+        baseline_window_label = "career before this run"
+
+    recent_mean = _mean([m.impact.normalized for m in recent]) or 0.0
+    trend = _trend(recent)
+
+    if len(baseline) < config.MIN_BASELINE_MATCHES:
+        return FormVerdict(
+            state="insufficient_data",
+            label=config.FORM_LABELS["insufficient_data"],
+            recent_mean=recent_mean, baseline_mean=None,
+            recent_matches=len(recent), baseline_matches=len(baseline),
+            delta_ratio=None, delta_absolute=None,
+            trend=trend, confidence=0.0,
+            explanation=(
+                f"{len(recent)} recent matches, but only {len(baseline)} earlier "
+                "ones to compare against — not enough history for a baseline."
+            ),
+            recent_window_label=recent_window_label,
+            baseline_window_label=baseline_window_label,
+            timeline=[m.as_dict() for m in recent],
+        )
+
+    baseline_mean = _mean([m.impact.normalized for m in baseline]) or 0.0
+
+    # Shrink the recent mean towards the baseline in proportion to how little
+    # cricket it rests on -- equivalent to crediting the player with
+    # FORM_SHRINKAGE_MATCHES extra matches at their established level. Without
+    # this, a three-innings purple patch and a thirty-match rise look alike.
+    k = config.FORM_SHRINKAGE_MATCHES
+    n = len(recent)
+    adjusted_recent = (n * recent_mean + k * baseline_mean) / (n + k)
+    delta_absolute = adjusted_recent - baseline_mean
+
+    low_baseline = abs(baseline_mean) < config.MIN_MEANINGFUL_BASELINE
+    delta_ratio: float | None
+    if low_baseline:
+        # Dividing by a near-zero baseline manufactures huge percentages from
+        # trivial changes. Band on the absolute move instead, scaled against the
+        # threshold below which we don't trust ratios at all.
+        delta_ratio = delta_absolute / config.MIN_MEANINGFUL_BASELINE
+    else:
+        delta_ratio = delta_absolute / abs(baseline_mean)
+
+    state = _band(delta_ratio)
+    confidence = _confidence(len(recent), len(baseline), low_baseline)
+
+    direction = "above" if delta_absolute >= 0 else "below"
+    if low_baseline:
+        detail = (
+            f"{abs(delta_absolute):.2f} of a par performance per match {direction} "
+            f"their {baseline_window_label} baseline"
+        )
+    else:
+        detail = (
+            f"{abs(delta_ratio) * 100:.0f}% {direction} their "
+            f"{baseline_window_label} baseline"
+        )
+    explanation = (
+        f"Performance over the {recent_window_label} is {detail} "
+        f"({recent_mean:.2f} vs {baseline_mean:.2f} times a par performance, "
+        f"from {len(recent)} recent and {len(baseline)} earlier matches)."
+    )
+
+    return FormVerdict(
+        state=state,
+        label=config.FORM_LABELS[state],
+        recent_mean=recent_mean,
+        baseline_mean=baseline_mean,
+        recent_matches=len(recent),
+        baseline_matches=len(baseline),
+        delta_ratio=delta_ratio,
+        delta_absolute=delta_absolute,
+        trend=trend,
+        confidence=confidence,
+        explanation=explanation,
+        recent_window_label=recent_window_label,
+        baseline_window_label=baseline_window_label,
+        timeline=[m.as_dict() for m in recent],
+    )

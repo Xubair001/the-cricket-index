@@ -1,0 +1,205 @@
+import { useState } from 'react'
+import type { FormState, FormVerdict } from '../api/types'
+
+/**
+ * A form verdict with its workings attached.
+ *
+ * Rule 5 says a rating is incomplete without its reasoning, so the label is
+ * never shown alone: the delta, both means, the sample sizes behind them and a
+ * confidence figure are all on the card, and the full decomposition is one
+ * click away. The confidence bar turns amber below the point where the verdict
+ * rests on enough cricket to be trusted — a classification drawn from four
+ * innings must not look like one drawn from forty.
+ */
+
+const TONE: Record<FormState, { fg: string; bg: string; ring: string }> = {
+  in_form: { fg: 'text-positive', bg: 'bg-positive-dim', ring: 'ring-positive/40' },
+  improving: { fg: 'text-positive', bg: 'bg-positive-dim', ring: 'ring-positive/30' },
+  stable: { fg: 'text-analytic', bg: 'bg-analytic-dim', ring: 'ring-analytic/30' },
+  declining: { fg: 'text-warning', bg: 'bg-warning-dim', ring: 'ring-warning/30' },
+  out_of_form: { fg: 'text-negative', bg: 'bg-negative-dim', ring: 'ring-negative/40' },
+  insufficient_data: { fg: 'text-muted', bg: 'bg-elevated', ring: 'ring-border-default' },
+}
+
+const TREND_GLYPH: Record<FormVerdict['trend'], string> = {
+  rising: '↗',
+  flat: '→',
+  falling: '↘',
+  unknown: '·',
+}
+
+// Below this, the verdict is reported but visibly qualified rather than
+// presented with the same weight as a well-evidenced one.
+const LOW_CONFIDENCE = 0.5
+
+function Sparkline({ verdict }: { verdict: FormVerdict }) {
+  const points = [...verdict.timeline].reverse() // oldest first, so it reads left to right
+  if (points.length < 2) return null
+
+  const baseline = verdict.baseline_mean ?? 0
+  const values = points.map((p) => p.impact_normalized)
+  const peak = Math.max(...values, baseline, 1)
+  const width = 100
+  const height = 34
+  const gap = 2
+  const barWidth = Math.max(1.5, width / points.length - gap)
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-9 w-full"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={`Impact across the ${verdict.recent_window}, oldest to newest`}
+    >
+      {/* The baseline is the thing every bar is being judged against, so it is
+          drawn rather than left implicit. */}
+      <line
+        x1="0"
+        x2={width}
+        y1={height - (baseline / peak) * height}
+        y2={height - (baseline / peak) * height}
+        stroke="var(--color-muted)"
+        strokeWidth="0.5"
+        strokeDasharray="2 2"
+      />
+      {points.map((p, i) => {
+        const value = Math.max(0, p.impact_normalized)
+        const barHeight = (value / peak) * height
+        return (
+          <rect
+            key={p.match_id}
+            x={i * (barWidth + gap)}
+            y={height - barHeight}
+            width={barWidth}
+            height={Math.max(barHeight, 0.6)}
+            fill={
+              p.impact_normalized >= baseline
+                ? 'var(--color-positive)'
+                : 'var(--color-border-default)'
+            }
+            rx="0.5"
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+export default function FormVerdictCard({
+  verdict,
+  scopeLabel,
+}: {
+  verdict: FormVerdict
+  scopeLabel?: string
+}) {
+  const [showWorkings, setShowWorkings] = useState(false)
+  const tone = TONE[verdict.state] ?? TONE.insufficient_data
+  const lowConfidence = verdict.confidence < LOW_CONFIDENCE
+  const delta = verdict.delta_percent
+
+  return (
+    <section className="rounded-lg border border-border-default bg-surface">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
+        <div>
+          <h2 className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+            Current form
+          </h2>
+          <div className="mt-2 flex items-center gap-3">
+            <span
+              className={`rounded px-2.5 py-1 text-sm font-semibold ring-1 ${tone.fg} ${tone.bg} ${tone.ring}`}
+            >
+              {verdict.label}
+            </span>
+            {delta !== null && (
+              <span className={`tnum text-2xl font-semibold ${tone.fg}`}>
+                {delta > 0 ? '+' : ''}
+                {delta.toFixed(0)}%
+              </span>
+            )}
+            <span className="text-lg text-muted" title={`Trend within the ${verdict.recent_window}`}>
+              {TREND_GLYPH[verdict.trend]}
+            </span>
+          </div>
+        </div>
+
+        <div className="min-w-[140px]">
+          <div className="flex items-baseline justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+            <span>Confidence</span>
+            <span className="tnum">{Math.round(verdict.confidence * 100)}%</span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+            <div
+              className={`h-full rounded-full ${lowConfidence ? 'bg-warning' : 'bg-positive'}`}
+              style={{ width: `${Math.max(verdict.confidence * 100, 2)}%` }}
+            />
+          </div>
+          {lowConfidence && (
+            <p className="mt-1.5 text-[11px] leading-snug text-warning">
+              Thin sample — treat as indicative.
+            </p>
+          )}
+        </div>
+      </header>
+
+      <div className="px-5 py-4">
+        <p className="max-w-prose text-sm leading-relaxed text-ink">{verdict.explanation}</p>
+        {scopeLabel && (
+          <p className="mt-1.5 text-xs text-dim">
+            Scope: {scopeLabel}. Internationals and franchise cricket are never blended into one
+            figure.
+          </p>
+        )}
+
+        {verdict.timeline.length > 1 && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              <span>Impact per match — oldest to newest</span>
+              <span>Dashed line = baseline</span>
+            </div>
+            <div className="mt-2">
+              <Sparkline verdict={verdict} />
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setShowWorkings((v) => !v)}
+          className="mt-4 font-mono text-[11px] uppercase tracking-[0.1em] text-analytic hover:underline"
+          aria-expanded={showWorkings}
+        >
+          {showWorkings ? 'Hide workings' : 'How is this calculated?'}
+        </button>
+
+        {showWorkings && (
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border-subtle pt-3 text-sm sm:grid-cols-3">
+            {[
+              ['Recent window', verdict.recent_window],
+              ['Recent mean', verdict.recent_mean?.toFixed(2) ?? '—'],
+              ['Recent matches', String(verdict.recent_matches)],
+              ['Baseline window', verdict.baseline_window],
+              ['Baseline mean', verdict.baseline_mean?.toFixed(2) ?? '—'],
+              ['Baseline matches', String(verdict.baseline_matches)],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.1em] text-dim">
+                  {label}
+                </dt>
+                <dd className="tnum mt-0.5 text-ink">{value}</dd>
+              </div>
+            ))}
+            <p className="col-span-full mt-1 max-w-prose text-xs leading-relaxed text-muted">
+              Means are per match, expressed as a multiple of a par performance in the same
+              competition — 1.00 is exactly par. Each performance is valued in runs-equivalent
+              (runs scored, plus runs above the going scoring rate, plus wickets valued at what a
+              wicket costs and runs saved against par economy), then divided by what a typical
+              appearance in that competition is worth so formats stay comparable. The recent mean
+              is shrunk toward the baseline in proportion to how few matches it rests on.
+            </p>
+          </dl>
+        )}
+      </div>
+    </section>
+  )
+}

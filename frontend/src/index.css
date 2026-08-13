@@ -1,16 +1,52 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *));
+/*
+ * Design system — Cricket Intelligence Platform
+ *
+ * The palette is the one specified in the scope document (§23). It is dark-first
+ * because that is what the product specifies, not because dark is fashionable:
+ * this is a tool people read dense tables in for long stretches.
+ *
+ * Two rules that the components below depend on:
+ *
+ * 1. Semantic colour carries meaning and nothing else. Green is "above
+ *    baseline", red is "below", amber is specifically *uncertainty* — a small
+ *    sample or partial coverage — and blue is neutral analytical information.
+ *    Amber is never decoration; if it appears, the product is saying "do not
+ *    trust this as much as the rest".
+ * 2. Figures use tabular numerals everywhere. In a product that is mostly
+ *    columns of numbers, proportional digits make rows fail to line up and the
+ *    eye has to re-find the decimal point on every line.
+ */
 
 @theme {
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Inter', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Ground and surfaces */
+  --color-ground: #0b1117;
+  --color-surface: #111922;
+  --color-elevated: #17212b;
+  --color-border-subtle: #1b2530;
+  --color-border-default: #25313c;
+
+  /* Type */
+  --color-ink: #f4f7fa;
+  --color-muted: #8b98a5;
+  --color-dim: #64717e;
+
+  /* Semantic — meaning, never decoration */
+  --color-positive: #46b87c;
+  --color-positive-dim: #1d3d2e;
+  --color-negative: #e06c60;
+  --color-negative-dim: #40201d;
+  --color-warning: #d8a64a;
+  --color-warning-dim: #3b2f19;
+  --color-analytic: #4c9be8;
+  --color-analytic-dim: #17324d;
 }
 
 :root {
-  color-scheme: light;
-}
-
-.dark {
   color-scheme: dark;
 }
 
@@ -23,11 +59,31 @@ body,
 body {
   margin: 0;
   font-family: var(--font-sans);
-  @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Any element presenting figures. Applied at the utility level rather than
+ * globally so that prose keeps proportional digits, which read better. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wide content scrolls inside its own container; the page body never scrolls
+ * sideways. */
+.scroll-x {
+  overflow-x: auto;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-analytic);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar {
@@ -36,9 +92,19 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-transparent;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  background: var(--color-border-default);
+  border-radius: 9999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

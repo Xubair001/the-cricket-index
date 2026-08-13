@@ -26,7 +26,7 @@ export function PlayerAvatar({
       loading="lazy"
       onError={() => setFailed(true)}
       referrerPolicy="no-referrer"
-      className={`${className} shrink-0 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700`}
+      className={`${className} shrink-0 rounded-full object-cover ring-1 ring-border-default`}
     />
   )
 }
