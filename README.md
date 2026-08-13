@@ -43,6 +43,15 @@ Three components, each independently runnable:
 - **Official ICC rankings are kept apart from computed ones.** `/api/icc/*`
   serves ICC's published ratings, refreshed daily; `/api/rankings` serves
   figures this project derives from ball-by-ball data. They are never merged.
+- **Fixtures are not matches.** `/api/fixtures` serves ICC's schedule —
+  upcoming, live and recent — while `/api/matches` serves Cricsheet records
+  with per-player figures. An upcoming fixture has no result and no stats, so
+  the two stay in separate tables and separate endpoints.
+- **Names appear both ways.** Cricsheet uses the scorecard convention
+  (`JE Root` = Joseph Edward Root), which is what Wisden and ESPNcricinfo's own
+  scorecards use. The UI shows the readable form (`Joe Root`) from Wikidata
+  where available and keeps the scorecard form beside it, falling back to the
+  scorecard name for the ~56% of players Wikidata doesn't cover.
 
 See `ingestion/schema.sql` for the full schema.
 

@@ -33,7 +33,9 @@
       "Bash(curl -s localhost:8001/api/health)",
       "Bash(node scripts/validate_palette.js \"#0284c7,#d97706\" --mode light)",
       "Bash(xargs -I{} echo \"lint issues: {}\")",
-      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python verify_phase3.py)"
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python verify_phase3.py)",
+      "Bash(sqlite3 cricket.db ' *)",
+      "Bash(pkill -f \"uvicorn main:app --port 8001\")"
     ]
   }
 }

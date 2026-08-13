@@ -23,13 +23,15 @@ cd frontend && npm run dev                                             # localho
 **Trigger ingestion** (worker must be running):
 ```bash
 cd ingestion && python starter.py tests   # or: odis, t20is, psl
-cd ingestion && python starter.py icc     # ICC rankings (also runs daily on a schedule)
-cd ingestion && python starter.py enrich  # cricinfo crosswalk + Wikidata bios
+cd ingestion && python starter.py icc      # ICC rankings
+cd ingestion && python starter.py fixtures # ICC schedule: results + upcoming
+cd ingestion && python starter.py daily    # both of the above (what the schedule runs)
+cd ingestion && python starter.py enrich   # cricinfo crosswalk + Wikidata bios/names/photos
 ```
 Re-running match ingestion is cheap — each match is content-hashed; unchanged
 matches are skipped, not re-parsed.
 
-**Register the daily ICC schedule** (once; re-running updates it):
+**Register the daily ICC sync** (rankings + fixtures; re-running updates it):
 ```bash
 cd ingestion && python schedule.py        # --delete to remove
 ```
@@ -138,8 +140,10 @@ Cricsheet delivery records, not assumed.
 
 ### Three data sources, kept visibly separate
 
-Cricsheet is still the only source of match data. Two others now feed
-non-match facts, and neither is allowed to blur into the first:
+Cricsheet is still the only source of match data, and it is the reason every
+derived figure exists — the per-player aggregates come from its ball-by-ball
+records. Two others feed non-match facts, and neither is allowed to blur into
+the first:
 
 - **ICC rankings** (`icc_player_rankings`, `icc_team_rankings`) come from
   ICC's own JSON feed — the one their site consumes. They live behind
@@ -164,11 +168,61 @@ non-match facts, and neither is allowed to blur into the first:
     between `M Ali` and `MM Ali`. Unlinked entries still display; they just
     aren't links. ~72% link cleanly.
 
+- **ICC fixtures** (`fixtures`) come from the same ICC feed's schedule
+  endpoint. Deliberately NOT merged into `matches`: `matches` holds Cricsheet
+  records with per-player figures derived from ball-by-ball, whereas a fixture
+  is a calendar entry and an upcoming one has no result at all. Merging would
+  put resultless rows into the table every aggregate query reads.
+  - The feed paginates on **`page_number`**, not `page`. `page` is accepted and
+    silently ignored, so a loop using it returns page one every time — which
+    looks exactly like a working paginated fetch that collected 24 copies of
+    the same 500 rows. It also needs `from_date`/`to_date` (YYYYMMDD); without
+    them no upcoming fixtures come back at all.
+  - Each fixture is SHA-256-hashed from its raw feed object, the same
+    idempotency contract `ingest_match` uses, so a daily run rewrites only
+    genuinely-changed rows (a scoreline landing, a start time moving).
+  - Dates arrive as US `M/D/YYYY` and are converted to ISO on ingest. Gender
+    comes from the `- m` / `- w` suffix on `comp_type`.
+  - `queries.list_fixtures`'s "results" window is date-bounded, not just
+    `is_upcoming = 0`: a **cancelled future** fixture carries `is_upcoming=0`
+    and `match_result='Match Cancelled'`, so without the bound it sorts to the
+    top of "results" as a match two months away that never happened.
+
 - **Wikidata** fills player bio fields, joined on `players.cricinfo_id`. That
   column is populated from Cricsheet's own people register
   (`https://cricsheet.org/register/people.csv`, `key_cricinfo`, 99.8%
   coverage), so the join is exact and involves no name matching at all.
   Run via `python starter.py enrich`; not scheduled, since bios rarely change.
+  - The public SPARQL endpoint burst-throttles with 429 and no `Retry-After`.
+    `_wikidata_get` backs off exponentially, and `enrich_from_wikidata` **fails
+    the activity** when more than half the batches fail — a throttled run
+    otherwise returns "0 matched" and is indistinguishable from Wikidata
+    genuinely knowing nobody.
+
+### Names: `JE Root` is correct, `Joe Root` is for reading
+
+Cricsheet's `players.name` uses the standard scorecard convention — every
+initial, then surname (`JE Root` = Joseph Edward Root). That is what Wisden,
+CricketArchive and ESPNcricinfo's own scorecard guidelines use; it is **not**
+stale or wrong data, and it is not to be "fixed" by replacing the source.
+
+`players.display_name` holds the Wikidata label alongside it, and the API
+returns that as `name` with the scorecard form as `scorecard_name`. Coverage is
+~4,100 of 9,442, so the fallback is load-bearing: a player Wikidata doesn't
+know keeps their scorecard name rather than getting a fabricated full name.
+The aggregate helpers coalesce in the same order, so rankings and team pages
+read the same way as profiles.
+
+`players.image_url` is a Wikimedia Commons photo (P18), for ~1,000 players.
+Two non-obvious details:
+- P18 points at the **original** upload — Joe Root's is 2568x1794 / 4.8 MB,
+  enough to time out a page load. The stored URL is a thumbnail.
+- Wikimedia no longer renders arbitrary widths; an unlisted size returns
+  `400 Use thumbnail sizes listed on ...`. Probing the handler, the sizes it
+  serves are **120, 250, 500, 960, 1280** — `enrichment.COMMONS_ALLOWED_THUMB_WIDTHS`.
+  The thumb path is computed from the MD5 of the underscored filename
+  (`/thumb/<md5[0]>/<md5[:2]>/<file>/250px-<file>`) rather than costing an API
+  round trip per player.
 
 ### Playing status is derived, and "retired" is never guessed
 

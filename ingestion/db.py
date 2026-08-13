@@ -10,6 +10,13 @@ def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
+    # WAL so the backend can keep serving reads while an archive is ingesting.
+    # Under the default rollback journal the API blocks for the whole write.
+    # It's a persistent property of the file, so this is a no-op after the
+    # first time -- set here as well as in the backend because whichever
+    # process opens the database first should establish it.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -26,6 +33,42 @@ _PLAYER_COLUMN_MIGRATIONS = {
 }
 
 
+# Indexes replaced by a composite that covers the same lookups as a prefix.
+# Keeping both would cost every write twice for no read benefit -- and
+# ingestion writes ~221k player_match_stats rows.
+_SUPERSEDED_INDEXES = {
+    "idx_player_match_stats_identifier": "idx_player_match_stats_identifier_match",
+    "idx_player_match_stats_team": "idx_player_match_stats_team_player",
+    "idx_fixtures_upcoming": "idx_fixtures_gender_window",
+}
+
+# Indexes that measured *worse* than no index. matches.gender is not selective
+# enough to be worth indexing (73% of rows match), and its presence pushed the
+# planner into a slower join order for the main aggregate -- 772ms with, 294ms
+# without. Dropped unconditionally so an older database converges on the same
+# shape as a fresh one.
+_HARMFUL_INDEXES = (
+    "idx_matches_gender",
+    "idx_matches_gender_date",
+    "idx_matches_gender_season",
+)
+
+
+def _drop_superseded_indexes(conn: sqlite3.Connection) -> None:
+    present = {
+        row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        )
+    }
+    for old, replacement in _SUPERSEDED_INDEXES.items():
+        # Only drop once the replacement actually exists, so a partially
+        # applied schema never leaves the table with neither.
+        if old in present and replacement in present:
+            conn.execute(f"DROP INDEX IF EXISTS {old}")
+    for harmful in _HARMFUL_INDEXES:
+        conn.execute(f"DROP INDEX IF EXISTS {harmful}")
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
     for column, coltype in _PLAYER_COLUMN_MIGRATIONS.items():
@@ -38,6 +81,12 @@ def init_db() -> None:
         with open(_SCHEMA_PATH) as f:
             conn.executescript(f.read())
         _migrate(conn)
+        _drop_superseded_indexes(conn)
+        conn.commit()
+        # Refresh planner statistics. Without sqlite_stat1 SQLite guesses at
+        # selectivity and can pick the wrong index once a table grows past the
+        # shape it assumed.
+        conn.execute("ANALYZE")
         conn.commit()
 
 

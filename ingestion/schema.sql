@@ -228,18 +228,50 @@ CREATE TABLE IF NOT EXISTS icc_team_rankings (
     PRIMARY KEY (rank_type, rank_date, position, team_name)
 );
 
+-- Indexes are here because a query plan asked for them, not by guesswork.
+-- Each one below names the read path it serves; if a path stops existing, the
+-- index should go with it. Every extra index is paid for on every write, and
+-- ingestion writes ~221k player_match_stats rows.
+
+-- matches ------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition_id);
-CREATE INDEX IF NOT EXISTS idx_matches_gender ON matches(gender);
+-- Date alone, NOT (gender, match_date_start). Measured interleaved so page
+-- cache can't flatter either arm:
+--   * (gender, date) makes the ordered browse 0.18ms vs 2.92ms, but the planner
+--     then also picks it for the big player aggregate and reorders that join
+--     badly -- 712ms against 293ms. A 2.7ms saving for a 419ms cost.
+--   * date alone gives the same browse win (0.33ms vs 4.45ms) with no effect on
+--     the aggregate, because there's no gender prefix to tempt the planner.
+-- A bare matches.gender index is simply inert here: gender='male' selects 73%
+-- of the table, so the planner ignores it. Left out rather than paid for on
+-- every write. Re-measure before adding any gender-prefixed index back.
+CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(match_date_start);
 CREATE INDEX IF NOT EXISTS idx_matches_team1 ON matches(team1_id);
 CREATE INDEX IF NOT EXISTS idx_matches_team2 ON matches(team2_id);
+-- Without this, counting a team's wins is a full scan of matches -- and the
+-- teams list asked for that once per team (110 scans of 10k rows per request).
+CREATE INDEX IF NOT EXISTS idx_matches_winner ON matches(winner_team_id);
+
+-- player_match_stats -------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_name ON player_match_stats(player_name);
-CREATE INDEX IF NOT EXISTS idx_player_match_stats_identifier ON player_match_stats(player_identifier);
-CREATE INDEX IF NOT EXISTS idx_player_match_stats_team ON player_match_stats(team_id);
+-- (player_identifier, match_id): the aggregates group by identifier and take
+-- COUNT(DISTINCT match_id), so carrying match_id in the index lets that run off
+-- the index. Subsumes a bare player_identifier index for prefix lookups.
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_identifier_match
+    ON player_match_stats(player_identifier, match_id);
+-- Team pages scope the same aggregates to one team.
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_team_player
+    ON player_match_stats(team_id, player_identifier);
+
+-- players ------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_players_gender ON players(gender);
 CREATE INDEX IF NOT EXISTS idx_players_cricinfo ON players(cricinfo_id);
+
+-- icc + fixtures -----------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_icc_player_rankings_type_date ON icc_player_rankings(rank_type, rank_date);
 CREATE INDEX IF NOT EXISTS idx_icc_player_rankings_player ON icc_player_rankings(player_identifier);
 CREATE INDEX IF NOT EXISTS idx_icc_team_rankings_type_date ON icc_team_rankings(rank_type, rank_date);
 CREATE INDEX IF NOT EXISTS idx_fixtures_start ON fixtures(start_date);
-CREATE INDEX IF NOT EXISTS idx_fixtures_upcoming ON fixtures(is_upcoming, start_date);
-CREATE INDEX IF NOT EXISTS idx_fixtures_gender ON fixtures(gender);
+-- Matches the fixtures list query's filter order exactly.
+CREATE INDEX IF NOT EXISTS idx_fixtures_gender_window ON fixtures(gender, is_upcoming, start_date);
+CREATE INDEX IF NOT EXISTS idx_fixtures_live ON fixtures(is_live, start_date);
