@@ -46,7 +46,23 @@ CREATE TABLE IF NOT EXISTS players (
     birth_place TEXT,
     nationality TEXT,
     cricinfo_id TEXT,                 -- crosswalk key for Wikidata's P2697
-    bio_source TEXT                   -- e.g. 'wikidata'; null until enriched
+    bio_source TEXT,                  -- e.g. 'wikidata'; null until enriched
+    -- Career-end signals. Both are sourced, never inferred: Wikidata's P570
+    -- (death) and P2032 (work period end). P2032 is almost unpopulated for
+    -- cricketers (21 of ~31,700 have it), so most players will have neither,
+    -- and the API reports them as active/inactive from their last appearance
+    -- rather than claiming a retirement that no source backs.
+    date_of_death TEXT,
+    retirement_date TEXT,
+    -- Cricsheet's `name` follows the standard scorecard convention: all
+    -- initials then surname ("JE Root" = Joseph Edward Root). That's correct,
+    -- not stale -- Wisden, CricketArchive and ESPNcricinfo's own scorecard
+    -- guidelines use it. It just isn't how a reader says the name, so the
+    -- Wikidata label is stored alongside it for display. Nullable: only ~43%
+    -- of players resolve in Wikidata, and the rest keep the scorecard form
+    -- rather than getting a fabricated "full" name.
+    display_name TEXT,
+    image_url TEXT                    -- Wikimedia Commons (P18); freely licensed
 );
 
 CREATE TABLE IF NOT EXISTS matches (
@@ -131,6 +147,87 @@ CREATE TABLE IF NOT EXISTS ingestion_progress (
     failed_matches INTEGER NOT NULL DEFAULT 0
 );
 
+-- Official ICC rankings, fetched daily from ICC's own feed. Kept entirely
+-- separate from the Cricsheet-derived tables: these are ICC's published
+-- ratings, not anything this project computes, and the two must never be
+-- conflated. Rows are keyed by (rank_type, rank_date, position) so each
+-- publication is retained as a snapshot -- that history is what makes a
+-- player's rank trend chartable.
+--
+-- player_identifier is a best-effort link back to a Cricsheet player and is
+-- deliberately nullable: ICC names people as "Travis Head" where Cricsheet
+-- says "TM Head", and near-collisions exist ("HC Brook"/"SSJ Brooks"). An
+-- entry that can't be matched confidently stays unlinked rather than being
+-- attached to the wrong person.
+CREATE TABLE IF NOT EXISTS icc_player_rankings (
+    rank_type TEXT NOT NULL,          -- e.g. 'test-batting', 't20w-bowling'
+    rank_date TEXT NOT NULL,          -- ICC's own publication date
+    position INTEGER NOT NULL,
+    icc_player_id TEXT,
+    player_name TEXT NOT NULL,        -- as ICC spells it
+    country TEXT,
+    points INTEGER,
+    career_best TEXT,
+    player_identifier TEXT REFERENCES players(identifier),
+    fetched_at TEXT NOT NULL,
+    -- player_name is part of the key because ICC ties share a position: the
+    -- top 100 Test batters routinely occupy fewer than 100 distinct ranks.
+    PRIMARY KEY (rank_type, rank_date, position, player_name)
+);
+
+-- Fixtures from ICC's schedule feed: completed, live and upcoming matches.
+--
+-- Kept separate from `matches` on purpose. `matches` holds Cricsheet records
+-- with per-player figures derived from ball-by-ball; a fixture is a calendar
+-- entry with a scoreline, and an upcoming one has no result at all. Merging
+-- them would put rows into `matches` that every aggregate query would then
+-- have to learn to exclude.
+--
+-- content_hash is the SHA-256 of the raw feed object, so a daily re-run
+-- rewrites only genuinely changed fixtures instead of every row.
+CREATE TABLE IF NOT EXISTS fixtures (
+    icc_match_id TEXT PRIMARY KEY,
+    series_id TEXT,
+    series_name TEXT,
+    tour_name TEXT,
+    comp_type TEXT,                   -- e.g. 'ODI International - w'
+    match_type TEXT,                  -- 'Test' | 'ODI' | 'T20' | 'Youth ODI' | ...
+    gender TEXT CHECK (gender IN ('male', 'female')),
+    match_number TEXT,
+    match_status TEXT,
+    is_upcoming INTEGER NOT NULL DEFAULT 0,
+    is_live INTEGER NOT NULL DEFAULT 0,
+    start_date TEXT,                  -- ISO; the feed ships US M/D/YYYY
+    end_date TEXT,
+    start_time_gmt TEXT,
+    venue TEXT,
+    country TEXT,
+    team_a_name TEXT,
+    team_a_short TEXT,
+    team_b_name TEXT,
+    team_b_short TEXT,
+    team_a_id INTEGER REFERENCES teams(team_id),   -- nullable link to our teams
+    team_b_id INTEGER REFERENCES teams(team_id),
+    match_result TEXT,
+    winning_team_name TEXT,
+    toss_won_by TEXT,
+    toss_elected_to TEXT,
+    content_hash TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS icc_team_rankings (
+    rank_type TEXT NOT NULL,          -- e.g. 'test-team', 'odiw-team'
+    rank_date TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    icc_team_id TEXT,
+    team_name TEXT NOT NULL,
+    points INTEGER,
+    team_id INTEGER REFERENCES teams(team_id),   -- nullable, same caution
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (rank_type, rank_date, position, team_name)
+);
+
 CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition_id);
 CREATE INDEX IF NOT EXISTS idx_matches_gender ON matches(gender);
 CREATE INDEX IF NOT EXISTS idx_matches_team1 ON matches(team1_id);
@@ -139,3 +236,10 @@ CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_name ON player_match_st
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_identifier ON player_match_stats(player_identifier);
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_team ON player_match_stats(team_id);
 CREATE INDEX IF NOT EXISTS idx_players_gender ON players(gender);
+CREATE INDEX IF NOT EXISTS idx_players_cricinfo ON players(cricinfo_id);
+CREATE INDEX IF NOT EXISTS idx_icc_player_rankings_type_date ON icc_player_rankings(rank_type, rank_date);
+CREATE INDEX IF NOT EXISTS idx_icc_player_rankings_player ON icc_player_rankings(player_identifier);
+CREATE INDEX IF NOT EXISTS idx_icc_team_rankings_type_date ON icc_team_rankings(rank_type, rank_date);
+CREATE INDEX IF NOT EXISTS idx_fixtures_start ON fixtures(start_date);
+CREATE INDEX IF NOT EXISTS idx_fixtures_upcoming ON fixtures(is_upcoming, start_date);
+CREATE INDEX IF NOT EXISTS idx_fixtures_gender ON fixtures(gender);

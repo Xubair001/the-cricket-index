@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import queries, schemas
+from .. import queries, schemas, validation
 from ..database import get_db
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/matches", tags=["matches"])
 @router.get("", response_model=schemas.PaginatedMatches)
 def list_matches(
     gender: str = Query(pattern="^(male|female)$"),
-    competition: str | None = Query(default=None, pattern="^(tests|odis|t20is)$"),
+    competition: str | None = Query(default=None),
     team_id: int | None = Query(default=None),
     season: str | None = Query(default=None),
     search: str | None = Query(default=None),
@@ -19,7 +19,14 @@ def list_matches(
     db: Session = Depends(get_db),
 ) -> schemas.PaginatedMatches:
     items, total = queries.list_matches(
-        db, gender, competition, team_id, season, search, limit, offset
+        db,
+        gender,
+        validation.check_competition_key(db, competition),
+        team_id,
+        season,
+        search,
+        limit,
+        offset,
     )
     return schemas.PaginatedMatches(total=total, limit=limit, offset=offset, items=items)
 

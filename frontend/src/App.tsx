@@ -1,6 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { Compare } from './pages/Compare'
 import { Dashboard } from './pages/Dashboard'
+import { Fixtures } from './pages/Fixtures'
+import { IccRankings } from './pages/IccRankings'
 import { MatchDetail } from './pages/MatchDetail'
 import { Matches } from './pages/Matches'
 import { PlayerDetail } from './pages/PlayerDetail'
@@ -25,6 +28,9 @@ function App() {
           <Route path="/:gender" element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="rankings" element={<Rankings />} />
+            <Route path="icc-rankings" element={<IccRankings />} />
+            <Route path="compare" element={<Compare />} />
+            <Route path="fixtures" element={<Fixtures />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:teamId" element={<TeamDetail />} />
             <Route path="players" element={<Players />} />

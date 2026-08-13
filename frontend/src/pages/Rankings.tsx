@@ -22,11 +22,15 @@ const BOWLING_SORTS = [
   { value: 'matches', label: 'Matches' },
 ]
 
+// "All Internationals", not "All Formats": the API deliberately refuses to sum
+// international and franchise cricket into one career figure, so the unscoped
+// option means every international format -- PSL has to be picked explicitly.
 const COMPETITIONS = [
-  { value: '', label: 'All Formats' },
+  { value: '', label: 'All Internationals' },
   { value: 'tests', label: 'Tests' },
   { value: 'odis', label: 'ODIs' },
   { value: 't20is', label: 'T20Is' },
+  { value: 'psl', label: 'PSL' },
 ]
 
 function SelectControl({

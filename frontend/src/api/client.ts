@@ -4,13 +4,18 @@ import type {
   BowlingRankingRow,
   DashboardStats,
   HeadToHead,
+  IccRankingTable,
+  IccTeamRankingTable,
   MatchDetail,
+  PaginatedFixtures,
+  PlayerComparison,
   MatchSummary,
   Paginated,
   PlayerDetail,
   PlayerSummary,
   TeamDetail,
   TeamSummary,
+  TeamType,
 } from './types'
 
 async function getJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
@@ -41,7 +46,10 @@ export const api = {
     params: { competition?: string; min_matches?: number; sort_by?: string; limit?: number; offset?: number }
   ) => getJson<Paginated<BowlingRankingRow>>('/api/rankings/bowling', { gender, ...params }),
 
-  teams: (gender: ApiGender) => getJson<TeamSummary[]>('/api/teams', { gender }),
+  // team_type is optional: the Teams page scopes to one kind at a time, but
+  // the Matches filter deliberately omits it so you can filter by any side.
+  teams: (gender: ApiGender, teamType?: TeamType) =>
+    getJson<TeamSummary[]>('/api/teams', { gender, team_type: teamType }),
 
   teamDetail: (teamId: number) => getJson<TeamDetail>(`/api/teams/${teamId}`),
 
@@ -67,4 +75,29 @@ export const api = {
   ) => getJson<Paginated<MatchSummary>>('/api/matches', { gender, ...params }),
 
   matchDetail: (matchId: string) => getJson<MatchDetail>(`/api/matches/${encodeURIComponent(matchId)}`),
+
+  comparePlayers: (
+    a: string,
+    b: string,
+    params: { competition?: string; competition_type?: string } = {}
+  ) => getJson<PlayerComparison>('/api/players/compare', { a, b, ...params }),
+
+  iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
+
+  iccPlayerRanking: (rankType: string) =>
+    getJson<IccRankingTable>(`/api/icc/players/${encodeURIComponent(rankType)}`),
+
+  iccTeamRanking: (rankType: string) =>
+    getJson<IccTeamRankingTable>(`/api/icc/teams/${encodeURIComponent(rankType)}`),
+
+  fixtures: (params: {
+    gender?: string
+    window?: string
+    match_type?: string
+    limit?: number
+    offset?: number
+  }) => getJson<PaginatedFixtures>('/api/fixtures', params),
+
+  fixtureMatchTypes: (gender?: string) =>
+    getJson<{ match_types: string[] }>('/api/fixtures/match-types', { gender }),
 }

@@ -6,6 +6,12 @@ __pycache__/
 # Node
 node_modules/
 dist/
+*.tsbuildinfo
+
+# Secrets / local env overrides
+.env
+.env.local
+.env.*.local
 
 # Logs
 *.log

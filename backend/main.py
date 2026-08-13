@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import dashboard, matches, players, rankings, teams
+from app.routers import dashboard, fixtures, icc, matches, players, rankings, teams
 
 app = FastAPI(title="The Cricket Index API")
 
@@ -17,6 +17,8 @@ app.include_router(rankings.router)
 app.include_router(teams.router)
 app.include_router(players.router)
 app.include_router(matches.router)
+app.include_router(icc.router)
+app.include_router(fixtures.router)
 
 
 @app.get("/api/health")

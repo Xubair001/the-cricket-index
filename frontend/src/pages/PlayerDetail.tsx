@@ -4,6 +4,8 @@ import { api } from '../api/client'
 import type { PlayerDetail as PlayerDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
+import { PlayerAvatar } from '../components/PlayerAvatar'
+import { StatusBadge } from '../components/StatusBadge'
 import { useGender } from '../gender/useGender'
 
 export function PlayerDetail() {
@@ -43,10 +45,30 @@ export function PlayerDetail() {
         <Link to={`/${slug}/players`} className="text-sm text-emerald-600 hover:underline dark:text-emerald-400">
           &larr; All players
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{player.name}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <PlayerAvatar src={player.bio.image_url} alt={player.name} />
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{player.name}</h1>
+            <StatusBadge status={player.status} />
+            {player.scorecard_name && player.scorecard_name !== player.name && (
+              <span
+                className="text-sm text-slate-400"
+                title="How the name appears on a scorecard (all initials, then surname)"
+              >
+                {player.scorecard_name}
+              </span>
+            )}
+          </div>
+        </div>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {player.teams.map((t) => t.name).join(', ')}
         </p>
+        <Link
+          to={`/${slug}/compare?a=${player.identifier}`}
+          className="mt-2 inline-block text-sm text-emerald-600 hover:underline dark:text-emerald-400"
+        >
+          Compare with another player &rarr;
+        </Link>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -61,6 +83,29 @@ export function PlayerDetail() {
           <p className="text-sm text-slate-400">Not available</p>
         )}
       </div>
+
+      {player.icc_rankings.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Current ICC Ranking
+          </h3>
+          <div className="flex flex-wrap gap-4 text-sm">
+            {player.icc_rankings.map((r) => (
+              <div key={r.rank_type} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+                <div className="font-semibold text-slate-800 dark:text-slate-100">
+                  #{r.position}{' '}
+                  <span className="font-normal text-slate-500 dark:text-slate-400">
+                    {r.rank_type.replace('-', ' ')}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400">
+                  {r.points ?? '—'} rating &middot; published {r.rank_date}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {player.by_competition.map((c) => (

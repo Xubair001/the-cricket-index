@@ -2,6 +2,7 @@ const LABELS: Record<string, string> = {
   tests: 'Test',
   odis: 'ODI',
   t20is: 'T20I',
+  psl: 'PSL',
 }
 
 const STYLES: Record<string, string> = {
@@ -11,6 +12,10 @@ const STYLES: Record<string, string> = {
     'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300 ring-sky-600/20 dark:ring-sky-400/20',
   t20is:
     'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/15 dark:text-fuchsia-300 ring-fuchsia-600/20 dark:ring-fuchsia-400/20',
+  // Franchise cricket sits visually apart from the three international
+  // formats rather than extending their sequence.
+  psl:
+    'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-400/20',
 }
 
 export function CompetitionBadge({ competition }: { competition: string }) {
