@@ -6,6 +6,13 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { PlayerName } from '../components/PlayerName'
+import {
+  tableClass,
+  tdNumStrongClass,
+  thClass,
+  theadRowClass,
+  trClass,
+} from '../components/ui'
 
 /**
  * ICC's own published ratings — distinct from /rankings, which this project
@@ -157,12 +164,12 @@ export function IccRankings() {
           )}
 
           <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className={`${tableClass} min-w-[560px]`}>
               <thead>
-                <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <tr className={theadRowClass}>
                   <th className="px-4 py-2.5">Rank</th>
-                  <th className="px-3 py-2.5">{discipline === 'team' ? 'Team' : 'Player'}</th>
-                  {discipline !== 'team' && <th className="px-3 py-2.5">Country</th>}
+                  <th className={thClass}>{discipline === 'team' ? 'Team' : 'Player'}</th>
+                  {discipline !== 'team' && <th className={thClass}>Country</th>}
                   <th className="px-3 py-2.5 text-right">Rating</th>
                   {discipline !== 'team' && <th className="px-4 py-2.5 text-right">Career best</th>}
                 </tr>
@@ -171,7 +178,7 @@ export function IccRankings() {
                 {players?.rows.map((r) => (
                   <tr
                     key={`${r.position}-${r.player_name}`}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{r.position}</td>
                     <td className="px-3 py-2.5 font-medium text-ink">
@@ -195,7 +202,7 @@ export function IccRankings() {
                       />
                     </td>
                     <td className="px-3 py-2.5 text-muted">{r.country ?? '—'}</td>
-                    <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
+                    <td className={tdNumStrongClass}>
                       {r.points ?? '—'}
                     </td>
                     <td className="tnum px-4 py-2.5 text-right text-xs text-dim">
@@ -206,7 +213,7 @@ export function IccRankings() {
                 {teams?.rows.map((r) => (
                   <tr
                     key={`${r.position}-${r.team_name}`}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{r.position}</td>
                     <td className="px-3 py-2.5 font-medium text-ink">
@@ -218,7 +225,7 @@ export function IccRankings() {
                         <span className="text-muted">{r.team_name}</span>
                       )}
                     </td>
-                    <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
+                    <td className={tdNumStrongClass}>
                       {r.points ?? '—'}
                     </td>
                   </tr>

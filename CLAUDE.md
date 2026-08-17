@@ -259,6 +259,35 @@ not retired. That is correct behaviour, not a bug to "fix" by lowering the bar.
 anchoring to now would silently reclassify every current player the moment the
 Cricsheet archive went stale.
 
+### Deliveries are stored, and the aggregates are NOT derived from them at read time
+
+Phase 1.5 landed: `deliveries` holds ~4.9M ball-by-ball rows beside the 221k
+`player_match_stats` rows. Both are written by the same parse, and that
+duplication is deliberate — §28 forbids a page request touching raw
+ball-by-ball data, so an average still comes from the aggregate table while
+phase splits, dot-ball rates, batting position and chasing come from
+`deliveries`.
+
+Measured, not estimated (§34 #4 asked for a sizing estimate):
+**64 bytes per delivery, ~0.31 GB for the full backfill.** That is affordable
+because of two schema choices — `WITHOUT ROWID` with a `(match_id, innings, seq)`
+key, and extras stored as four small integers rather than a repeated kind
+string. Don't "tidy" either without re-measuring.
+
+`seq` is the 0-based position within the innings and is what makes the key work.
+Ball-within-over cannot: a wide or no-ball adds a delivery to the over, so
+`(over, ball)` is not unique.
+
+Deliveries are DELETEd and re-inserted per match rather than upserted, because
+the key is positional — a re-parse that changes the ball count would otherwise
+strand tail rows from the previous version.
+
+**The two tables must reconcile.** After the backfill, summing deliveries back
+up to per-player figures matched `player_match_stats` on 100% of rows for runs,
+balls faced, balls bowled and runs conceded. Re-run that check after any parser
+change; a disagreement means every Tier B figure will contradict the boards the
+product already ships.
+
 ### Forward-looking schema, not yet populated
 
 Two things exist in `schema.sql` for a future phase and currently do
@@ -268,9 +297,17 @@ nothing — don't treat them as dead code:
   per-player breakdowns). Everything ingested today is `'full'`.
 - `player_career_totals` would hold aggregate-only figures for players whose
   stats can't be decomposed per-match. Unused until that source exists.
-- `players.date_of_birth` / `birth_place` / `nationality` / `cricinfo_id` /
-  `bio_source` are nullable and currently always `null`. The API and UI both
-  render this as "Not available" — never infer or guess a value for these.
+`players.date_of_birth` / `birth_place` / `nationality` / `cricinfo_id` /
+`bio_source` used to be listed here as "always `null`". They are not — the
+Wikidata enrichment pass populates them, `nationality` for 3,098 of 9,442. They
+remain *partial*, so the API and UI still render an absent value as "Not
+available", and nothing is ever inferred to fill a gap.
+
+`nationality` in particular is not a safe field to build on. It is a Wikidata
+citizenship claim, not a cricketing one, and it is wrong often enough to
+matter — it records **Chris Gayle as Australian**, and 2,554 West Indies
+appearance-rows carry a nationality that is not a Caribbean territory. See the
+player-flag section below for what to use instead.
 
 ### A "four" is a boundary, not four runs off the bat
 
@@ -316,6 +353,29 @@ and the reasoning behind the last two is the load-bearing part:
   column is itself inconsistent — the same ground appears under Bridgetown and
   Barbados, Kingston and Jamaica, Port Elizabeth and Gqeberha, Dhaka and Mirpur.
   Of 28 same-name-different-city cases, most are one ground written two ways.
+
+### Venue intelligence: the toss makes "chasing success" Tier A
+
+`backend/app/analytics/venue.py`. §20 marks "average score, average winning
+score, chasing success rate" as Tier B, assuming knowing who chased needs the
+innings sequence that only stored deliveries provide. It does not — **the toss
+gives it exactly**. `toss_winner_team_id` and `toss_decision` are populated for
+100% of the 10,040 matches, and together they name the side that batted first:
+the toss winner if they chose to bat, otherwise their opponent.
+
+That makes the most useful thing a venue page can say available today. Sharjah
+PSL: batting first wins 30.6% and captains choose to bat 15.8% of the time —
+outcome and behaviour agree. Sharjah ODIs: captains bat 87.9% of the time and
+win 45.5% doing it — they do not.
+
+Two things the module is careful about:
+- **"Runs off the bat", never "average score".** `player_match_stats` has no
+  extras — a wide is charged to the bowler, byes and leg-byes to nobody — so
+  summing a side's batters understates a true total by roughly 5%. The figure is
+  named for what it is. The par indices are unaffected, since both sides of the
+  ratio are measured the same way, which is why they carry the interpretation.
+- **Every rate is per competition.** A ground hosting Tests and T20Is has two
+  different characters and one average describes neither.
 
 ### The Performance Index pools percentiles by discipline, or it rates discipline
 
@@ -421,6 +481,22 @@ out harder to face in 2020 than in 2000. Anchored to the core, the curves match
 cricket history instead — Australia 1.240 → 1.038, Bangladesh 0.796 → 0.964,
 Sri Lanka declining after the Murali era, Zimbabwe dipping in 2005.
 
+### `opposition.index()` falls back; `era_index()` does not — and display needs the second
+
+`index(team, era)` deliberately falls back to a side's long-run figure when an
+era has no fit, which is right for *scoring*: a match in an unfitted era should
+still be adjusted by something. It is wrong for *display*, and silently so — the
+fallback returns the side's whole-career index **and its whole-career match
+count**, so an era a side never played renders as if they played their entire
+career in it. Ireland's curve showed "2000: from 301 matches" before this was
+caught. `era_index()` returns None instead, and every display path uses it.
+
+The Opposition Analytics page is also where the model's qualifications live, on
+the page rather than in a tooltip: it is a difficulty rating, it merges batting
+and bowling strength into one figure, and it is not an official rating. An era
+with under 15 matches is drawn hollow, and where the most recent era is that thin
+no current figure is stated at all.
+
 ### Form boards rank on par units, not on the percentage
 
 `FormLeader.rank_score` is `delta_absolute × confidence`, not
@@ -447,3 +523,108 @@ This is intentional (average requires a divide-by-zero guard that's awkward
 in SQLite SQL) but means an unfiltered all-players query is O(total players)
 in Python — acceptable at this dataset's size (~9,300 players), worth
 revisiting with a materialized summary table if that ever changes.
+
+### A squad window is the side's own last N matches, not a date range
+
+`backend/app/analytics/squad.py`. The obvious implementation — "everyone who
+played in the last 12 months" — reports most of this dataset as having no squad
+at all. There are ~110 international sides here and the great majority play a
+handful of matches a year and then nothing for a long stretch; a calendar
+window makes that a statement about the fixture list rather than about the
+side. Anchoring to the team's own most recent matches means "current squad"
+means the same thing for Australia and for Malta.
+
+The window is read through `player_match_stats`, not `matches.team1_id/team2_id`,
+so the window and the appearances that fill it come from the same rows.
+
+Role is `explorer.discipline` applied to **this window, for this team** — never
+a career role. A career role is wrong twice over: a player bowls a different
+share for their country than for a franchise, and a different share in Tests
+than in T20Is. Axar Patel comes out a *bowler* for India over these 20 matches
+at a 0.784 share, just past the 0.78 cut, and that is the honest reading of
+what he was picked to do in that window rather than of what he is. The raw
+share travels with every row so the inference stays checkable.
+
+Roles read off very few deliveries are marked uncertain rather than withheld —
+below `ROLE_MIN_BALLS` (60) they carry the same dotted rule the form verdicts
+use. On a franchise squad that is typically a third of the list.
+
+The endpoint returns an `unavailable` list naming what cannot be derived
+(wicketkeeper, batting position, handedness, availability) and the page renders
+it verbatim, so a partial picture cannot quietly present itself as a whole one.
+
+### A player's flag is who they represent, never who Wikidata says they are
+
+`queries._player_country_map` resolves the flag beside a player name from their
+own **appearances**, so it means exactly what the flag beside a team means. It
+does not read `players.nationality`: that answers a different question
+(citizenship) and gets it wrong often — Wikidata has Chris Gayle as Australian,
+and it stores values like "United Kingdom" and "Guyana" that name no cricketing
+side. 8,194 of 9,442 players resolve.
+
+Four cases the data forces, none of which may be "simplified" away:
+
+- **Invitational XIs are not a nationality.** `flags.INVITATIONAL` (Africa XI,
+  Asia XI, ICC World XI) is deliberately *narrower* than `flags.NO_NATION`,
+  which also contains the West Indies. Use `flags.is_national_side` for this
+  question and `flags.country_code` for drawing. Without the split, the 146
+  players with more than one "international" side look dual-national — Dravid
+  becomes India/ICC World XI and Tikolo Kenya/Africa XI.
+- **The West Indies is a real side with no ISO code.** It resolves to a name
+  with `country_code = None` — neutral mark, side named on hover, 227 players.
+  Dropping code-less sides entirely would erase them.
+- **Franchise-only players (1,247, mostly PSL) get no flag at all.** Nothing is
+  inferred from where the league is played, so a PSL board shows Rilee Rossouw
+  as South Africa and domestic-only players with the neutral mark.
+- **Switchers take their most recent side**, tie-broken on appearances. Checked
+  against every real case in the data and correct in all of them. The one that
+  looks like a bug is not: Asif Ali shows **Bahrain**, because he played 75
+  times for Pakistan to 2023 and 56 times for Bahrain since.
+
+`/api/icc/*` rows derive their flag from ICC's own `country` column instead,
+because that table is ICC's claim about ICC's list — resolving it from our
+appearance data would mix a derived figure into a published one (§6). That path
+needs `flags.ALIASES`, since feeds spell nations differently ("USA" against the
+team table's "United States of America"). Afghanistan was missing from
+`COUNTRY_CODES` altogether until this shipped: it has no side in the Cricsheet
+archive, so only the ICC feed ever referenced it.
+
+### The frontend is light-first with dark as a peer, and semantic colour has two tiers
+
+`frontend/src/index.css` defines both palettes as `--color-*` tokens, so every
+Tailwind utility re-themes at once. Dark is declared under both
+`prefers-color-scheme` **and** `[data-theme]`, because the in-app toggle
+(`theme/useTheme.ts`, a three-way System/Light/Dark control) has to win in both
+directions. Preference is applied by an inline script in `index.html` before
+first paint; doing it from the bundle is the flash of wrong theme.
+
+Three things here are load-bearing:
+
+- **Semantic colour ships as a mark tier and an `-ink` tier.** A colour dark
+  enough to read as 12px text is too dark to hold its hue as a 6px dot, so
+  `--color-positive` fills and `--color-positive-ink` labels. Using the mark
+  tier for text fails AA.
+- **Amber and red cannot be told apart, so uncertainty is not a colour.** Six
+  candidate pairs were measured across both themes; every one landed ΔE 11.5–12.8
+  for *normal* vision against a floor of 15, and as low as ΔE 0.6 under
+  deuteranopia. Since amber means *uncertainty* and red means *below par*, and
+  the two sit in adjacent columns of a form row, uncertainty moved to the
+  `.uncertain` dotted rule plus a marker. **Do not "fix" this by picking a
+  better amber** — there isn't one. Amber survives only where it is isolated,
+  such as the "soon" nav tag.
+- **Charts read tokens at runtime** (`theme/useChartTheme.tsx`). Recharts takes
+  literal colours, so hardcoding hex pins every chart to one theme — which is
+  exactly what happened when a light theme was added to a dark-only palette.
+  Legend text wears ink tokens, never the series colour.
+
+The categorical series order is fixed and validated as a set
+(`--color-series-1..4`): worst adjacent CVD ΔE 10.2, normal-vision ΔE 19.1, all
+≥ 3:1 on their own surface. Slots 2 and 4 collide when every pair is on screen
+at once, so all-pairs forms (scatter, bubble, small multiples) cap at three
+series.
+
+The signature device is the **par datum** (`.par-track`, `components/ParMeter.tsx`):
+a hairline at 1.00 with the bar growing away from it. Its scale tops out at
+**3.0, not 2.0** — the in-form board routinely returns 2.0–3.0 par units, and at
+a ceiling of 2 every one of those rows drew an identical full bar, which is the
+one thing the meter exists to prevent.

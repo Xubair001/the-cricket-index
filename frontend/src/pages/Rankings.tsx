@@ -7,6 +7,16 @@ import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
+import {
+  tableClass,
+  tdClass,
+  tdNumClass,
+  tdNumStrongClass,
+  thClass,
+  thNumClass,
+  theadRowClass,
+  trClass,
+} from '../components/ui'
 
 /**
  * Computed leaderboards — this project's own figures, derived from Cricsheet
@@ -131,8 +141,6 @@ export function Rankings() {
     'rounded-md px-4 py-1.5 text-sm font-medium transition-colors ' +
     (active ? 'bg-elevated text-ink' : 'text-muted hover:text-ink')
 
-  const th = 'px-3 py-2.5 text-right'
-  const td = 'tnum px-3 py-2.5 text-right text-muted'
 
   return (
     <div className="space-y-5">
@@ -201,16 +209,16 @@ export function Rankings() {
       {!error && !(loading && rows.length === 0) && (
         <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
           {tab === 'batting' ? (
-            <table className="w-full min-w-[720px] text-sm">
+            <table className={`${tableClass} min-w-[720px]`}>
               <thead>
-                <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <tr className={theadRowClass}>
                   <th className="px-4 py-2.5">#</th>
-                  <th className="px-3 py-2.5">Player</th>
-                  <th className={th}>Mat</th>
-                  <th className={th}>Runs</th>
-                  <th className={th}>Avg</th>
-                  <th className={th}>SR</th>
-                  <th className={th}>4s</th>
+                  <th className={thClass}>Player</th>
+                  <th className={thNumClass}>Mat</th>
+                  <th className={thNumClass}>Runs</th>
+                  <th className={thNumClass}>Avg</th>
+                  <th className={thNumClass}>SR</th>
+                  <th className={thNumClass}>4s</th>
                   <th className="px-4 py-2.5 text-right">6s</th>
                 </tr>
               </thead>
@@ -218,10 +226,10 @@ export function Rankings() {
                 {(rows as BattingRankingRow[]).map((p, i) => (
                   <tr
                     key={p.player_identifier ?? p.player_name}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <PlayerName
                         name={p.player_name}
                         country={p.country}
@@ -234,28 +242,28 @@ export function Rankings() {
                         nameClassName="font-medium"
                       />
                     </td>
-                    <td className={td}>{p.matches}</td>
-                    <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
+                    <td className={tdNumClass}>{p.matches}</td>
+                    <td className={tdNumStrongClass}>
                       {p.runs.toLocaleString()}
                     </td>
-                    <td className={td}>{rate(p.average)}</td>
-                    <td className={td}>{rate(p.strike_rate)}</td>
-                    <td className={td}>{p.fours}</td>
+                    <td className={tdNumClass}>{rate(p.average)}</td>
+                    <td className={tdNumClass}>{rate(p.strike_rate)}</td>
+                    <td className={tdNumClass}>{p.fours}</td>
                     <td className="tnum px-4 py-2.5 text-right text-muted">{p.sixes}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : (
-            <table className="w-full min-w-[660px] text-sm">
+            <table className={`${tableClass} min-w-[660px]`}>
               <thead>
-                <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <tr className={theadRowClass}>
                   <th className="px-4 py-2.5">#</th>
-                  <th className="px-3 py-2.5">Player</th>
-                  <th className={th}>Mat</th>
-                  <th className={th}>Wkts</th>
-                  <th className={th}>Runs</th>
-                  <th className={th}>Avg</th>
+                  <th className={thClass}>Player</th>
+                  <th className={thNumClass}>Mat</th>
+                  <th className={thNumClass}>Wkts</th>
+                  <th className={thNumClass}>Runs</th>
+                  <th className={thNumClass}>Avg</th>
                   <th className="px-4 py-2.5 text-right">Econ</th>
                 </tr>
               </thead>
@@ -263,10 +271,10 @@ export function Rankings() {
                 {(rows as BowlingRankingRow[]).map((p, i) => (
                   <tr
                     key={p.player_identifier ?? p.player_name}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <PlayerName
                         name={p.player_name}
                         country={p.country}
@@ -279,10 +287,10 @@ export function Rankings() {
                         nameClassName="font-medium"
                       />
                     </td>
-                    <td className={td}>{p.matches}</td>
-                    <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">{p.wickets}</td>
-                    <td className={td}>{p.runs_conceded.toLocaleString()}</td>
-                    <td className={td}>{rate(p.average)}</td>
+                    <td className={tdNumClass}>{p.matches}</td>
+                    <td className={tdNumStrongClass}>{p.wickets}</td>
+                    <td className={tdNumClass}>{p.runs_conceded.toLocaleString()}</td>
+                    <td className={tdNumClass}>{rate(p.average)}</td>
                     <td className="tnum px-4 py-2.5 text-right text-muted">{rate(p.economy)}</td>
                   </tr>
                 ))}

@@ -7,6 +7,14 @@ import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
+import {
+  tableClass,
+  tdClass,
+  tdNumClass,
+  thClass,
+  theadRowClass,
+  trClass,
+} from '../components/ui'
 
 /**
  * The analytics explorers (§21) — the power-user surface.
@@ -318,12 +326,12 @@ export function Explorer() {
       )}
 
       <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
-        <table className="w-full min-w-[820px] text-sm">
+        <table className={`${tableClass} min-w-[820px]`}>
           <thead>
-            <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+            <tr className={theadRowClass}>
               <th className="px-4 py-2.5">#</th>
-              <th className="px-3 py-2.5">Player</th>
-              <th className="px-3 py-2.5">Role</th>
+              <th className={thClass}>Player</th>
+              <th className={thClass}>Role</th>
               {columns.map((c) => (
                 <th key={c.key} className="px-3 py-2.5 text-right">
                   {c.sort ? (
@@ -357,10 +365,10 @@ export function Explorer() {
               : data?.items.map((row, i) => (
                   <tr
                     key={row.player_identifier ?? row.player_name}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <PlayerName
                         name={row.player_name}
                         country={row.country}
@@ -374,7 +382,7 @@ export function Explorer() {
                         nameClassName="font-medium"
                       />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <span
                         className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
                         title="Inferred from balls faced versus balls bowled — no source states a playing role"
@@ -383,7 +391,7 @@ export function Explorer() {
                       </span>
                     </td>
                     {columns.map((c) => (
-                      <td key={c.key} className="tnum px-3 py-2.5 text-right text-muted">
+                      <td key={c.key} className={tdNumClass}>
                         {cell(row, c)}
                       </td>
                     ))}

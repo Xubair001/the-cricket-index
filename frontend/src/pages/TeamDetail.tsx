@@ -9,6 +9,12 @@ import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { percent, rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
+import {
+  tableClass,
+  tdClass,
+  tdNumStrongClass,
+  trClass,
+} from '../components/ui'
 
 /**
  * A team's record and its leading players.
@@ -85,6 +91,14 @@ export function TeamDetail() {
             {team.team_type}
           </span>
         </div>
+        {/* This page is the side's whole record; the squad view is the same
+            side over its recent matches only, which is a different question. */}
+        <Link
+          to={`/${slug}/teams/squad?team=${team.team_id}`}
+          className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
+        >
+          Squad analysis &rarr;
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -103,12 +117,12 @@ export function TeamDetail() {
           {team.top_run_scorers.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted">No batting records for this team.</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className={tableClass}>
               <tbody>
                 {team.top_run_scorers.map((p) => (
                   <tr
                     key={p.player_identifier ?? p.player_name}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="px-4 py-2.5">
                       <PlayerName
@@ -123,7 +137,7 @@ export function TeamDetail() {
                         nameClassName="font-medium"
                       />
                     </td>
-                    <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
+                    <td className={tdNumStrongClass}>
                       {p.runs.toLocaleString()}
                     </td>
                     <td className="tnum px-4 py-2.5 text-right text-muted">avg {rate(p.average)}</td>
@@ -138,12 +152,12 @@ export function TeamDetail() {
           {team.top_wicket_takers.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted">No bowling records for this team.</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className={tableClass}>
               <tbody>
                 {team.top_wicket_takers.map((p) => (
                   <tr
                     key={p.player_identifier ?? p.player_name}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="px-4 py-2.5">
                       <PlayerName
@@ -158,7 +172,7 @@ export function TeamDetail() {
                         nameClassName="font-medium"
                       />
                     </td>
-                    <td className="tnum px-3 py-2.5 text-right font-semibold text-ink">
+                    <td className={tdNumStrongClass}>
                       {p.wickets}
                     </td>
                     <td className="tnum px-4 py-2.5 text-right text-muted">avg {rate(p.average)}</td>
@@ -175,18 +189,18 @@ export function TeamDetail() {
           <p className="px-4 py-6 text-sm text-muted">No matches recorded for this team.</p>
         ) : (
           <div className="scroll-x">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className={`${tableClass} min-w-[640px]`}>
               <tbody>
                 {team.recent_matches.map((m) => (
                   <tr
                     key={m.match_id}
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="px-4 py-2.5">
                       <CompetitionBadge competition={m.competition_key} />
                     </td>
                     <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic-ink">
                         <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
                         {m.team1?.name} v {m.team2?.name}{' '}

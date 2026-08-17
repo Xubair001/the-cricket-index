@@ -7,6 +7,7 @@ import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
+import { tableClass, tdNumClass, theadRowClass, trClass } from '../components/ui'
 
 /**
  * The player directory — the main discovery interface (§7).
@@ -224,9 +225,9 @@ export function Players() {
       {error && <ErrorMessage message={error} />}
 
       <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
-        <table className="w-full min-w-[840px] text-sm">
+        <table className={`${tableClass} min-w-[840px]`}>
           <thead>
-            <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+            <tr className={theadRowClass}>
               <th className="px-4 py-2.5">Player</th>
               <th className="px-3 py-2.5 text-right">Mat</th>
               <th className="px-3 py-2.5 text-right">Runs</th>
@@ -247,7 +248,7 @@ export function Players() {
                   </tr>
                 ))
               : rows.map((p) => (
-                  <tr key={p.identifier} className="border-b border-border-subtle last:border-0 hover:bg-elevated">
+                  <tr key={p.identifier} className={trClass}>
                     <td className="px-4 py-2.5">
                       <PlayerName
                         name={p.name ?? p.scorecard_name ?? p.identifier}
@@ -260,12 +261,12 @@ export function Players() {
                         <span className="ml-2 font-mono text-[9px] uppercase tracking-[0.1em] text-dim">retired</span>
                       )}
                     </td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{p.matches}</td>
+                    <td className={tdNumClass}>{p.matches}</td>
                     <td className="tnum px-3 py-2.5 text-right text-ink">{p.runs.toLocaleString()}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{rate(p.batting_average)}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{rate(p.strike_rate)}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{p.wickets || '—'}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{rate(p.economy)}</td>
+                    <td className={tdNumClass}>{rate(p.batting_average)}</td>
+                    <td className={tdNumClass}>{rate(p.strike_rate)}</td>
+                    <td className={tdNumClass}>{p.wickets || '—'}</td>
+                    <td className={tdNumClass}>{rate(p.economy)}</td>
                     <td className="px-4 py-2.5 text-right">
                       {p.form_state ? (
                         <span

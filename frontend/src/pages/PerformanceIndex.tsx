@@ -6,6 +6,14 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { PlayerName } from '../components/PlayerName'
+import {
+  tableClass,
+  tdClass,
+  tdNumClass,
+  thClass,
+  theadRowClass,
+  trClass,
+} from '../components/ui'
 
 /**
  * The Performance Index (§14).
@@ -215,12 +223,12 @@ export function PerformanceIndex() {
 
       {data && (
         <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className={`${tableClass} min-w-[680px]`}>
             <thead>
-              <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              <tr className={theadRowClass}>
                 <th className="px-4 py-2.5">#</th>
-                <th className="px-3 py-2.5">Player</th>
-                <th className="px-3 py-2.5">Role</th>
+                <th className={thClass}>Player</th>
+                <th className={thClass}>Role</th>
                 <th className="px-3 py-2.5 text-right">Matches</th>
                 <th className="px-3 py-2.5 text-right">Index</th>
                 <th className="px-4 py-2.5 text-right">Workings</th>
@@ -232,10 +240,10 @@ export function PerformanceIndex() {
                 // on the inner <tr> React still treats the list as unkeyed.
                 <Fragment key={row.player_identifier}>
                   <tr
-                    className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                    className={trClass}
                   >
                     <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <PlayerName
                         name={row.player_name}
                         country={row.country}
@@ -244,7 +252,7 @@ export function PerformanceIndex() {
                         nameClassName="font-medium"
                       />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <span
                         className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
                         title="Percentiles are taken against peers of this discipline — inferred from balls faced versus balls bowled"
@@ -252,7 +260,7 @@ export function PerformanceIndex() {
                         {ROLE_LABEL[row.role] ?? row.role}
                       </span>
                     </td>
-                    <td className="tnum px-3 py-2.5 text-right text-muted">{row.matches}</td>
+                    <td className={tdNumClass}>{row.matches}</td>
                     <td className="tnum px-3 py-2.5 text-right text-base font-semibold text-ink">
                       {row.index.toFixed(1)}
                     </td>

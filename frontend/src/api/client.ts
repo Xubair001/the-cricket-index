@@ -1,30 +1,33 @@
 import type {
-  ExplorerKind,
-  PerformanceIndexPage,
-  VenueOption,
-  ExplorerPage,
   ApiGender,
   BattingRankingRow,
   BowlingRankingRow,
   DashboardStats,
+  ExplorerKind,
+  ExplorerPage,
+  FormLeaderboard,
+  FormVerdict,
   HeadToHead,
   IccRankingTable,
   IccTeamRankingTable,
   MatchDetail,
-  PaginatedFixtures,
-  PlayerComparison,
   MatchSummary,
   Paginated,
+  PaginatedFixtures,
+  ParFigures,
+  PerformanceIndexPage,
+  PeriodOption,
+  PlayerComparison,
   PlayerDetail,
+  PlayerDirectory,
   PlayerSummary,
+  SquadAnalysis,
   TeamDetail,
+  TeamStrengthTable,
   TeamSummary,
   TeamType,
-  FormVerdict,
-  PeriodOption,
-  ParFigures,
-  FormLeaderboard,
-  PlayerDirectory,
+  VenueOption,
+  VenueProfile,
 } from './types'
 
 async function getJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
@@ -65,6 +68,9 @@ export const api = {
     getJson<Paginated<TeamSummary>>('/api/teams', { gender, team_type: teamType, ...params }),
 
   teamDetail: (teamId: number) => getJson<TeamDetail>(`/api/teams/${teamId}`),
+
+  teamSquad: (teamId: number, params: { window_matches?: number } = {}) =>
+    getJson<SquadAnalysis>(`/api/teams/${teamId}/squad`, params),
 
   headToHead: (teamAId: number, teamBId: number) =>
     getJson<HeadToHead>(`/api/teams/${teamAId}/head-to-head/${teamBId}`),
@@ -181,6 +187,22 @@ export const api = {
   // spellings, so this is the normalised list, not SELECT DISTINCT venue.
   venues: (gender?: ApiGender) =>
     getJson<VenueOption[]>('/api/analytics/venues', { gender }),
+
+  // One ground's character (§20). The name is canonical, and may carry a
+  // parenthesised city for the handful that exist in several places.
+  venueProfile: (venue: string, gender: ApiGender, competition?: string) =>
+    getJson<VenueProfile>(`/api/analytics/venues/${encodeURIComponent(venue)}`, {
+      gender,
+      competition,
+    }),
+
+  // Fitted opposition difficulty — the model that scales every adjusted
+  // figure elsewhere. Exposed so a reader can check the adjustment (§30).
+  teamStrength: (gender: ApiGender, competitionType?: string) =>
+    getJson<TeamStrengthTable>('/api/analytics/opposition', {
+      gender,
+      competition_type: competitionType,
+    }),
 
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 

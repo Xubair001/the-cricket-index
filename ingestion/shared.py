@@ -17,7 +17,10 @@ TASK_QUEUE = "cricket-ingestion-queue"
 #   v2  fours/sixes honour Cricsheet's runs.non_boundary flag, so a boundary
 #       count is boundaries rather than "deliveries worth four runs"
 #       (validated: Joe Root 1,523 -> published 1,515 Test fours)
-PARSER_VERSION = 2
+#   v3  ball-by-ball deliveries stored (Phase 1.5). Aggregates are unchanged;
+#       this bump exists so the backfill actually re-parses rather than
+#       skipping every match and reporting success.
+PARSER_VERSION = 3
 
 CRICSHEET_URLS = {
     "tests": "https://cricsheet.org/downloads/tests_json.zip",

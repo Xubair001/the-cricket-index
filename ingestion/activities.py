@@ -239,6 +239,36 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
                 for s in match.player_match_stats
             ],
         )
+
+        # Deliveries. Replaced wholesale for the match rather than upserted:
+        # the primary key is positional (innings, seq), so a re-parse that
+        # changes the ball count would otherwise leave orphaned tail rows from
+        # the previous version behind.
+        conn.execute("DELETE FROM deliveries WHERE match_id = ?", (match.match_id,))
+        conn.executemany(
+            """INSERT INTO deliveries (
+                match_id, innings, seq, over, ball, batting_team_id,
+                batter, bowler, non_striker,
+                runs_batter, runs_extras, runs_total, non_boundary,
+                wides, noballs, byes, legbyes, wicket_kind, player_out
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    match.match_id, d.innings, d.seq, d.over, d.ball,
+                    team_ids.get(d.batting_team),
+                    # Names resolve to identifiers through the match's own
+                    # registry, the same mapping player_match_stats uses -- so a
+                    # delivery and an aggregate always name the same person.
+                    match.players.get(d.batter),
+                    match.players.get(d.bowler),
+                    match.players.get(d.non_striker),
+                    d.runs_batter, d.runs_extras, d.runs_total, int(d.non_boundary),
+                    d.wides, d.noballs, d.byes, d.legbyes,
+                    d.wicket_kind, match.players.get(d.player_out),
+                )
+                for d in match.deliveries
+            ],
+        )
         conn.commit()
 
     return MatchIngestionResult(match_id=input.match_id, success=True)

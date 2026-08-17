@@ -7,6 +7,11 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import {
+  tableClass,
+  tdClass,
+  trClass,
+} from '../components/ui'
 
 const LIMIT = 25
 
@@ -145,12 +150,12 @@ export function Matches() {
 
       {!error && matches.length > 0 && (
         <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className={`${tableClass} min-w-[720px]`}>
             <tbody>
               {matches.map((m) => (
                 <tr
                   key={m.match_id}
-                  className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                  className={trClass}
                 >
                   <td className="px-4 py-2.5 align-top">
                     <CompetitionBadge competition={m.competition_key} />
@@ -158,7 +163,7 @@ export function Matches() {
                   <td className="tnum whitespace-nowrap px-3 py-2.5 align-top text-muted">
                     {m.match_date_start ?? '—'}
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className={tdClass}>
                     <Link
                       to={`/${slug}/matches/${m.match_id}`}
                       className="font-medium text-ink hover:text-analytic-ink"

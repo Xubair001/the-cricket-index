@@ -7,6 +7,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { PlayerName } from '../components/PlayerName'
+import { tableClass, theadRowClass, trClass } from '../components/ui'
 
 /**
  * A single match, at the granularity this dataset actually holds.
@@ -37,9 +38,9 @@ function PerformerTable({
         <p className="px-4 py-6 text-sm text-muted">No per-player figures recorded for this side.</p>
       ) : (
         <div className="scroll-x">
-          <table className="w-full min-w-[380px] text-sm">
+          <table className={`${tableClass} min-w-[380px]`}>
             <thead>
-              <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              <tr className={theadRowClass}>
                 <th className="px-4 py-2">Player</th>
                 <th className="px-3 py-2 text-right">Runs</th>
                 <th className="px-3 py-2 text-right">Balls</th>
@@ -50,7 +51,7 @@ function PerformerTable({
               {teamPerformers.map((p) => (
                 <tr
                   key={p.player_name}
-                  className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                  className={trClass}
                 >
                   <td className="px-4 py-2 text-ink">
                     <PlayerName

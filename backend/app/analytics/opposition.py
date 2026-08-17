@@ -93,12 +93,21 @@ Two guards, both necessary
 * **Clamping.** Even shrunk, the tails are not to be trusted to the point of
   doubling or erasing a performance, so the multiplier is bounded.
 
-What this deliberately is NOT
------------------------------
-It is not an Elo rating and not a ladder. It says nothing about which side would
-win, and it must not be presented as a team ranking -- `concession` conflates
-bowling strength with batting strength, since a single index covers both halves
-of the game. Splitting it needs the per-innings data that Tier B unlocks.
+What this is, and what it is not
+---------------------------------
+It is a **difficulty rating**: how hard a side is to play against, fitted from
+results and validated against ICC team ratings at Spearman rho +0.81 to +0.83
+across all three formats. That correlation is a check, never an input -- §6
+keeps official ratings out of derived figures.
+
+It is NOT a prediction of who would win a given match, and it is NOT an official
+rating. It also **conflates batting and bowling strength**: a single index covers
+both halves of the game, so a side with a fearsome attack and a brittle top order
+reads the same as a balanced one of equal overall difficulty. Splitting it needs
+the per-innings data that Tier B unlocks.
+
+Presented as a ladder it must carry all three of those qualifications, which is
+why the surface that shows it says so on the page rather than in a tooltip.
 
 It is also measured *including* the rated player's own rows. Excluding them per
 player would mean a separate index per player; at thousands of rows per side the
@@ -142,6 +151,17 @@ class OppositionTable:
                 return found
         return self._overall.get(team_id, (1.0, 0))
 
+    def era_index(self, team_id: int | None, era: str) -> tuple[float, int] | None:
+        """This era's own fit, or None if the side played no cricket in it.
+
+        Distinct from `index()`, which deliberately FALLS BACK to the long-run
+        figure -- correct when scoring a match, because an unfitted era should
+        still be adjusted by something. It is wrong for display: the fallback
+        returns the side's whole-career index and match count, so an era a side
+        never played reads as if they played their entire career in it.
+        """
+        return self._by_era.get((team_id, era)) if team_id is not None else None
+
     def multiplier_for_era(self, team_id: int | None, era: str | None) -> float:
         """As `multiplier`, for callers that already grouped by era in SQL."""
         if not config.OPPOSITION_ADJUSTMENT_ENABLED:
@@ -165,6 +185,10 @@ class OppositionTable:
             return 1.0
         low, high = config.OPPOSITION_MULTIPLIER_BOUNDS
         return max(low, min(high, 1.0 / idx))
+
+    def era_keys(self) -> list[tuple[int, str]]:
+        """Every (team, era) pair that has a fitted index."""
+        return list(self._by_era.keys())
 
     def as_rows(self) -> list[dict]:
         """Every measured side, strongest first -- for inspection and the API."""

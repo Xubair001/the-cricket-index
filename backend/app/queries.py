@@ -139,6 +139,20 @@ def _player_country_map(
       for — rather than a guess at allegiance, and the side's name travels with
       the code so the UI can say which on hover.
     """
+    # Memoised for the life of one request. Building this scans every
+    # international appearance and groups ~5,400 players, and the batting and
+    # bowling aggregate helpers each call it on every invocation -- so a player
+    # profile rebuilt it once per competition, and a two-player comparison
+    # twice that again. Measured cost of not caching: 6.9s for /players/compare
+    # and 2.8s for a profile, against 0.06s and 0.04s before flags were added.
+    #
+    # Session.info is exactly request-scoped (get_db opens and closes a Session
+    # per request), so the map cannot go stale within a response, and nothing
+    # is shared between requests.
+    cache = db.info.setdefault("_player_country_map", {})
+    if gender in cache:
+        return cache[gender]
+
     stmt = (
         select(
             PlayerMatchStat.player_identifier,
@@ -164,7 +178,9 @@ def _player_country_map(
         current = best.get(identifier)
         if current is None or candidate[:2] > current[:2]:
             best[identifier] = candidate
-    return {ident: (name, code) for ident, (_, _, name, code) in best.items()}
+    resolved = {ident: (name, code) for ident, (_, _, name, code) in best.items()}
+    cache[gender] = resolved
+    return resolved
 
 
 def _attach_country(

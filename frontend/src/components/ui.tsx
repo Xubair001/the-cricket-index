@@ -26,10 +26,6 @@ export const buttonClass =
   'hover:border-border-strong hover:bg-elevated ' +
   'disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-surface'
 
-export const primaryButtonClass =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg border border-transparent bg-analytic ' +
-  'px-3.5 py-2 text-sm font-medium text-white shadow-card transition-opacity hover:opacity-90'
-
 /* ── Surfaces ──────────────────────────────────────────────── */
 
 export function Card({
@@ -147,25 +143,35 @@ export function Provenance({ children }: { children: ReactNode }) {
  * colSpan, sorting handlers and links on these elements, and a component that
  * forwarded all of that would be longer than the string it replaced. */
 
-export const tableClass = 'w-full min-w-[640px] border-collapse text-sm'
+/* No min-width here. Every table needs a different one — the nine in this app
+ * range from 380px to 840px — and a shared floor either lets a narrow table
+ * scroll when it did not need to or lets a wide one crush its columns. Each
+ * page appends its own. */
+export const tableClass = 'w-full border-collapse text-sm'
 
-export const theadClass =
-  'border-b border-border-default bg-elevated text-left'
+/**
+ * The header styling sits on the `<tr>`, not on `<thead>`, so the mono/uppercase
+ * treatment inherits down into every `<th>` and the cell classes stay short.
+ */
+export const theadRowClass =
+  'border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
-export const thClass =
-  'px-3 py-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.11em] text-muted whitespace-nowrap'
+export const thClass = 'px-3 py-2.5 font-medium whitespace-nowrap'
+export const thNumClass = 'px-3 py-2.5 text-right font-medium whitespace-nowrap'
+
+export const trClass =
+  'border-b border-border-subtle transition-colors last:border-0 hover:bg-elevated'
 
 export const tdClass = 'px-3 py-2.5 text-ink'
-
-export const trClass = 'border-b border-border-subtle transition-colors hover:bg-elevated'
 
 /**
  * A numeric cell. Right-aligned and tabular, which together are what make a
  * column of figures scannable — the decimal points land in one vertical line.
+ * Muted by default: in a row of eight figures at most one is the point, and
+ * that one gets `tdNumStrongClass`.
  */
-export const tdNumClass = 'tnum px-3 py-2.5 text-right text-ink'
-export const thNumClass =
-  'px-3 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-[0.11em] text-muted whitespace-nowrap'
+export const tdNumClass = 'tnum px-3 py-2.5 text-right text-muted'
+export const tdNumStrongClass = 'tnum px-3 py-2.5 text-right font-semibold text-ink'
 
 /* ── Uncertainty ───────────────────────────────────────────────
  * The product's second channel for "trust this less". Not a colour, because

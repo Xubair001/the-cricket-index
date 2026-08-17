@@ -7,6 +7,13 @@ import { Pagination } from '../components/Pagination'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { percent } from '../format'
+import {
+  tableClass,
+  tdClass,
+  thClass,
+  theadRowClass,
+  trClass,
+} from '../components/ui'
 
 // National sides and franchises are both "teams" but aren't comparable: a
 // win % against Australia doesn't mean what a win % against Multan Sultans
@@ -87,11 +94,11 @@ export function Teams() {
         </p>
       ) : (
         <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
-          <table className="w-full min-w-[620px] text-sm">
+          <table className={`${tableClass} min-w-[620px]`}>
             <thead>
-              <tr className="border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              <tr className={theadRowClass}>
                 <th className="px-4 py-2.5">#</th>
-                <th className="px-3 py-2.5">Team</th>
+                <th className={thClass}>Team</th>
                 <th className={th}>Matches</th>
                 <th className={th}>Won</th>
                 <th className={th}>Lost</th>
@@ -108,10 +115,10 @@ export function Teams() {
               {teams.map((t, i) => (
                 <tr
                   key={t.team_id}
-                  className="border-b border-border-subtle last:border-0 hover:bg-elevated"
+                  className={trClass}
                 >
                   <td className="tnum px-4 py-2.5 text-dim">{offset + i + 1}</td>
-                  <td className="px-3 py-2.5">
+                  <td className={tdClass}>
                     <Link
                       to={`/${slug}/teams/${t.team_id}`}
                       className="inline-flex items-center gap-2 font-medium text-ink hover:text-analytic-ink"

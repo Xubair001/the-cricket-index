@@ -234,6 +234,52 @@ CREATE TABLE IF NOT EXISTS icc_team_rankings (
 -- ingestion writes ~221k player_match_stats rows.
 
 -- matches ------------------------------------------------------------------
+-- Ball-by-ball records (Phase 1.5).
+--
+-- The single largest table by far: ~4.9M rows against player_match_stats' 221k.
+-- Everything §5 lists as Tier B unblocks from here -- phase splits need `over`,
+-- dot-ball rates need `runs_batter`, batting position needs the order within an
+-- innings, and chasing needs `innings`.
+--
+-- Column choices are storage decisions at this row count:
+--   * `seq` is the 0-based position within the innings and is what makes the
+--     primary key work. Ball-within-over cannot: a wide or no-ball adds a
+--     delivery to the over, so (over, ball) is not unique.
+--   * Players are stored as Cricsheet identifiers rather than names, which are
+--     both smaller and stable across the spelling variants `players` reconciles.
+--   * Extras are four small columns rather than a kind string, because a single
+--     delivery can be both a no-ball and carry byes, and because 0 costs less
+--     than a repeated label 4.9M times.
+--   * `non_boundary` carries Cricsheet's own flag so a four can be told from
+--     four runs run -- the same distinction the aggregate parser now honours.
+CREATE TABLE IF NOT EXISTS deliveries (
+    match_id TEXT NOT NULL REFERENCES matches(match_id),
+    innings INTEGER NOT NULL,          -- 1-based; gives batting-first vs chasing
+    seq INTEGER NOT NULL,              -- 0-based order within the innings
+    over INTEGER NOT NULL,             -- 0-based; gives powerplay/middle/death
+    ball INTEGER NOT NULL,             -- 1-based within the over, extras included
+    batting_team_id INTEGER REFERENCES teams(team_id),
+    batter TEXT REFERENCES players(identifier),
+    bowler TEXT REFERENCES players(identifier),
+    non_striker TEXT REFERENCES players(identifier),
+    runs_batter INTEGER NOT NULL DEFAULT 0,
+    runs_extras INTEGER NOT NULL DEFAULT 0,
+    runs_total INTEGER NOT NULL DEFAULT 0,
+    non_boundary INTEGER NOT NULL DEFAULT 0,   -- 1 => a 4/6 that was run, not hit
+    wides INTEGER NOT NULL DEFAULT 0,
+    noballs INTEGER NOT NULL DEFAULT 0,
+    byes INTEGER NOT NULL DEFAULT 0,
+    legbyes INTEGER NOT NULL DEFAULT 0,
+    wicket_kind TEXT,                  -- NULL on the overwhelming majority of balls
+    player_out TEXT REFERENCES players(identifier),
+    PRIMARY KEY (match_id, innings, seq)
+) WITHOUT ROWID;
+
+-- Deliveries are always read by match, or by player within a scope. A covering
+-- index on either is what keeps a phase split off a full scan of 4.9M rows.
+CREATE INDEX IF NOT EXISTS idx_deliveries_batter ON deliveries(batter, match_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_bowler ON deliveries(bowler, match_id);
+
 CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition_id);
 -- Date alone, NOT (gender, match_date_start). Measured interleaved so page
 -- cache can't flatter either arm:

@@ -86,31 +86,3 @@ export function ParMeter({
     </div>
   )
 }
-
-/**
- * The figure that goes beside the meter.
- *
- * Carries the sign as well as the colour, so the above/below reading survives
- * a greyscale print, a colour-vision deficiency, and a forced-colors mode.
- */
-export function ParFigure({
-  value,
-  className = '',
-}: {
-  value: number | null | undefined
-  className?: string
-}) {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return <span className={`tnum text-dim ${className}`}>—</span>
-  }
-  const above = value >= 1
-  return (
-    <span
-      className={`tnum font-mono ${above ? 'text-positive-ink' : 'text-negative-ink'} ${className}`}
-      title={`${value.toFixed(2)}x what an average appearance is worth`}
-    >
-      {above ? '▲' : '▼'} {value.toFixed(2)}
-      <span className="text-dim">x</span>
-    </span>
-  )
-}

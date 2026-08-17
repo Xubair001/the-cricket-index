@@ -13,9 +13,15 @@ from sqlalchemy.orm import Session
 from .. import queries, schemas, validation
 from sqlalchemy import func, select
 
-from ..models import Match
-from .. import venues
-from ..analytics import explorer as explorer_mod, impact, periods
+from ..models import Match, Team
+from .. import flags, venues
+from ..analytics import (
+    explorer as explorer_mod,
+    impact,
+    opposition as opposition_mod,
+    periods,
+    venue as venue_mod,
+)
 from ..database import get_db
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -78,6 +84,111 @@ def list_venues(
             entry["city"] = city
     out = sorted(grouped.values(), key=lambda e: (-e["matches"], e["venue"]))
     return [schemas.VenueOption(**e) for e in out]
+
+
+@router.get("/venues/{venue_name:path}", response_model=schemas.VenueProfile)
+def venue_profile(
+    venue_name: str,
+    gender: str = Query(pattern="^(male|female)$"),
+    competition: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> schemas.VenueProfile:
+    """One ground's character (§20).
+
+    Keyed on the canonical ground, so every spelling of it contributes. The
+    path is `:path` because canonical names carry commas, apostrophes and
+    parenthesised cities ("County Ground (Bristol)").
+    """
+    result = venue_mod.profile(
+        db,
+        venue_name,
+        gender=gender,
+        competition_key=validation.check_competition_key(db, competition),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"no ground matching '{venue_name}'")
+    return schemas.VenueProfile(
+        venue=result.venue,
+        city=result.city,
+        matches=result.matches,
+        first_match=result.first_match,
+        last_match=result.last_match,
+        raw_spellings=result.raw_spellings,
+        formats=[schemas.VenueFormatStats(**vars(f)) for f in result.formats],
+    )
+
+
+@router.get("/opposition", response_model=schemas.TeamStrengthTable)
+def team_strength(
+    gender: str = Query(pattern="^(male|female)$"),
+    competition_type: str = Query(default="international"),
+    min_matches: int = Query(default=20, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> schemas.TeamStrengthTable:
+    """Fitted difficulty per side, hardest first, with its era curve.
+
+    This is the model the form boards and the Performance Index already use to
+    scale every performance; exposing it is what lets a reader check the
+    adjustment rather than take it on trust (§30).
+    """
+    ctype = validation.check_competition_type(db, competition_type) or "international"
+    MIN_MATCHES_PER_ERA = 15
+    table = opposition_mod.table(db)
+
+    teams = {
+        t.team_id: t
+        for t in db.execute(
+            select(Team).where(Team.gender == gender, Team.team_type == ctype)
+        ).scalars()
+    }
+    eras = sorted({e for (_t, e) in table.era_keys() if e != "unknown"})
+
+    rows: list[schemas.TeamStrengthRow] = []
+    for team_id, team in teams.items():
+        long_run, n = table.index(team_id)
+        if n < min_matches:
+            continue
+        # `era_index`, not `index`: the latter falls back to the long-run figure
+        # for an era the side never played, which would draw a flat line where
+        # there is no cricket at all.
+        series = []
+        for era in eras:
+            found = table.era_index(team_id, era)
+            if not found:
+                continue
+            idx, count = found
+            series.append(
+                schemas.TeamStrengthEra(
+                    era=era,
+                    difficulty=round(1 / idx, 3) if idx else 1.0,
+                    matches=count,
+                    reliable=count >= MIN_MATCHES_PER_ERA,
+                )
+            )
+        rows.append(
+            schemas.TeamStrengthRow(
+                team_id=team_id,
+                name=team.name,
+                country_code=flags.country_code(team.name, team.team_type),
+                matches=n,
+                difficulty=round(1 / long_run, 3) if long_run else 1.0,
+                # Only from an era with enough cricket behind it. Spain's five
+                # matches in the 2020s produced a "now" of 1.14 -- above
+                # Australia -- which is sample size, not strength.
+                current_difficulty=(
+                    series[-1].difficulty if series and series[-1].reliable else None
+                ),
+                eras=series,
+            )
+        )
+    rows.sort(key=lambda r: -r.difficulty)
+    return schemas.TeamStrengthTable(
+        gender=gender,
+        competition_type=ctype,
+        total=len(rows),
+        validated_against_icc="Spearman rho +0.81 to +0.83 across Test, ODI and T20I",
+        items=rows,
+    )
 
 
 # ---------------------------------------------------------------------------

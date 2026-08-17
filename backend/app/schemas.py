@@ -391,6 +391,74 @@ class VenueOption(BaseModel):
     raw_spellings: int
 
 
+class VenueFormatStats(BaseModel):
+    """One ground's cricket within one competition."""
+
+    competition_key: str
+    competition_name: str
+    matches: int
+    # Runs OFF THE BAT, not the team total: extras are not attributed to a
+    # batter, so this understates a true score by roughly 5%. Named for what it
+    # actually is (see analytics/venue.py).
+    runs_off_bat_per_match: float | None
+    runs_per_wicket: float | None
+    balls_per_wicket: float | None
+    boundary_rate: float | None
+    # Ratios against this competition's own par: 1.0 = typical for the format.
+    scoring_index: float | None
+    wicket_index: float | None
+    bat_first_wins: int
+    bat_first_losses: int
+    bat_first_win_pct: float | None
+    toss_win_pct: float | None
+    chose_to_bat_pct: float | None
+    decided_matches: int
+    # False when too few matches for the rates to describe the ground.
+    reliable: bool
+
+
+class VenueProfile(BaseModel):
+    venue: str
+    city: str | None
+    matches: int
+    first_match: str | None
+    last_match: str | None
+    # How many ways the source spells this ground -- the normalisation receipt.
+    raw_spellings: list[str]
+    formats: list[VenueFormatStats]
+
+
+class TeamStrengthEra(BaseModel):
+    era: str
+    difficulty: float          # multiplier: >1 = harder than an average side
+    matches: int
+    # False when too little cricket in this era for the figure to mean much.
+    reliable: bool = True
+
+
+class TeamStrengthRow(BaseModel):
+    """One side's fitted difficulty. NOT an official rating and NOT a
+    prediction of results -- see analytics/opposition.py."""
+
+    team_id: int
+    name: str
+    country_code: str | None
+    matches: int
+    difficulty: float          # long-run, across every era
+    current_difficulty: float | None   # most recent era with cricket in it
+    eras: list[TeamStrengthEra]
+
+
+class TeamStrengthTable(BaseModel):
+    gender: Gender
+    competition_type: str
+    total: int
+    # Correlation against ICC's published team ratings. A CHECK on the model,
+    # never an input to it (§6).
+    validated_against_icc: str
+    items: list[TeamStrengthRow]
+
+
 class ExplorerRow(BaseModel):
     """One explorer row. Fields vary by explorer, so this stays open."""
 
@@ -412,6 +480,55 @@ class ExplorerPage(BaseModel):
     filters: dict
     sorts: list[str]
     items: list[ExplorerRow]
+
+
+class SquadMember(PlayerCountry):
+    player_identifier: str
+    player_name: str
+    matches: int
+    runs: int
+    balls_faced: int
+    dismissals: int
+    wickets: int
+    balls_bowled: int
+    runs_conceded: int
+    batting_average: float | None
+    strike_rate: float | None
+    bowling_average: float | None
+    economy: float | None
+    # INFERRED from where this player spent their deliveries in this window,
+    # for this team -- never a sourced fact. See analytics/explorer.discipline.
+    role: str
+    bowling_share: float | None
+    # False when the window holds too few deliveries for the role to be a
+    # claim; the UI marks these rather than hiding them.
+    role_confident: bool
+    last_played: str | None
+
+
+class SquadAnalysis(BaseModel):
+    team_id: int
+    team_name: str
+    country_code: str | None = None
+    gender: Gender
+    team_type: str
+    # The requested window, and how many matches were actually found in it --
+    # a side with 6 matches on record must not look like a 20-match sample.
+    window_matches: int
+    matches_in_window: int
+    first_match: str | None
+    last_match: str | None
+    members: list[SquadMember]
+    role_counts: dict[str, int]
+    runs_by_role: dict[str, int]
+    wickets_by_role: dict[str, int]
+    # Share of the window's runs/wickets taken by the top three contributors.
+    top_run_share: float | None
+    top_wicket_share: float | None
+    reliance_top_n: int
+    # What this analysis cannot say, stated in the payload so the UI cannot
+    # quietly present a partial picture as a complete one.
+    unavailable: list[str]
 
 
 class PaginatedTeams(BaseModel):

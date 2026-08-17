@@ -34,6 +34,37 @@ class PlayerMatchStat:
 
 
 @dataclass
+class Delivery:
+    """One ball, kept whole.
+
+    The aggregate stats above are derived from these, but the two are stored
+    side by side rather than one from the other: §5's Tier B list -- phase
+    splits, dot-ball rates, batting position, chasing -- all need the ball back,
+    and re-deriving an aggregate from deliveries at read time would put a scan
+    of ~4.9M rows on a page request (§28 forbids exactly that).
+    """
+
+    innings: int          # 1-based, so batting first vs chasing is readable
+    seq: int              # 0-based within the innings; the stable sort key
+    over: int             # 0-based, for powerplay / middle / death
+    ball: int             # 1-based within the over, extras included
+    batting_team: str
+    batter: str | None
+    bowler: str | None
+    non_striker: str | None
+    runs_batter: int = 0
+    runs_extras: int = 0
+    runs_total: int = 0
+    non_boundary: bool = False
+    wides: int = 0
+    noballs: int = 0
+    byes: int = 0
+    legbyes: int = 0
+    wicket_kind: str | None = None
+    player_out: str | None = None
+
+
+@dataclass
 class ParsedMatch:
     match_id: str
     competition: str
@@ -60,6 +91,7 @@ class ParsedMatch:
     teams: list[str] = field(default_factory=list)
     players: dict[str, str] = field(default_factory=dict)  # name -> registry id
     player_match_stats: list[PlayerMatchStat] = field(default_factory=list)
+    deliveries: list[Delivery] = field(default_factory=list)
 
 
 def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
@@ -110,9 +142,18 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
         for name in names:
             stats[name] = PlayerMatchStat(player_name=name, team=team)
 
-    for innings in raw.get("innings", []):
+    deliveries: list[Delivery] = []
+
+    # `innings` is 1-based and counts in the order Cricsheet lists them, which
+    # IS the order they were played -- that is what makes chasing derivable.
+    for innings_number, innings in enumerate(raw.get("innings", []), start=1):
+        batting_team = innings.get("team")
+        # Position within the innings, not within the over: a wide or no-ball
+        # adds a delivery, so (over, ball) is not unique and cannot be a key.
+        seq = 0
         for over in innings.get("overs", []):
-            for delivery in over.get("deliveries", []):
+            over_number = over.get("over", 0)
+            for ball_number, delivery in enumerate(over.get("deliveries", []), start=1):
                 runs = delivery.get("runs", {})
                 extras = delivery.get("extras") or {}
                 wickets = delivery.get("wickets") or []
@@ -159,5 +200,35 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
                     if dismissed_name in stats and wicket.get("kind") not in NOT_OUT_KINDS:
                         stats[dismissed_name].dismissals += 1
 
+                # Only the first wicket on a ball is stored. Two dismissals off
+                # one delivery is possible (a run out on a no-ball that is also
+                # a stumping is not, but run-out plus retired is) and vanishingly
+                # rare; the aggregate counters above still see every one.
+                first_wicket = wickets[0] if wickets else {}
+                deliveries.append(
+                    Delivery(
+                        innings=innings_number,
+                        seq=seq,
+                        over=over_number,
+                        ball=ball_number,
+                        batting_team=batting_team,
+                        batter=batter_name,
+                        bowler=bowler_name,
+                        non_striker=delivery.get("non_striker"),
+                        runs_batter=batter_runs,
+                        runs_extras=runs.get("extras", 0),
+                        runs_total=runs.get("total", 0),
+                        non_boundary=bool(runs.get("non_boundary")),
+                        wides=extras.get("wides", 0),
+                        noballs=extras.get("noballs", 0),
+                        byes=extras.get("byes", 0),
+                        legbyes=extras.get("legbyes", 0),
+                        wicket_kind=first_wicket.get("kind"),
+                        player_out=first_wicket.get("player_out"),
+                    )
+                )
+                seq += 1
+
     match.player_match_stats = list(stats.values())
+    match.deliveries = deliveries
     return match

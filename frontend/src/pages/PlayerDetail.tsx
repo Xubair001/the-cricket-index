@@ -10,6 +10,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { rate } from '../format'
+import { tdClass } from '../components/ui'
 
 const sectionLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
@@ -219,7 +220,7 @@ export function PlayerDetail() {
                       <CompetitionBadge competition={m.competition_key} />
                     </td>
                     <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={tdClass}>
                       <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic-ink">
                         {m.team1?.name} v {m.team2?.name}
                       </Link>

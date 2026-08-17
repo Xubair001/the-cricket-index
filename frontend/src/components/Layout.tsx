@@ -38,8 +38,8 @@ const NAV: NavGroup[] = [
     items: [
       { label: 'Players', to: 'players' },
       { label: 'Teams', to: 'teams' },
-      { label: 'In Form', blocked: 'Needs the form engine wired to a leaderboard' },
-      { label: 'Rising Players', blocked: 'Needs the form engine wired to a leaderboard' },
+      { label: 'In Form', to: 'form/in-form' },
+      { label: 'Rising Players', to: 'form/rising' },
       { label: 'Best XI', blocked: 'Needs player role and wicketkeeper data' },
     ],
   },
@@ -54,7 +54,11 @@ const NAV: NavGroup[] = [
     label: 'Teams',
     items: [
       { label: 'Team Directory', to: 'teams' },
-      { label: 'Squad Analysis', blocked: 'Needs player role data' },
+      // Unblocked by inferring role from each player's share of deliveries in
+      // the window rather than waiting for a sourced role, which no available
+      // feed carries. The page labels every role as inferred and states what
+      // still cannot be derived (wicketkeeper, batting position, handedness).
+      { label: 'Squad Analysis', to: 'teams/squad' },
     ],
   },
   {
@@ -81,8 +85,8 @@ const NAV: NavGroup[] = [
       { label: 'Batting Explorer', to: 'analytics/batting' },
       { label: 'Bowling Explorer', to: 'analytics/bowling' },
       { label: 'All-Round Explorer', to: 'analytics/allround' },
-      { label: 'Venue Analytics', blocked: 'Needs venue normalisation' },
-      { label: 'Opposition Analytics', to: 'analytics/batting' },
+      { label: 'Venue Analytics', to: 'analytics/venues' },
+      { label: 'Opposition Analytics', to: 'analytics/opposition' },
     ],
   },
   {

@@ -285,6 +285,47 @@ export interface MatchDetail extends MatchSummary {
   performers: MatchPerformer[]
 }
 
+export interface SquadMember extends PlayerCountry {
+  player_identifier: string
+  player_name: string
+  matches: number
+  runs: number
+  balls_faced: number
+  dismissals: number
+  wickets: number
+  balls_bowled: number
+  runs_conceded: number
+  batting_average: number | null
+  strike_rate: number | null
+  bowling_average: number | null
+  economy: number | null
+  // INFERRED from deliveries in this window, for this team. Never sourced.
+  role: string
+  bowling_share: number | null
+  role_confident: boolean
+  last_played: string | null
+}
+
+export interface SquadAnalysis {
+  team_id: number
+  team_name: string
+  country_code: string | null
+  gender: ApiGender
+  team_type: string
+  window_matches: number
+  matches_in_window: number
+  first_match: string | null
+  last_match: string | null
+  members: SquadMember[]
+  role_counts: Record<string, number>
+  runs_by_role: Record<string, number>
+  wickets_by_role: Record<string, number>
+  top_run_share: number | null
+  top_wicket_share: number | null
+  reliance_top_n: number
+  unavailable: string[]
+}
+
 export interface Paginated<T> {
   total: number
   limit: number
@@ -532,4 +573,67 @@ export interface VenueOption {
   city: string | null
   matches: number
   raw_spellings: number
+}
+
+export interface VenueFormatStats {
+  competition_key: string
+  competition_name: string
+  matches: number
+  /** Runs OFF THE BAT — extras are not attributed to a batter, so this runs
+   *  about 5% under a true team total. Named for what it actually is. */
+  runs_off_bat_per_match: number | null
+  runs_per_wicket: number | null
+  balls_per_wicket: number | null
+  boundary_rate: number | null
+  /** Ratios against this competition's own par: 1.0 = typical for the format. */
+  scoring_index: number | null
+  wicket_index: number | null
+  bat_first_wins: number
+  bat_first_losses: number
+  bat_first_win_pct: number | null
+  toss_win_pct: number | null
+  chose_to_bat_pct: number | null
+  decided_matches: number
+  /** False when too few matches for the rates to describe the ground. */
+  reliable: boolean
+}
+
+export interface VenueProfile {
+  venue: string
+  city: string | null
+  matches: number
+  first_match: string | null
+  last_match: string | null
+  raw_spellings: string[]
+  formats: VenueFormatStats[]
+}
+
+export interface TeamStrengthEra {
+  era: string
+  /** Multiplier: >1 = harder to play against than an average side. */
+  difficulty: number
+  matches: number
+  /** False when too little cricket in this era for the figure to mean much. */
+  reliable: boolean
+}
+
+/** A fitted difficulty rating. NOT official, and NOT a match prediction. */
+export interface TeamStrengthRow {
+  team_id: number
+  name: string
+  country_code: string | null
+  matches: number
+  difficulty: number
+  /** Null when the latest era is too thin to state — withheld, not guessed. */
+  current_difficulty: number | null
+  eras: TeamStrengthEra[]
+}
+
+export interface TeamStrengthTable {
+  gender: ApiGender
+  competition_type: string
+  total: number
+  /** Correlation with ICC's published ratings — a check, never an input. */
+  validated_against_icc: string
+  items: TeamStrengthRow[]
 }

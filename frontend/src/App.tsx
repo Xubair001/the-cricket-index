@@ -2,6 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Compare } from './pages/Compare'
 import { Explorer } from './pages/Explorer'
+import { VenueAnalytics } from './pages/VenueAnalytics'
+import { OppositionAnalytics } from './pages/OppositionAnalytics'
+import { FormBoards } from './pages/FormBoards'
 import { Home } from './pages/Home'
 import { PerformanceIndex } from './pages/PerformanceIndex'
 import { Fixtures } from './pages/Fixtures'
@@ -11,6 +14,7 @@ import { Matches } from './pages/Matches'
 import { PlayerDetail } from './pages/PlayerDetail'
 import { Players } from './pages/Players'
 import { Rankings } from './pages/Rankings'
+import { SquadAnalysis } from './pages/SquadAnalysis'
 import { TeamDetail } from './pages/TeamDetail'
 import { Teams } from './pages/Teams'
 import { GENDER_STORAGE_KEY } from './components/Layout'
@@ -34,14 +38,20 @@ function App() {
         <Route path="/" element={<RootRedirect />} />
         <Route path="/:gender" element={<Layout />}>
           <Route index element={<Home />} />
+          <Route path="form" element={<Navigate to="in-form" replace />} />
+          <Route path="form/:board" element={<FormBoards />} />
           <Route path="rankings" element={<Rankings />} />
           <Route path="performance-index" element={<PerformanceIndex />} />
           <Route path="analytics" element={<Navigate to="batting" replace />} />
+          <Route path="analytics/venues" element={<VenueAnalytics />} />
+          <Route path="analytics/opposition" element={<OppositionAnalytics />} />
           <Route path="analytics/:explorer" element={<Explorer />} />
           <Route path="icc-rankings" element={<IccRankings />} />
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />
           <Route path="teams" element={<Teams />} />
+          {/* Before "teams/:teamId", or 'squad' is read as a team id. */}
+          <Route path="teams/squad" element={<SquadAnalysis />} />
           <Route path="teams/:teamId" element={<TeamDetail />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:identifier" element={<PlayerDetail />} />
