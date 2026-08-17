@@ -79,6 +79,10 @@ class Match(Base):
     win_by_wickets: Mapped[int | None]
     outcome_result: Mapped[str | None]
     player_of_match: Mapped[str | None]
+    # 'cricsheet' (ball-by-ball derived, has `deliveries`) or 'icc' (ICC's own
+    # computed scorecard, no deliveries). See ingestion/schema.sql.
+    source: Mapped[str]
+    natural_key: Mapped[str | None]
 
     competition: Mapped["Competition"] = relationship()
     player_stats: Mapped[list["PlayerMatchStat"]] = relationship(back_populates="match")
@@ -101,6 +105,35 @@ class PlayerMatchStat(Base):
     runs_conceded: Mapped[int]
 
     match: Mapped["Match"] = relationship(back_populates="player_stats")
+
+
+class FixtureSquad(Base):
+    """An announced squad for a fixture, from the ICC scorecard feed.
+
+    Kept separate from `players` for the same reason ICC rankings are: this is
+    ICC's claim about their own squad lists, and a role here is a fact about a
+    fixture rather than a permanent property -- a player can be named as keeper
+    in one squad and a batter in another.
+    """
+
+    __tablename__ = "fixture_squads"
+
+    icc_match_id: Mapped[str] = mapped_column(
+        ForeignKey("fixtures.icc_match_id"), primary_key=True
+    )
+    icc_team_id: Mapped[str] = mapped_column(primary_key=True)
+    player_name: Mapped[str] = mapped_column(primary_key=True)
+    team_name: Mapped[str | None]
+    player_identifier: Mapped[str | None] = mapped_column(
+        ForeignKey("players.identifier")
+    )
+    position: Mapped[int | None]
+    is_captain: Mapped[int]
+    role: Mapped[str | None]            # Batter | Bowler | All-Rounder | Wicket Keeper
+    batting_style: Mapped[str | None]   # RHB | LHB
+    bowling_style: Mapped[str | None]   # RM, RFM, OB, SLO, LB ...
+    status: Mapped[str | None]          # ICC's own wording, passed through
+    fetched_at: Mapped[str]
 
 
 class Delivery(Base):
@@ -134,6 +167,10 @@ class Delivery(Base):
     legbyes: Mapped[int]
     wicket_kind: Mapped[str | None]
     player_out: Mapped[str | None] = mapped_column(ForeignKey("players.identifier"))
+    # Who effected the dismissal. This is what identifies a wicketkeeper: only
+    # a keeper can stump, and a keeper takes far more catches than any other
+    # fielder. See ingestion/schema.sql.
+    fielder: Mapped[str | None] = mapped_column(ForeignKey("players.identifier"))
 
 
 class PlayerCareerTotal(Base):

@@ -91,7 +91,9 @@
       "Bash(python3 -c \"print\\('shot'\\)\")",
       "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/squad.py)",
       "Bash(awk '/CREATE TABLE IF NOT EXISTS player_match_stats/,/\\\\\\);/' ingestion/schema.sql)",
-      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/verify.py)"
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/verify.py)",
+      "Bash(curl -sL --max-time 60 \"http://web.archive.org/cdx/search/cdx?url=cricsheet.org/downloads/odis_json.zip&output=json&limit=40&filter=statuscode:200\" -o /tmp/cdx.json)",
+      "Bash(pkill -f \"python -u worker.py\")"
     ]
   }
 }

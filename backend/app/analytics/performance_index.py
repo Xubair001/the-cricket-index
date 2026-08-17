@@ -206,11 +206,6 @@ def page(
     too slow for the request path (§28) and is deterministic between ingests --
     the same reason the form boards are cached.
     """
-    # Both the floor and the shrinkage are what keep this measuring a
-    # situational edge rather than a small sample. See the note in `config`.
-    floor = config.INDEX_SITUATION_MIN_DISMISSALS
-    k = config.INDEX_SITUATION_SHRINKAGE
-
     key = (gender, competition_key, competition_type)
     if key not in _cache:
         _cache[key] = compute(
@@ -355,6 +350,11 @@ def _chasing_ratio(db: Session, pid, gender, competition_key, competition_type) 
     which is also the value returned when there is too little of one side to
     compare -- absent evidence, assume no situational edge rather than invent one.
     """
+    # Both the floor and the shrinkage are what keep this measuring a
+    # situational edge rather than a small sample. See the note in `config`.
+    floor = config.INDEX_SITUATION_MIN_DISMISSALS
+    k = config.INDEX_SITUATION_SHRINKAGE
+
     key = (gender, competition_key, competition_type)
     if key not in _chasing_cache:
         stmt = (

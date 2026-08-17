@@ -24,6 +24,8 @@ with workflow.unsafe.imports_passed_through():
     from ingestion_workflow import CricsheetIngestionWorkflow
     from activities import (
         enrich_from_wikidata,
+        find_icc_scorecard_candidates,
+        ingest_icc_scorecards,
         fetch_icc_feed,
         fetch_icc_fixtures,
         sync_people_register,
@@ -107,6 +109,49 @@ class IccFixturesWorkflow:
 
 
 @workflow.defn
+class IccScorecardsWorkflow:
+    """Ingests ICC scorecards for completed fixtures we have no match for.
+
+    Two jobs in one mechanism:
+
+    * closes the freshness gap, since Cricsheet publishes in bulk every few
+      days and recent matches would otherwise simply be missing;
+    * is the ONLY route to Afghanistan cricket, which Cricsheet has withheld
+      entirely since 2024-11-14 (their protest at the ICC's treatment of Afghan
+      women's cricket -- a publisher policy, not a gap in our ingestion).
+
+    Only completed fixtures in formats this schema models are fetched, and a
+    match Cricsheet already describes is skipped, so this never competes with
+    the better source.
+    """
+
+    @workflow.run
+    async def run(self, days_back: int = 30, limit: int = 200) -> str:
+        cutoff = (workflow.now().date() - timedelta(days=days_back)).isoformat()
+        ids = await workflow.execute_activity(
+            find_icc_scorecard_candidates,
+            args=[cutoff, limit],
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if not ids:
+            return "icc scorecards: nothing to fetch"
+        stats = await workflow.execute_activity(
+            ingest_icc_scorecards,
+            args=[ids],
+            start_to_close_timeout=timedelta(minutes=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        return (
+            f"icc scorecards: {stats['stored']} stored of {stats['seen']} seen "
+            f"({stats['skipped_unchanged']} unchanged, "
+            f"{stats['skipped_cricsheet_has_it']} already in Cricsheet, "
+            f"{stats['skipped_format']} unmodelled format, {stats['failed']} failed); "
+            f"players {stats['players_linked']} linked / {stats['players_unlinked']} unlinked"
+        )
+
+
+@workflow.defn
 class IccDailySyncWorkflow:
     """The scheduled daily job: ICC rankings, ICC fixtures, and Cricsheet.
 
@@ -144,6 +189,18 @@ class IccDailySyncWorkflow:
             r if isinstance(r, str) else f"FAILED: {type(r).__name__}"
             for r in (rankings, fixtures)
         ]
+
+        # Scorecards run after fixtures, not beside them: the candidate list is
+        # read from the rows the fixtures leg has just written, so running them
+        # concurrently would work off yesterday's schedule.
+        try:
+            parts.append(str(await workflow.execute_child_workflow(
+                IccScorecardsWorkflow.run,
+                id=f"{workflow.info().workflow_id}-scorecards",
+            )))
+        except Exception as e:  # noqa: BLE001
+            workflow.logger.warning(f"icc scorecards failed: {e!r}")
+            parts.append(f"scorecards: FAILED {type(e).__name__}")
 
         for competition in competitions if competitions is not None else DAILY_COMPETITIONS:
             try:

@@ -8,6 +8,7 @@ from db import init_db
 from shared import TASK_QUEUE
 from ingestion_workflow import CricsheetIngestionWorkflow
 from enrichment_workflow import (
+    IccScorecardsWorkflow,
     IccDailySyncWorkflow,
     IccFixturesWorkflow,
     IccRankingsWorkflow,
@@ -18,6 +19,8 @@ from activities import (
     enrich_from_wikidata,
     fetch_icc_feed,
     fetch_icc_fixtures,
+    find_icc_scorecard_candidates,
+    ingest_icc_scorecards,
     ingest_match,
     record_progress,
     sync_people_register,
@@ -36,6 +39,7 @@ async def main() -> None:
             CricsheetIngestionWorkflow,
             IccRankingsWorkflow,
             IccFixturesWorkflow,
+            IccScorecardsWorkflow,
             IccDailySyncWorkflow,
             PlayerEnrichmentWorkflow,
         ],
@@ -47,6 +51,8 @@ async def main() -> None:
             enrich_from_wikidata,
             fetch_icc_feed,
             fetch_icc_fixtures,
+            find_icc_scorecard_candidates,
+            ingest_icc_scorecards,
         ],
         max_concurrent_activities=10,
     )

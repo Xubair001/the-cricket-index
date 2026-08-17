@@ -25,6 +25,11 @@ def get_connection() -> sqlite3.Connection:
 # columns from it -- these are applied separately. ALTER TABLE ADD COLUMN is
 # the one schema change SQLite does cheaply and without a table rewrite, so
 # enrichment doesn't force a full re-ingest of ~9,600 matches.
+_MATCH_COLUMN_MIGRATIONS = {
+    "source": "TEXT NOT NULL DEFAULT 'cricsheet'",
+    "natural_key": "TEXT",
+}
+
 _PLAYER_COLUMN_MIGRATIONS = {
     "date_of_death": "TEXT",
     "retirement_date": "TEXT",
@@ -74,6 +79,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for column, coltype in _PLAYER_COLUMN_MIGRATIONS.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE players ADD COLUMN {column} {coltype}")
+
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
+    for column, coltype in _MATCH_COLUMN_MIGRATIONS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE matches ADD COLUMN {column} {coltype}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_matches_natural_key ON matches(natural_key)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_source ON matches(source)")
 
 
 def init_db() -> None:

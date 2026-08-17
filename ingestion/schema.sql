@@ -95,7 +95,28 @@ CREATE TABLE IF NOT EXISTS matches (
     win_by_runs INTEGER,
     win_by_wickets INTEGER,
     outcome_result TEXT,              -- e.g. 'tie', 'no result', 'draw'; null if decisive
-    player_of_match TEXT
+    player_of_match TEXT,
+    -- Which feed this match's figures came from.
+    --
+    -- 'cricsheet' is the default and the only one that carries ball-by-ball,
+    -- so only those matches have `deliveries` rows and only they can appear in
+    -- the phase/splits analytics.
+    --
+    -- 'icc' rows come from ICC's per-match scorecard endpoint. They exist for
+    -- two reasons: Cricsheet publishes in bulk every few days, so recent
+    -- matches would otherwise be missing entirely; and Cricsheet has withheld
+    -- ALL Afghanistan matches since 2024-11-14 in protest at the ICC's
+    -- treatment of Afghan women's cricket, so this is the only route to
+    -- Afghanistan cricket at all. These are ICC's computed figures, not ones
+    -- derived here, which is why the column exists rather than the rows being
+    -- quietly appended.
+    source TEXT NOT NULL DEFAULT 'cricsheet' CHECK (source IN ('cricsheet', 'icc')),
+    -- Identifies the same real-world match across sources, so a Cricsheet
+    -- publication can supersede the ICC stand-in instead of double-counting
+    -- every player's career. Format: gender|competition|date|teamA|teamB with
+    -- the team names sorted, so it does not depend on which side is listed
+    -- first (the two feeds disagree about that).
+    natural_key TEXT
 );
 
 -- Who played in which match for which team, plus their batting/bowling
@@ -272,6 +293,13 @@ CREATE TABLE IF NOT EXISTS deliveries (
     legbyes INTEGER NOT NULL DEFAULT 0,
     wicket_kind TEXT,                  -- NULL on the overwhelming majority of balls
     player_out TEXT REFERENCES players(identifier),
+    -- Who effected the dismissal. Only the FIRST fielder is kept: a catch has
+    -- one, and the rare two-fielder run out does not change any question we
+    -- ask. This is what identifies a wicketkeeper -- only a keeper can stump,
+    -- and a keeper takes far more catches than any other fielder. §5 called
+    -- keeper identification impossible, which was true of player_match_stats
+    -- and not of Cricsheet, which carries fielders on 65% of wickets.
+    fielder TEXT REFERENCES players(identifier),
     PRIMARY KEY (match_id, innings, seq)
 ) WITHOUT ROWID;
 
@@ -279,6 +307,41 @@ CREATE TABLE IF NOT EXISTS deliveries (
 -- index on either is what keeps a phase split off a full scan of 4.9M rows.
 CREATE INDEX IF NOT EXISTS idx_deliveries_batter ON deliveries(batter, match_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_bowler ON deliveries(bowler, match_id);
+
+-- Announced squads per fixture, from the ICC scorecard feed.
+--
+-- This table is the answer to §34 #1 and #2 at once. The feed carries, for each
+-- named player: a sourced ROLE (including wicketkeeper), batting handedness,
+-- bowling style, and an availability status. Every one of those was listed as
+-- Tier C on the assumption no source had them -- true of Cricsheet and
+-- Wikidata, not of the feed this project already consumes for fixtures.
+--
+-- Kept SEPARATE from `players` rather than merged into it, for the same reason
+-- ICC rankings are: this is ICC's claim about their own squad lists, and a
+-- player's role here is a fact about a fixture, not a permanent property. A
+-- player can be picked as a keeper in one squad and a batter in another.
+--
+-- `player_identifier` is populated only where the name resolves confidently to
+-- one of our players; an unresolved row is still stored, because the squad is
+-- real whether or not we can link it.
+CREATE TABLE IF NOT EXISTS fixture_squads (
+    icc_match_id TEXT NOT NULL REFERENCES fixtures(icc_match_id),
+    icc_team_id TEXT NOT NULL,
+    team_name TEXT,
+    player_name TEXT NOT NULL,        -- as ICC spells it
+    player_identifier TEXT REFERENCES players(identifier),  -- null => unmatched
+    position INTEGER,
+    is_captain INTEGER NOT NULL DEFAULT 0,
+    role TEXT,                        -- Batter | Bowler | All-Rounder | Wicket Keeper
+    batting_style TEXT,               -- RHB | LHB
+    bowling_style TEXT,               -- RM, RFM, OB, SLO, LB ...
+    status TEXT,                      -- ICC's own availability wording
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (icc_match_id, icc_team_id, player_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fixture_squads_player ON fixture_squads(player_identifier);
+CREATE INDEX IF NOT EXISTS idx_fixture_squads_match ON fixture_squads(icc_match_id);
 
 CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition_id);
 -- Date alone, NOT (gender, match_date_start). Measured interleaved so page

@@ -33,6 +33,20 @@ class PlayerMatchStat:
     runs_conceded: int = 0
 
 
+def _first_fielder(wicket: dict) -> str | None:
+    """The fielder credited with a dismissal, if Cricsheet names one.
+
+    Only the first is taken. A catch or stumping has exactly one; a run out can
+    name two, and which of them threw does not bear on any question asked here.
+    """
+    fielders = wicket.get("fielders") or []
+    for f in fielders:
+        name = f.get("name") if isinstance(f, dict) else f
+        if name:
+            return name
+    return None
+
+
 @dataclass
 class Delivery:
     """One ball, kept whole.
@@ -62,6 +76,7 @@ class Delivery:
     legbyes: int = 0
     wicket_kind: str | None = None
     player_out: str | None = None
+    fielder: str | None = None
 
 
 @dataclass
@@ -225,6 +240,7 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
                         legbyes=extras.get("legbyes", 0),
                         wicket_kind=first_wicket.get("kind"),
                         player_out=first_wicket.get("player_out"),
+                        fielder=_first_fielder(first_wicket),
                     )
                 )
                 seq += 1

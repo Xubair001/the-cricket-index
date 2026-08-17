@@ -218,6 +218,8 @@ def _team_ref(team: Team | None) -> schemas.TeamRef | None:
 def _match_summary(m: Match, comp: Competition, team1: Team | None, team2: Team | None, winner: Team | None) -> schemas.MatchSummary:
     return schemas.MatchSummary(
         match_id=m.match_id,
+        source=m.source,
+        has_ball_by_ball=(m.source == "cricsheet"),
         competition_key=comp.key,
         competition_name=comp.display_name,
         gender=m.gender,

@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from .. import queries, schemas, validation
-from ..analytics import config as analytics_config, leaderboard as form_board, performance_index as performance_index_mod
+from ..analytics import config as analytics_config, selection, leaderboard as form_board, performance_index as performance_index_mod
+from ..models import Team
 from ..database import get_db
 
 router = APIRouter(prefix="/api/rankings", tags=["rankings"])
@@ -163,4 +164,53 @@ def performance_index(
             )
             for r in items
         ],
+    )
+
+
+@router.get("/best-xi", response_model=schemas.SelectedSide)
+def best_side(
+    gender: str = Query(pattern="^(male|female)$"),
+    size: int = Query(default=11, ge=11, le=15),
+    competition: str | None = Query(default=None),
+    competition_type: str | None = Query(default=None),
+    team_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> schemas.SelectedSide:
+    """Best XI or XV for a scope (§18).
+
+    Works identically for internationals and for a franchise league -- picking a
+    PSL side is the same question as picking a Test side, asked of a different
+    scope, which is what makes this usable for a league draft.
+
+    `size` runs 11 to 15: a XV is a XI plus cover, so the same role shape is
+    scaled rather than a different side being picked.
+    """
+    key = validation.check_competition_key(db, competition)
+    ctype = validation.check_competition_type(db, competition_type)
+    if not key and not ctype:
+        ctype = queries.DEFAULT_RANKING_COMPETITION_TYPE
+
+    result = selection.select_side(
+        db,
+        gender=gender,
+        size=size,
+        competition_key=key,
+        competition_type=ctype,
+        team_id=team_id,
+    )
+    team_name = None
+    if team_id is not None:
+        team = db.get(Team, team_id)
+        team_name = team.name if team else None
+
+    return schemas.SelectedSide(
+        scope=result.scope,
+        gender=result.gender,
+        size=result.size,
+        team_id=result.team_id,
+        team_name=team_name,
+        picks=[schemas.SelectionPick(**vars(p)) for p in result.picks],
+        shape=result.shape,
+        unavailable=result.unavailable,
+        notes=result.notes,
     )

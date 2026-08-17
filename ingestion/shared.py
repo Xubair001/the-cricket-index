@@ -20,7 +20,9 @@ TASK_QUEUE = "cricket-ingestion-queue"
 #   v3  ball-by-ball deliveries stored (Phase 1.5). Aggregates are unchanged;
 #       this bump exists so the backfill actually re-parses rather than
 #       skipping every match and reporting success.
-PARSER_VERSION = 3
+#   v4  the fielder credited with each dismissal is stored, which is what makes
+#       a wicketkeeper identifiable -- only a keeper stumps.
+PARSER_VERSION = 4
 
 CRICSHEET_URLS = {
     "tests": "https://cricsheet.org/downloads/tests_json.zip",

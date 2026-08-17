@@ -137,6 +137,27 @@ export function MatchDetail() {
         <Link to={`/${slug}/matches`} className="text-sm text-muted transition-colors hover:text-ink">
           &larr; All matches
         </Link>
+        {/* §22: the scorecard says who scored what; intelligence says which
+            stand decided it and which spell broke it.
+
+            Offered only when the match has deliveries behind it. An ICC-sourced
+            match carries real totals but no ball-by-ball, so this link would
+            lead to a page that can never render; saying why beats a dead end. */}
+        {match.has_ball_by_ball ? (
+          <Link
+            to={`/${slug}/matches/${matchId}/intelligence`}
+            className="ml-4 text-sm text-analytic-ink hover:underline"
+          >
+            Match intelligence &rarr;
+          </Link>
+        ) : (
+          <span
+            className="ml-4 text-sm text-dim"
+            title="Match intelligence is derived from ball-by-ball data, which this source does not publish"
+          >
+            Match intelligence unavailable
+          </span>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <CompetitionBadge competition={match.competition_key} />
           <h1 className="flex flex-wrap items-center gap-2 u-display text-title text-ink">
@@ -178,9 +199,25 @@ export function MatchDetail() {
       </div>
 
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
-        These are per-match totals, not a scorecard. Batting order, fall of wickets and the sequence
-        of innings need per-delivery records, which this pipeline aggregates and then discards. An
-        asterisk means the player faced deliveries and was not dismissed.
+        These are per-match totals, not a scorecard. An asterisk means the player faced deliveries
+        and was not dismissed.
+        {/* Provenance stated on the page, not buried in a tooltip: the two
+            sources support different questions, and a reader comparing this
+            match with another should know which one they are looking at. */}
+        {match.has_ball_by_ball ? (
+          <>
+            {' '}
+            Figures are derived from Cricsheet ball-by-ball records, so partnerships, phase splits
+            and bowling spells are available for this match.
+          </>
+        ) : (
+          <>
+            {' '}
+            Figures for this match come from the ICC scorecard feed, which publishes totals but not
+            deliveries. The totals are complete; anything needing ball-by-ball (partnerships, phase
+            splits, bowling spells) is unavailable for it rather than empty.
+          </>
+        )}
       </p>
     </div>
   )

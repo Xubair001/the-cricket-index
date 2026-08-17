@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import hashlib
 import json
 import logging
@@ -30,6 +31,12 @@ from enrichment import (
     parse_wikidata_rows,
     resolve_player,
     wikidata_query,
+)
+from icc_scorecard import (
+    build_register_index,
+    natural_key,
+    parse_scorecard,
+    resolve_register_player,
 )
 from shared import (
     PROJECT_ROOT,
@@ -223,8 +230,8 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
                 match_number, venue, city, match_date_start, match_date_end,
                 overs_limit, team1_id, team2_id, toss_winner_team_id,
                 toss_decision, winner_team_id, win_by_runs, win_by_wickets,
-                outcome_result, player_of_match
-            ) VALUES (?, ?, ?, ?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                outcome_result, player_of_match, source, natural_key
+            ) VALUES (?, ?, ?, ?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cricsheet', ?)
             ON CONFLICT(match_id) DO UPDATE SET
                 competition_id=excluded.competition_id, season_id=excluded.season_id,
                 gender=excluded.gender, content_hash=excluded.content_hash,
@@ -237,7 +244,8 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
                 team2_id=excluded.team2_id, toss_winner_team_id=excluded.toss_winner_team_id,
                 toss_decision=excluded.toss_decision, winner_team_id=excluded.winner_team_id,
                 win_by_runs=excluded.win_by_runs, win_by_wickets=excluded.win_by_wickets,
-                outcome_result=excluded.outcome_result, player_of_match=excluded.player_of_match
+                outcome_result=excluded.outcome_result, player_of_match=excluded.player_of_match,
+                source='cricsheet', natural_key=excluded.natural_key
             """,
             (
                 match.match_id, competition_id, season_id, match.gender, content_hash,
@@ -247,8 +255,26 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
                 toss_winner_team_id, match.toss_decision, winner_team_id,
                 match.win_by_runs, match.win_by_wickets, match.outcome_result,
                 match.player_of_match,
+                natural_key(match.gender, input.competition, match.match_date_start,
+                            match.team1, match.team2),
             ),
         )
+
+        # Cricsheet is authoritative. If an ICC stand-in described this same
+        # real-world match, drop it now rather than counting both.
+        superseded = conn.execute(
+            """SELECT match_id FROM matches
+               WHERE natural_key = ? AND source = 'icc' AND match_id <> ?""",
+            (natural_key(match.gender, input.competition, match.match_date_start,
+                         match.team1, match.team2), input.match_id),
+        ).fetchall()
+        for (old_id,) in superseded:
+            conn.execute("DELETE FROM player_match_stats WHERE match_id = ?", (old_id,))
+            conn.execute("DELETE FROM deliveries WHERE match_id = ?", (old_id,))
+            conn.execute("DELETE FROM matches WHERE match_id = ?", (old_id,))
+            activity.logger.info(
+                f"{input.match_id}: superseded ICC stand-in {old_id}"
+            )
 
         conn.execute(
             "DELETE FROM player_match_stats WHERE match_id = ?", (match.match_id,)
@@ -279,8 +305,8 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
                 match_id, innings, seq, over, ball, batting_team_id,
                 batter, bowler, non_striker,
                 runs_batter, runs_extras, runs_total, non_boundary,
-                wides, noballs, byes, legbyes, wicket_kind, player_out
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                wides, noballs, byes, legbyes, wicket_kind, player_out, fielder
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     match.match_id, d.innings, d.seq, d.over, d.ball,
@@ -294,6 +320,7 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
                     d.runs_batter, d.runs_extras, d.runs_total, int(d.non_boundary),
                     d.wides, d.noballs, d.byes, d.legbyes,
                     d.wicket_kind, match.players.get(d.player_out),
+                    match.players.get(d.fielder),
                 )
                 for d in match.deliveries
             ],
@@ -662,6 +689,268 @@ async def fetch_icc_fixtures(from_date: str, to_date: str) -> dict:
             "skipped": skipped, "feed_total": total or 0}
 
 
+ICC_SCORECARD_ENDPOINT = "https://assets-icc.sportz.io/cricket/v1/game/scorecard"
+
+# ICC's match_type -> our competition key. Only the formats this schema models;
+# the feed also carries "List A", "ODI Youth" and warm-ups, which are skipped
+# rather than shoehorned into a competition that would misrepresent them.
+ICC_MATCH_TYPE_TO_COMPETITION = {"Test": "tests", "ODI": "odis", "T20": "t20is"}
+
+_REGISTER_PATH = os.path.join(DATA_DIR, "people.csv")
+
+
+async def _cached_register(client) -> dict:
+    """Cricsheet's people register, cached on disk with a conditional GET.
+
+    Fetched once per run rather than per match: it is 1.1 MB and every
+    scorecard needs the whole index.
+    """
+    headers = {}
+    if os.path.exists(_REGISTER_PATH):
+        headers["If-Modified-Since"] = formatdate(os.path.getmtime(_REGISTER_PATH), usegmt=True)
+    resp = await client.get(CRICSHEET_PEOPLE_REGISTER, headers=headers)
+    if resp.status_code == 200:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(_REGISTER_PATH, "w", encoding="utf-8") as f:
+            f.write(resp.text)
+    elif resp.status_code != 304 and not os.path.exists(_REGISTER_PATH):
+        resp.raise_for_status()
+    with open(_REGISTER_PATH, encoding="utf-8") as f:
+        return build_register_index(list(csv.DictReader(f)))
+
+
+# Keys whose value changes on every request and says nothing about the match.
+# Hashing the raw payload made the hash unique per fetch, so every run rewrote
+# all 113 matches and "unchanged" was never once reported.
+_ICC_VOLATILE_KEYS = {"Timestamp", "Venue_Weather", "SerialNumber"}
+
+
+def _icc_scorecard_hash(payload: dict) -> str:
+    """Stable content hash of a scorecard, ignoring per-request noise."""
+    data = dict((payload or {}).get("data") or {})
+    for key in _ICC_VOLATILE_KEYS:
+        data.pop(key, None)
+    detail = data.get("Matchdetail")
+    if isinstance(detail, dict):
+        detail = {k: v for k, v in detail.items() if k not in _ICC_VOLATILE_KEYS}
+        venue = detail.get("Venue")
+        if isinstance(venue, dict):
+            detail["Venue"] = {k: v for k, v in venue.items() if k not in _ICC_VOLATILE_KEYS}
+        data["Matchdetail"] = detail
+    return hashlib.sha256(
+        b"icc-v1\n" + json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+@activity.defn
+async def find_icc_scorecard_candidates(since: str, limit: int = 200) -> list[str]:
+    """Completed fixtures, in a modelled format, that we hold no match for.
+
+    Driven off `fixtures` rather than re-querying the schedule feed: that table
+    is already synced daily and already carries the gender and format we need
+    to decide whether a match is even in scope.
+
+    The natural_key join is what stops this re-fetching a match Cricsheet has
+    since published -- without it every run would pull scorecards we already
+    have a better version of.
+    """
+    in_scope = ", ".join(f"'{t}'" for t in ICC_MATCH_TYPE_TO_COMPETITION)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT f.icc_match_id
+                 FROM fixtures f
+                WHERE f.match_result IS NOT NULL
+                  AND f.is_upcoming = 0
+                  AND f.gender IS NOT NULL
+                  AND f.match_type IN ({in_scope})
+                  AND f.start_date >= ?
+                  AND f.start_date <= date('now')
+                  AND NOT EXISTS (
+                        SELECT 1 FROM matches m
+                         WHERE m.source = 'cricsheet'
+                           AND m.natural_key = f.gender || '|' ||
+                               CASE f.match_type WHEN 'Test' THEN 'tests'
+                                                 WHEN 'ODI'  THEN 'odis'
+                                                 ELSE 't20is' END
+                               || '|' || f.start_date || '|' ||
+                               CASE WHEN f.team_a_name < f.team_b_name
+                                    THEN f.team_a_name || '|' || f.team_b_name
+                                    ELSE f.team_b_name || '|' || f.team_a_name END)
+                ORDER BY f.start_date DESC
+                LIMIT ?""",
+            (since, limit),
+        ).fetchall()
+    ids = [r[0] for r in rows]
+    activity.logger.info(f"icc scorecard candidates since {since}: {len(ids)}")
+    return ids
+
+
+@activity.defn
+async def ingest_icc_scorecards(icc_match_ids: list[str]) -> dict:
+    """Ingests ICC scorecards for the given fixtures.
+
+    These are ICC's computed figures, stored with source='icc' so they are never
+    mistaken for the Cricsheet-derived ones, and keyed by `natural_key` so a
+    later Cricsheet publication of the same match supersedes rather than
+    duplicates it.
+
+    Player identity comes from Cricsheet's people register, NOT from ICC's own
+    player ids -- see icc_scorecard.build_register_index for why that choice is
+    what makes the two sources merge cleanly.
+    """
+    stats = {"seen": 0, "stored": 0, "skipped_unchanged": 0, "skipped_incomplete": 0,
+             "skipped_cricsheet_has_it": 0, "skipped_format": 0, "failed": 0,
+             "players_linked": 0, "players_unlinked": 0, "players_created": 0}
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=90) as client:
+        register = await _cached_register(client)
+
+        for icc_id in icc_match_ids:
+            stats["seen"] += 1
+            try:
+                resp = await client.get(
+                    ICC_SCORECARD_ENDPOINT,
+                    params={"client_id": ICC_CLIENT_ID, "feed_format": "json",
+                            "game_id": icc_id, "lang": "en"},
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+            except Exception as e:  # noqa: BLE001 - one bad match must not sink the batch
+                activity.logger.warning(f"icc scorecard {icc_id}: fetch failed {e!r}")
+                stats["failed"] += 1
+                continue
+
+            with get_connection() as conn:
+                row = conn.execute(
+                    """SELECT gender, match_type, winning_team_name, match_result
+                         FROM fixtures WHERE icc_match_id = ?""",
+                    (icc_id,),
+                ).fetchone()
+            gender_hint = row[0] if row else None
+            # The scorecard states the result in prose; the fixtures row already
+            # names the winning side, so use that rather than parsing English.
+            winner_name = row[2] if row else None
+            result_text = row[3] if row else None
+
+            match = parse_scorecard(icc_id, payload, gender_hint=gender_hint)
+            if match is None or not match.is_complete:
+                stats["skipped_incomplete"] += 1
+                continue
+
+            competition = ICC_MATCH_TYPE_TO_COMPETITION.get(match.match_type or "")
+            if not competition or match.gender not in ("male", "female"):
+                stats["skipped_format"] += 1
+                continue
+
+            nkey = natural_key(match.gender, competition, match.match_date,
+                               match.team_a_name, match.team_b_name)
+            content_hash = _icc_scorecard_hash(payload)
+            match_id = f"icc-{icc_id}"
+
+            with get_connection() as conn:
+                # Cricsheet is authoritative: if it already describes this
+                # match, the ICC stand-in must not exist alongside it.
+                if conn.execute(
+                    "SELECT 1 FROM matches WHERE natural_key = ? AND source = 'cricsheet'", (nkey,)
+                ).fetchone():
+                    conn.execute("DELETE FROM player_match_stats WHERE match_id = ?", (match_id,))
+                    conn.execute("DELETE FROM matches WHERE match_id = ?", (match_id,))
+                    conn.commit()
+                    stats["skipped_cricsheet_has_it"] += 1
+                    continue
+
+                existing = conn.execute(
+                    "SELECT content_hash FROM matches WHERE match_id = ?", (match_id,)
+                ).fetchone()
+                if existing and existing[0] == content_hash:
+                    stats["skipped_unchanged"] += 1
+                    continue
+
+                display_name, comp_type = COMPETITION_META[competition]
+                competition_id = _get_or_create_competition(
+                    conn, competition, match.gender, display_name, comp_type
+                )
+                team_type = TEAM_TYPE_BY_COMPETITION_TYPE[comp_type]
+                team_ids = {
+                    icc_tid: _get_or_create_team(conn, name, match.gender, team_type)
+                    for icc_tid, name in (
+                        (match.team_a_icc_id, match.team_a_name),
+                        (match.team_b_icc_id, match.team_b_name),
+                    )
+                    if icc_tid and name
+                }
+
+                rows = []
+                for p in match.players:
+                    identifier = resolve_register_player(register, p.name_full)
+                    if identifier:
+                        stats["players_linked"] += 1
+                        meta = register["meta"].get(identifier, {})
+                        # Seed the player if this is the first time we have seen
+                        # them. Cricsheet's own name is used so they read the
+                        # same as everyone else, and cricinfo_id lets the
+                        # Wikidata pass pick up their bio and photo.
+                        before = conn.total_changes
+                        conn.execute(
+                            """INSERT INTO players (identifier, name, gender, cricinfo_id)
+                               VALUES (?, ?, ?, ?)
+                               ON CONFLICT(identifier) DO UPDATE SET
+                                 cricinfo_id = COALESCE(players.cricinfo_id, excluded.cricinfo_id)""",
+                            (identifier, meta.get("name") or p.name_full, match.gender,
+                             meta.get("cricinfo_id")),
+                        )
+                        if conn.total_changes > before:
+                            stats["players_created"] += 1
+                    else:
+                        stats["players_unlinked"] += 1
+                    rows.append((match_id, identifier, p.name_full,
+                                 team_ids.get(p.team_icc_id), p.runs_scored, p.balls_faced,
+                                 p.fours, p.sixes, p.dismissals, p.wickets_taken,
+                                 p.balls_bowled, p.runs_conceded))
+
+                conn.execute(
+                    """INSERT INTO matches (
+                         match_id, competition_id, gender, data_granularity, content_hash,
+                         match_type, team_type, season_label, event_name, venue, city,
+                         match_date_start, match_date_end, team1_id, team2_id,
+                         outcome_result, winner_team_id, source, natural_key
+                       ) VALUES (?, ?, ?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'icc', ?)
+                       ON CONFLICT(match_id) DO UPDATE SET
+                         content_hash=excluded.content_hash, venue=excluded.venue,
+                         city=excluded.city, event_name=excluded.event_name,
+                         outcome_result=excluded.outcome_result,
+                         winner_team_id=excluded.winner_team_id,
+                         natural_key=excluded.natural_key""",
+                    (match_id, competition_id, match.gender, content_hash, match.match_type,
+                     team_type, (match.match_date or "")[:4] or None, match.series_name,
+                     match.venue, match.city, match.match_date, match.match_date,
+                     team_ids.get(match.team_a_icc_id), team_ids.get(match.team_b_icc_id),
+                     result_text or match.result_text,
+                     next((tid for icc_tid, tid in team_ids.items()
+                           if winner_name and (
+                               (icc_tid == match.team_a_icc_id and match.team_a_name == winner_name)
+                               or (icc_tid == match.team_b_icc_id and match.team_b_name == winner_name))),
+                          None),
+                     nkey),
+                )
+                # Positional replace, same rule as the Cricsheet path: the squad
+                # can change between fetches, so upserting alone would strand rows.
+                conn.execute("DELETE FROM player_match_stats WHERE match_id = ?", (match_id,))
+                conn.executemany(
+                    """INSERT INTO player_match_stats (
+                         match_id, player_identifier, player_name, team_id, runs_scored,
+                         balls_faced, fours, sixes, dismissals, wickets_taken,
+                         balls_bowled, runs_conceded
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    [r for r in rows if r[3] is not None],
+                )
+                conn.commit()
+                stats["stored"] += 1
+
+    activity.logger.info(f"icc scorecards: {stats}")
+    return stats
+
+
 @activity.defn
 async def record_progress(
     competition: str, total: int, processed: int, skipped: int, failed: int
@@ -679,3 +968,115 @@ async def record_progress(
             (competition, total, processed, skipped, failed),
         )
         conn.commit()
+
+
+@activity.defn
+async def sync_fixture_squads(window_days: int = 120) -> dict:
+    """Announced squads for upcoming fixtures, from the ICC scorecard feed.
+
+    This is what makes availability answerable. §5 lists "squad lists per
+    fixture" as the core blocker and says fixtures "carry team names only, no
+    player lists" -- true of the *schedule* endpoint, but the scorecard endpoint
+    returns a full squad for a fixture that has not been played, along with each
+    player's role, batting hand, bowling style and an availability status.
+
+    Only upcoming fixtures inside the window are fetched: a squad for a match
+    played last year is history, and the point of this table is who is picked
+    for cricket that has not happened yet.
+
+    Names are resolved through the same (surname, initial) index the ICC
+    rankings use, with the squad's own team as the country tiebreak. An
+    unresolved name is still stored -- the squad is real whether or not we can
+    link it to a player we hold.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT icc_match_id, gender FROM fixtures
+                WHERE is_upcoming = 1 AND start_date IS NOT NULL
+                  AND start_date <= date('now', ?)
+                ORDER BY start_date""",
+            (f"+{window_days} days",),
+        ).fetchall()
+
+        players = conn.execute(
+            "SELECT identifier, name, gender FROM players"
+        ).fetchall()
+        index = build_name_index([(r[0], r[1], r[2]) for r in players])
+        country_lookup: dict[str, set[str]] = {}
+        for ident, team_name in conn.execute(
+            """SELECT DISTINCT pms.player_identifier, t.name
+                 FROM player_match_stats pms
+                 JOIN teams t ON t.team_id = pms.team_id
+                WHERE t.team_type = 'international'
+                  AND pms.player_identifier IS NOT NULL"""
+        ):
+            country_lookup.setdefault(ident, set()).add(team_name)
+
+    activity.logger.info(f"fixture squads: {len(rows)} upcoming fixtures in window")
+
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    stored = matched = 0
+    empty = 0
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+        for icc_id, gender in rows:
+            try:
+                resp = await client.get(
+                    ICC_SCORECARD_ENDPOINT,
+                    params={"client_id": ICC_CLIENT_ID, "feed_format": "json",
+                            "game_id": icc_id, "lang": "en"},
+                )
+                resp.raise_for_status()
+                teams = ((resp.json() or {}).get("data") or {}).get("Teams") or {}
+            except Exception as e:  # noqa: BLE001 - one bad fixture must not sink the run
+                activity.logger.warning(f"squad {icc_id}: {e}")
+                continue
+
+            batch = []
+            for team_id, team in teams.items():
+                squad = (team or {}).get("Players") or {}
+                team_name = (team or {}).get("Name_Full")
+                for p in squad.values():
+                    name = p.get("Name_Full")
+                    if not name:
+                        continue
+                    identifier = resolve_player(
+                        index, name, gender or "male", country_lookup, team_name
+                    )
+                    if identifier:
+                        matched += 1
+                    batting = p.get("Batting") or {}
+                    bowling = p.get("Bowling") or {}
+                    batch.append((
+                        icc_id, str(team_id), team_name, name, identifier,
+                        int(p.get("Position") or 0) or None,
+                        1 if p.get("Iscaptain") else 0,
+                        p.get("Role"), batting.get("Style") or None,
+                        bowling.get("Style") or None, p.get("status"),
+                        fetched_at,
+                    ))
+            if not batch:
+                empty += 1
+                continue
+
+            with get_connection() as conn:
+                # Replaced per fixture: a squad is re-announced, not appended to.
+                conn.execute(
+                    "DELETE FROM fixture_squads WHERE icc_match_id = ?", (icc_id,)
+                )
+                conn.executemany(
+                    """INSERT INTO fixture_squads (
+                        icc_match_id, icc_team_id, team_name, player_name,
+                        player_identifier, position, is_captain, role,
+                        batting_style, bowling_style, status, fetched_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    batch,
+                )
+                conn.commit()
+            stored += len(batch)
+
+    activity.logger.info(
+        f"fixture squads: {stored} rows, {matched} linked to a player, "
+        f"{empty} fixtures with no squad announced"
+    )
+    return {"fixtures": len(rows), "rows": stored, "matched": matched, "no_squad": empty}

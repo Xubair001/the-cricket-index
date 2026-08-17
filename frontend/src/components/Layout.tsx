@@ -40,7 +40,7 @@ const NAV: NavGroup[] = [
       { label: 'Teams', to: 'teams' },
       { label: 'In Form', to: 'form/in-form' },
       { label: 'Rising Players', to: 'form/rising' },
-      { label: 'Best XI', blocked: 'Needs player role and wicketkeeper data' },
+      { label: 'Best XI', to: 'best-xi' },
     ],
   },
   {
@@ -76,7 +76,7 @@ const NAV: NavGroup[] = [
     label: 'Fixtures',
     items: [
       { label: 'Fixture Calendar', to: 'fixtures' },
-      { label: 'Player Availability', blocked: 'Needs squad lists; no franchise fixtures in the feed' },
+      { label: 'Player Availability', to: 'availability' },
     ],
   },
   {
@@ -93,14 +93,14 @@ const NAV: NavGroup[] = [
     label: 'Matches',
     items: [
       { label: 'Results', to: 'matches' },
-      { label: 'Match Analysis', blocked: 'Needs ball-by-ball data' },
+      { label: 'Match Analysis', to: 'matches' },
     ],
   },
   {
     label: 'Scout',
     items: [
       { label: 'Find a Player', blocked: 'Needs role, handedness and availability data' },
-      { label: 'Build a XI', blocked: 'Needs role and wicketkeeper data' },
+      { label: 'Build a XI', to: 'best-xi' },
       { label: 'Compare Candidates', to: 'compare' },
     ],
   },
@@ -299,15 +299,22 @@ export function Layout() {
         {/* Deliberately not "international cricket" any more -- the dataset now
             also carries franchise cricket (PSL), and naming the competitions
             here would just be a second place to update per league. */}
+        {/* Both match sources are named because both are used. Attributing an
+            ICC-sourced match to Cricsheet under ODC-BY would be a false
+            licensing claim rather than merely an imprecise one: Cricsheet has
+            withheld every Afghanistan match since 2024-11-14, so all of that
+            cricket reaches this app via the ICC feed. Each match page states
+            its own source. */}
         <p className="text-[11px] leading-relaxed text-dim">
-          Data from{' '}
+          Match data from{' '}
           <a
             href="https://cricsheet.org"
             className="text-muted underline decoration-border-strong underline-offset-2 hover:text-ink"
           >
             Cricsheet.org
           </a>{' '}
-          under ODC-BY 1.0. Derived figures are computed here, not published ratings.
+          under ODC-BY 1.0, and from the ICC feed for matches Cricsheet has not published. Rankings
+          and fixtures come from the ICC. Derived figures are computed here, not published ratings.
         </p>
       </div>
     </div>

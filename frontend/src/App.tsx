@@ -4,12 +4,15 @@ import { Compare } from './pages/Compare'
 import { Explorer } from './pages/Explorer'
 import { VenueAnalytics } from './pages/VenueAnalytics'
 import { OppositionAnalytics } from './pages/OppositionAnalytics'
+import { Availability } from './pages/Availability'
+import { BestXI } from './pages/BestXI'
 import { FormBoards } from './pages/FormBoards'
 import { Home } from './pages/Home'
 import { PerformanceIndex } from './pages/PerformanceIndex'
 import { Fixtures } from './pages/Fixtures'
 import { IccRankings } from './pages/IccRankings'
 import { MatchDetail } from './pages/MatchDetail'
+import { MatchIntelligence } from './pages/MatchIntelligence'
 import { Matches } from './pages/Matches'
 import { PlayerDetail } from './pages/PlayerDetail'
 import { Players } from './pages/Players'
@@ -40,6 +43,7 @@ function App() {
           <Route index element={<Home />} />
           <Route path="form" element={<Navigate to="in-form" replace />} />
           <Route path="form/:board" element={<FormBoards />} />
+          <Route path="best-xi" element={<BestXI />} />
           <Route path="rankings" element={<Rankings />} />
           <Route path="performance-index" element={<PerformanceIndex />} />
           <Route path="analytics" element={<Navigate to="batting" replace />} />
@@ -49,6 +53,7 @@ function App() {
           <Route path="icc-rankings" element={<IccRankings />} />
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />
+          <Route path="availability" element={<Availability />} />
           <Route path="teams" element={<Teams />} />
           {/* Before "teams/:teamId", or 'squad' is read as a team id. */}
           <Route path="teams/squad" element={<SquadAnalysis />} />
@@ -57,6 +62,7 @@ function App() {
           <Route path="players/:identifier" element={<PlayerDetail />} />
           <Route path="matches" element={<Matches />} />
           <Route path="matches/:matchId" element={<MatchDetail />} />
+          <Route path="matches/:matchId/intelligence" element={<MatchIntelligence />} />
         </Route>
       </Routes>
     </BrowserRouter>

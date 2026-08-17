@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import queries, schemas, validation
-from ..analytics import splits as splits_mod, config, form
+from ..analytics import availability as availability_mod, splits as splits_mod, config, form
 from ..analytics import leaderboard as form_board
 from ..database import get_db
 
@@ -137,6 +137,54 @@ def player_form(
         competition_type=validation.check_competition_type(db, competition_type),
     )
     return schemas.FormVerdict(**verdict.as_dict())
+
+
+@router.get("/availability", response_model=schemas.AvailabilityWindow)
+def availability(
+    date_from: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    role: str | None = Query(default=None),
+    batting_style: str | None = Query(default=None, pattern="^(RHB|LHB)$"),
+    player: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> schemas.AvailabilityWindow:
+    """Who is COMMITTED between two dates (§16).
+
+    Deliberately not "who is available": a player named in a squad is sourced
+    fact, a player absent from every squad is not evidence of anything, because
+    most fixtures in a forward window have no squad announced yet. The response
+    carries `fixtures_with_squads` against `fixtures_in_window` so the caller can
+    see how much of the window is known, plus the caveats verbatim.
+    """
+    result = availability_mod.window(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        player_identifier=player,
+        role=role,
+        batting_style=batting_style,
+        limit=limit,
+    )
+    return schemas.AvailabilityWindow(
+        date_from=result.date_from,
+        date_to=result.date_to,
+        fixtures_in_window=result.fixtures_in_window,
+        fixtures_with_squads=result.fixtures_with_squads,
+        caveats=result.caveats,
+        players=[
+            schemas.PlayerAvailabilityRow(
+                player_identifier=p.player_identifier,
+                player_name=p.player_name,
+                committed=p.committed,
+                role=p.role,
+                batting_style=p.batting_style,
+                bowling_style=p.bowling_style,
+                commitments=[schemas.CommitmentRow(**vars(c)) for c in p.commitments],
+            )
+            for p in result.players
+        ],
+    )
 
 
 @router.get("/{identifier}/splits", response_model=schemas.PlayerSplits)

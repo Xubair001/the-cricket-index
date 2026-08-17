@@ -19,6 +19,7 @@ from temporalio.client import Client
 from shared import TASK_QUEUE, CRICSHEET_URLS, IngestionJobInput
 from ingestion_workflow import CricsheetIngestionWorkflow
 from enrichment_workflow import (
+    IccScorecardsWorkflow,
     IccDailySyncWorkflow,
     IccFixturesWorkflow,
     IccRankingsWorkflow,
@@ -29,6 +30,7 @@ SPECIAL_JOBS = {
     "icc": (IccRankingsWorkflow.run, "icc-rankings-manual"),
     "fixtures": (IccFixturesWorkflow.run, "icc-fixtures-manual"),
     "daily": (IccDailySyncWorkflow.run, "icc-daily-sync-manual"),
+    "scorecards": (IccScorecardsWorkflow.run, "icc-scorecards-manual"),
     "enrich": (PlayerEnrichmentWorkflow.run, "player-enrichment"),
 }
 

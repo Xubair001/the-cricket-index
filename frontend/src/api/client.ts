@@ -24,6 +24,9 @@ import type {
   SquadAnalysis,
   TeamDetail,
   TeamStrengthTable,
+  MatchIntelligence,
+  SelectedSide,
+  AvailabilityWindow,
   TeamSummary,
   TeamType,
   VenueOption,
@@ -203,6 +206,29 @@ export const api = {
       gender,
       competition_type: competitionType,
     }),
+
+  // What happened in a match and why it mattered (§22). Partnerships,
+  // spells and the over-by-over shape, all off the stored deliveries.
+  matchIntelligence: (matchId: string) =>
+    getJson<MatchIntelligence>(`/api/matches/${encodeURIComponent(matchId)}/intelligence`),
+
+  // A side picked to a role shape (§18). Works the same for a nation and
+  // for a franchise, which is what makes it usable for a league draft.
+  bestSide: (
+    gender: ApiGender,
+    params: { competition?: string; size?: number; team_id?: number } = {}
+  ) => getJson<SelectedSide>('/api/rankings/best-xi', { gender, ...params }),
+
+  // Who is COMMITTED in a window (§16), from announced squads. Not
+  // 'available': absence from a squad is not evidence of freedom.
+  availability: (params: {
+    date_from: string
+    date_to: string
+    role?: string
+    batting_style?: string
+    player?: string
+    limit?: number
+  }) => getJson<AvailabilityWindow>('/api/players/availability', params),
 
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 

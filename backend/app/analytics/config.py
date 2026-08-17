@@ -272,6 +272,43 @@ INDEX_SITUATION_MIN_DISMISSALS = 10
 INDEX_SITUATION_SHRINKAGE = 10
 
 # --------------------------------------------------------------------------
+# Selection (Best XI / XV)
+# --------------------------------------------------------------------------
+
+# Identifying a wicketkeeper from dismissal credits.
+#
+# A STUMPING IS THE ONLY DEFINITIVE MARKER, and it is required. Catches were
+# tried as a corroborating signal and are not one: they cannot be told apart
+# from outfield catches, so any long-serving fielder clears a catch threshold.
+# At 25 catches the selector picked Mohammad Hafeez -- an off-spinning
+# all-rounder who has never kept -- as a PSL wicketkeeper, alongside Babar Azam
+# on 58 catches and no stumpings.
+#
+# Catches still RANK confirmed keepers against each other, since among players
+# who demonstrably keep, the one with more dismissals kept more often.
+KEEPER_STUMPING_WEIGHT = 10
+KEEPER_MIN_STUMPINGS = 1
+
+# How often a player must have been one of the two batters on the first ball of
+# an innings before they are called an opener.
+OPENER_MIN_INNINGS = 5
+
+# What a "best" side is scored on. All three are 0-100 within the scope, so the
+# weights are directly comparable.
+#
+# CAREER STANDING DOMINATES, and it has to. The Performance Index measures a
+# player's last 15 matches, so scoring on the Index plus form is recency counted
+# twice with career record counted not at all -- which picked a PSL XI without
+# Mohammad Rizwan (102 PSL matches, index 41 on a poor recent window) or Babar
+# Azam. "Best XI" has to mean more than "hottest XI", while still moving for a
+# player who is badly out of touch.
+SELECTION_WEIGHTS = {
+    "career": 0.55,   # whole record in this scope, opposition-adjusted
+    "index": 0.30,    # Performance Index -- recent quality
+    "form": 0.15,     # change against their own baseline
+}
+
+# --------------------------------------------------------------------------
 # Form leaderboards
 # --------------------------------------------------------------------------
 

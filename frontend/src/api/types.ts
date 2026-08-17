@@ -247,6 +247,13 @@ export interface PlayerDetail extends PlayerCountry {
 
 export interface MatchSummary {
   match_id: string
+  // Which feed produced these figures, and therefore what can be asked of them.
+  // 'cricsheet' is ball-by-ball derived, so splits, partnerships and spells all
+  // work. 'icc' is ICC's own computed scorecard: the totals are real, but there
+  // are no deliveries, so those views are genuinely unavailable rather than
+  // empty. Shown in the UI rather than hidden.
+  source: string
+  has_ball_by_ball: boolean
   competition_key: string
   competition_name: string
   gender: ApiGender
@@ -636,4 +643,130 @@ export interface TeamStrengthTable {
   /** Correlation with ICC's published ratings - a check, never an input. */
   validated_against_icc: string
   items: TeamStrengthRow[]
+}
+
+// --- Match intelligence (§22) ----------------------------------------------
+
+export interface PartnershipRow {
+  wicket: number
+  batter_a: string
+  batter_b: string
+  runs: number
+  balls: number
+  run_rate: number | null
+  /** Ended the innings rather than being broken by a wicket. */
+  unbroken: boolean
+  ended_by: string | null
+  start_over: number
+  end_over: number
+}
+
+export interface SpellRow {
+  bowler: string
+  overs: number
+  balls: number
+  runs_conceded: number
+  wickets: number
+  economy: number | null
+  start_over: number
+  end_over: number
+}
+
+export interface OverPointRow {
+  over: number
+  runs: number
+  wickets: number
+  cumulative_runs: number
+  cumulative_wickets: number
+}
+
+export interface InningsIntelligence {
+  innings: number
+  batting_team: string | null
+  runs: number
+  wickets: number
+  balls: number
+  run_rate: number | null
+  partnerships: PartnershipRow[]
+  spells: SpellRow[]
+  overs: OverPointRow[]
+}
+
+export interface MatchIntelligence {
+  match_id: string
+  innings: InningsIntelligence[]
+  /** What §22 defers, with the reason — a missing feature, not a missing figure. */
+  deferred: Record<string, string>
+}
+
+// --- Best XI / XV (§18) ----------------------------------------------------
+
+export interface SelectionPick extends PlayerCountry {
+  player_identifier: string
+  player_name: string
+  /** INFERRED from balls faced vs bowled and dismissal credits, never sourced. */
+  role: string
+  slot: string
+  is_wicketkeeper: boolean
+  opens: boolean
+  matches: number
+  index: number | null
+  form_delta: number | null
+  form_state: string | null
+  recent_mean: number | null
+  selection_score: number
+  reason: string
+}
+
+export interface SelectedSide {
+  scope: string
+  gender: ApiGender
+  size: number
+  team_id: number | null
+  team_name: string | null
+  picks: SelectionPick[]
+  /** The role shape the side was filled to. */
+  shape: Record<string, number>
+  /** What could not be considered at all, with the reason. */
+  unavailable: Record<string, string>
+  /** What the selector could not guarantee about this particular side. */
+  notes: string[]
+}
+
+// --- Player availability (§16) ---------------------------------------------
+
+export interface CommitmentRow {
+  icc_match_id: string
+  team_name: string | null
+  opponent: string | null
+  start_date: string | null
+  end_date: string | null
+  match_type: string | null
+  series_name: string | null
+  role: string | null
+  batting_style: string | null
+  bowling_style: string | null
+  is_captain: boolean
+  status: string | null
+}
+
+export interface PlayerAvailabilityRow {
+  player_identifier: string | null
+  player_name: string
+  committed: boolean
+  /** Sourced from the squad feed — role, hand and bowling type. */
+  role: string | null
+  batting_style: string | null
+  bowling_style: string | null
+  commitments: CommitmentRow[]
+}
+
+export interface AvailabilityWindow {
+  date_from: string
+  date_to: string
+  fixtures_in_window: number
+  /** How much of the window is actually known — absence means nothing below this. */
+  fixtures_with_squads: number
+  players: PlayerAvailabilityRow[]
+  caveats: Record<string, string>
 }

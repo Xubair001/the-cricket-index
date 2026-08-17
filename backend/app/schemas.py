@@ -307,6 +307,15 @@ class PaginatedFixtures(BaseModel):
 
 class MatchSummary(BaseModel):
     match_id: str
+    # Which feed the figures came from, and therefore what can be asked of them.
+    # 'cricsheet' carries ball-by-ball, so phase splits, partnerships, spells and
+    # keeper detection all work. 'icc' is ICC's own computed scorecard: the
+    # totals are real and independently verified, but there are no deliveries,
+    # so every ball-by-ball-derived view is genuinely unavailable rather than
+    # empty. Surfaced rather than hidden so a reader is never misled about which
+    # they are looking at.
+    source: str = "cricsheet"
+    has_ball_by_ball: bool = True
     competition_key: str
     competition_name: str
     gender: Gender
@@ -497,6 +506,128 @@ class PlayerSplits(BaseModel):
     # Splits §12 names that no current source supports, with the reason.
     unavailable: dict[str, str]
     buckets: list[SplitBucket]
+
+
+class PartnershipRow(BaseModel):
+    wicket: int
+    batter_a: str
+    batter_b: str
+    runs: int
+    balls: int
+    run_rate: float | None
+    unbroken: bool
+    ended_by: str | None
+    start_over: int
+    end_over: int
+
+
+class SpellRow(BaseModel):
+    bowler: str
+    overs: int
+    balls: int
+    runs_conceded: int
+    wickets: int
+    economy: float | None
+    start_over: int
+    end_over: int
+
+
+class OverPointRow(BaseModel):
+    over: int
+    runs: int
+    wickets: int
+    cumulative_runs: int
+    cumulative_wickets: int
+
+
+class InningsIntelligence(BaseModel):
+    innings: int
+    batting_team: str | None
+    runs: int
+    wickets: int
+    balls: int
+    run_rate: float | None
+    partnerships: list[PartnershipRow]
+    spells: list[SpellRow]
+    overs: list[OverPointRow]
+
+
+class MatchIntelligence(BaseModel):
+    match_id: str
+    innings: list[InningsIntelligence]
+    # What §22 defers, with the reason - so a reader can tell a missing feature
+    # from a missing figure.
+    deferred: dict[str, str]
+
+
+class SelectionPick(PlayerCountry):
+    player_identifier: str
+    player_name: str
+    # INFERRED from balls faced vs bowled / dismissal credits, never sourced.
+    role: str
+    slot: str
+    is_wicketkeeper: bool
+    opens: bool
+    matches: int
+    index: float | None
+    form_delta: float | None
+    form_state: str | None
+    recent_mean: float | None
+    selection_score: float
+    reason: str
+
+
+class SelectedSide(BaseModel):
+    scope: str
+    gender: Gender
+    size: int
+    team_id: int | None
+    team_name: str | None
+    picks: list[SelectionPick]
+    # The role shape the side was filled to.
+    shape: dict
+    # What could not be considered, with the reason (§18 balance needs these).
+    unavailable: dict
+    # What the selector could not guarantee about THIS side.
+    notes: list[str]
+
+
+class CommitmentRow(BaseModel):
+    icc_match_id: str
+    team_name: str | None
+    opponent: str | None
+    start_date: str | None
+    end_date: str | None
+    match_type: str | None
+    series_name: str | None
+    role: str | None
+    batting_style: str | None
+    bowling_style: str | None
+    is_captain: bool
+    status: str | None
+
+
+class PlayerAvailabilityRow(BaseModel):
+    player_identifier: str | None
+    player_name: str
+    committed: bool
+    # Sourced from the squad feed -- role, hand and bowling type, which no
+    # other source in this project carries.
+    role: str | None
+    batting_style: str | None
+    bowling_style: str | None
+    commitments: list[CommitmentRow]
+
+
+class AvailabilityWindow(BaseModel):
+    date_from: str
+    date_to: str
+    fixtures_in_window: int
+    # How much of the window is actually KNOWN. Absence from a squad means
+    # nothing when most fixtures have no squad announced yet.
+    fixtures_with_squads: int
+    players: list[PlayerAvailabilityRow]
+    caveats: dict
 
 
 class ExplorerRow(BaseModel):
