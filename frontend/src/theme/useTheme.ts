@@ -10,7 +10,7 @@ import { useCallback, useSyncExternalStore } from 'react'
  *
  * The resolved theme is written to `<html data-theme>`, which `index.css`
  * keys both palettes off. `system` writes no attribute at all and lets the
- * `prefers-color-scheme` block in that file decide — the attribute is the
+ * `prefers-color-scheme` block in that file decide - the attribute is the
  * override, not the mechanism.
  *
  * State lives in a module-level store rather than in each hook call. With
@@ -111,7 +111,7 @@ function set(next: ThemePreference) {
   if (next === preference) return
   // Colours animate only around a deliberate change. The class is added for
   // the duration of the swap and removed after, so nothing transitions on page
-  // load — where it would read as the page failing to settle.
+  // load - where it would read as the page failing to settle.
   const root = document.documentElement
   root.classList.add('theme-transition')
   window.setTimeout(() => root.classList.remove('theme-transition'), 220)

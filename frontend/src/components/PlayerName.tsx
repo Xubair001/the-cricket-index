@@ -4,8 +4,8 @@ import { Flag } from './Flag'
 /**
  * A player's name with the flag of the side they represent.
  *
- * The flag means exactly what it means beside a team name — the nation they
- * turn out for — because it is resolved from their own appearances rather than
+ * The flag means exactly what it means beside a team name - the nation they
+ * turn out for - because it is resolved from their own appearances rather than
  * from a citizenship field. Three cases it has to carry without lying:
  *
  * - **No national side.** Franchise-only players (1,247 in this dataset, mostly

@@ -1,7 +1,7 @@
 /**
  * Loading and failure states.
  *
- * The spinner is a ring on the par-datum motif — a track with one lit arc —
+ * The spinner is a ring on the par-datum motif - a track with one lit arc -
  * rather than a generic spinner, so a load reads as part of the product
  * rather than as a borrowed widget.
  */
@@ -57,7 +57,7 @@ export function ErrorMessage({ message }: { message: string }) {
       <div className="min-w-0 text-sm">
         <p className="font-medium text-negative-ink">Couldn't load this.</p>
         <p className="mt-0.5 break-words text-xs leading-relaxed text-negative-ink/85">
-          {message} — check the API is running on port 8001, then reload.
+          {message} - check the API is running on port 8001, then reload.
         </p>
       </div>
     </div>

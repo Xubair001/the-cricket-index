@@ -25,7 +25,7 @@ import {
 } from '../components/ui'
 
 /**
- * Squad analysis (§8) — who a side is picking now, and what that group is made of.
+ * Squad analysis (§8) - who a side is picking now, and what that group is made of.
  *
  * The window is the team's own last N matches rather than a date range. Most of
  * the ~110 international sides in this dataset play a handful of matches a year
@@ -60,7 +60,7 @@ const ROLE_CHIP: Record<string, string> = {
   batter: 'Bat',
   allrounder: 'All',
   bowler: 'Bowl',
-  unknown: '—',
+  unknown: '-',
 }
 
 const ORDER = ['batter', 'allrounder', 'bowler', 'unknown']
@@ -69,7 +69,7 @@ const ORDER = ['batter', 'allrounder', 'bowler', 'unknown']
  * Squad composition as one bar.
  *
  * A 2px surface gap sits between segments so the boundary reads even where two
- * hues are close in value, and every segment is directly labelled — identity
+ * hues are close in value, and every segment is directly labelled - identity
  * never rests on colour alone.
  */
 function CompositionBar({ counts }: { counts: Record<string, number> }) {
@@ -123,7 +123,7 @@ function Reliance({
     <div className="rounded-xl border border-border-subtle bg-surface p-4 shadow-card">
       <p className="u-eyebrow">{label}</p>
       <p className="u-display tnum mt-2 text-2xl text-ink">
-        {share === null ? '—' : `${share.toFixed(0)}%`}
+        {share === null ? '-' : `${share.toFixed(0)}%`}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-dim">
         of the window's {unit} came from the top {topN}. A higher figure means a side that leans
@@ -166,8 +166,8 @@ export function SquadAnalysis() {
   // the selection rather than carrying a foreign id into a 404.
   //
   // Keyed off an actual *change* rather than firing on mount: unguarded, this
-  // wiped the ?team= that a TeamDetail link had just navigated with, and — worse
-  // — cancelled the request already in flight for it, so `loading` never
+  // wiped the ?team= that a TeamDetail link had just navigated with, and - worse
+  // - cancelled the request already in flight for it, so `loading` never
   // cleared and the page sat on its spinner forever.
   const previousGender = useRef(apiGender)
   useEffect(() => {
@@ -267,7 +267,7 @@ export function SquadAnalysis() {
       {!teamId && !loading && (
         <EmptyState
           title="Pick a team"
-          hint="Squad analysis works for franchises as well as national sides — a franchise squad is where the inferred roles are most worth reading, since the side is assembled rather than selected from one country."
+          hint="Squad analysis works for franchises as well as national sides - a franchise squad is where the inferred roles are most worth reading, since the side is assembled rather than selected from one country."
         />
       )}
 
@@ -349,7 +349,7 @@ export function SquadAnalysis() {
                         </td>
                         <td className={tdClass}>
                           {/* The role is a guess from ball counts, so the chip
-                              is neutral — green/red/amber stay reserved for
+                              is neutral - green/red/amber stay reserved for
                               above/below par. A thin sample gets the dotted
                               uncertainty rule rather than a different colour. */}
                           <span
@@ -357,7 +357,7 @@ export function SquadAnalysis() {
                             title={
                               m.bowling_share === null
                                 ? 'No deliveries recorded in this window'
-                                : `${Math.round(m.bowling_share * 100)}% of their deliveries in this window were bowled — inferred, not a sourced role`
+                                : `${Math.round(m.bowling_share * 100)}% of their deliveries in this window were bowled - inferred, not a sourced role`
                             }
                           >
                             {m.role_confident ? (
@@ -376,7 +376,7 @@ export function SquadAnalysis() {
                         <td className={tdNumClass}>{m.wickets}</td>
                         <td className={tdNumClass}>{rate(m.bowling_average)}</td>
                         <td className={tdNumClass}>{rate(m.economy)}</td>
-                        <td className={tdNumClass}>{m.last_played ?? '—'}</td>
+                        <td className={tdNumClass}>{m.last_played ?? '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -387,7 +387,7 @@ export function SquadAnalysis() {
                   cannot drift into presenting a partial picture as a whole one. */}
               <Panel
                 title="What this cannot tell you"
-                blurb="Everything above is derived from per-match totals. These are not thresholds that could be loosened — the records simply do not carry them."
+                blurb="Everything above is derived from per-match totals. These are not thresholds that could be loosened - the records simply do not carry them."
               >
                 <ul className="space-y-1.5 text-sm text-muted">
                   {data.unavailable.map((line) => (
@@ -402,7 +402,7 @@ export function SquadAnalysis() {
               </Panel>
 
               <Provenance>
-                Roles come from each player's share of deliveries in this window — under 25% bowled
+                Roles come from each player's share of deliveries in this window - under 25% bowled
                 reads as a batter, over 78% as a bowler, and the wide band between the two as an
                 all-rounder. The cuts are permissive on purpose: leaving a genuine all-rounder off a
                 list costs more than admitting a marginal one. A dotted underline on a role means

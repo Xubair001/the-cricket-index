@@ -90,7 +90,8 @@
       "Bash(google-chrome --headless --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,1150 --virtual-time-budget=16000 --screenshot=/tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/abec755d-b508-4bcf-a33f-2644b864c137/scratchpad/shots/form.png http://localhost:5173/men/form/in-form)",
       "Bash(python3 -c \"print\\('shot'\\)\")",
       "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/squad.py)",
-      "Bash(awk '/CREATE TABLE IF NOT EXISTS player_match_stats/,/\\\\\\);/' ingestion/schema.sql)"
+      "Bash(awk '/CREATE TABLE IF NOT EXISTS player_match_stats/,/\\\\\\);/' ingestion/schema.sql)",
+      "Bash(/home/abdullah-zubair/personal/Abdullah/lucas-project/googlemaps/venv/bin/python /tmp/claude-1000/-home-abdullah-zubair-codeaza-test-the-cricket-index/3438f582-9f26-433c-8111-95a57e5773d0/scratchpad/verify.py)"
     ]
   }
 }

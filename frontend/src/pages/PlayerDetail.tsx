@@ -94,8 +94,8 @@ export function PlayerDetail() {
           </div>
         </div>
         {/* Every side they have turned out for, franchises included. The flag
-            on the heading above is the narrower claim — the *nation* they
-            represent — so a PSL player shows their country there and both
+            on the heading above is the narrower claim - the *nation* they
+            represent - so a PSL player shows their country there and both
             their country and their franchise here. */}
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
           {player.teams.map((t) => (
@@ -133,7 +133,7 @@ export function PlayerDetail() {
             <BioPair label="Nationality" value={bio.nationality} />
           </dl>
         ) : (
-          /* Bio coverage is partial by source, not by omission — around 4 in 10
+          /* Bio coverage is partial by source, not by omission - around 4 in 10
              players have any of these. Nothing here is ever inferred. */
           <p className="text-sm text-dim">Not available for this player.</p>
         )}
@@ -153,13 +153,13 @@ export function PlayerDetail() {
                   <span className="font-normal text-muted">{r.rank_type.replace('-', ' ')}</span>
                 </div>
                 <div className="tnum mt-0.5 text-xs text-dim">
-                  {r.points ?? '—'} rating &middot; published {r.rank_date}
+                  {r.points ?? '-'} rating &middot; published {r.rank_date}
                 </div>
               </div>
             ))}
           </div>
           <p className="mt-3 text-xs text-dim">
-            Published by the ICC — not computed here.
+            Published by the ICC - not computed here.
           </p>
         </section>
       )}
@@ -219,14 +219,14 @@ export function PlayerDetail() {
                     <td className="px-4 py-2.5">
                       <CompetitionBadge competition={m.competition_key} />
                     </td>
-                    <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
+                    <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '-'}</td>
                     <td className={tdClass}>
                       <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic-ink">
                         {m.team1?.name} v {m.team2?.name}
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-right text-muted">
-                      {m.winner ? `${m.winner.name} won` : (m.outcome_result ?? '—')}
+                      {m.winner ? `${m.winner.name} won` : (m.outcome_result ?? '-')}
                     </td>
                   </tr>
                 ))}

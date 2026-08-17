@@ -493,7 +493,7 @@ def assess(
             trend="unknown", confidence=0.0,
             explanation=(
                 f"Only {len(recent)} match{'' if len(recent) == 1 else 'es'} on record "
-                f"in this scope — too few to judge form against a baseline."
+                f"in this scope - too few to judge form against a baseline."
             ),
             recent_window_label=recent_window_label,
             baseline_window_label=baseline_window_label,
@@ -534,7 +534,7 @@ def assess(
             trend=trend, confidence=0.0,
             explanation=(
                 f"{len(recent)} recent matches, but only {len(baseline)} earlier "
-                "ones to compare against — not enough history for a baseline."
+                "ones to compare against - not enough history for a baseline."
             ),
             recent_window_label=recent_window_label,
             baseline_window_label=baseline_window_label,

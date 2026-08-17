@@ -15,7 +15,7 @@ import {
 } from '../components/ui'
 
 /**
- * ICC's own published ratings — distinct from /rankings, which this project
+ * ICC's own published ratings - distinct from /rankings, which this project
  * computes from ball-by-ball data. The page says so explicitly, because two
  * pages of "rankings" with different provenance is exactly how a reader ends up
  * quoting a derived number as an official one.
@@ -71,7 +71,7 @@ export function IccRankings() {
   const known = available
     ? [...available.players, ...available.teams].includes(rankType)
     : true
-  // ICC publishes no women's Test rankings — say so rather than showing an error.
+  // ICC publishes no women's Test rankings - say so rather than showing an error.
   const womensTest = apiGender === 'female' && format === 'test'
 
   useEffect(() => {
@@ -111,7 +111,7 @@ export function IccRankings() {
         <h1 className="u-display text-title text-ink">ICC Rankings</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted">
           Official ratings published by the ICC, refreshed daily. These are not computed by this
-          site — for figures derived from ball-by-ball data see{' '}
+          site - for figures derived from ball-by-ball data see{' '}
           <Link to={`/${slug}/rankings`} className="text-analytic-ink hover:underline">
             Rankings
           </Link>
@@ -186,7 +186,7 @@ export function IccRankings() {
                           unmatched name is still shown -- it's ICC's data and
                           it's real -- but is not attached to a profile. */}
                       {/* The flag here comes from ICC's own country column, not
-                          from our appearance data — this is their list, and
+                          from our appearance data - this is their list, and
                           resolving it any other way would mix a derived figure
                           into a published one. */}
                       <PlayerName
@@ -201,12 +201,12 @@ export function IccRankings() {
                         className={r.player_identifier ? '' : 'text-muted'}
                       />
                     </td>
-                    <td className="px-3 py-2.5 text-muted">{r.country ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-muted">{r.country ?? '-'}</td>
                     <td className={tdNumStrongClass}>
-                      {r.points ?? '—'}
+                      {r.points ?? '-'}
                     </td>
                     <td className="tnum px-4 py-2.5 text-right text-xs text-dim">
-                      {r.career_best ?? '—'}
+                      {r.career_best ?? '-'}
                     </td>
                   </tr>
                 ))}
@@ -226,7 +226,7 @@ export function IccRankings() {
                       )}
                     </td>
                     <td className={tdNumStrongClass}>
-                      {r.points ?? '—'}
+                      {r.points ?? '-'}
                     </td>
                   </tr>
                 ))}
@@ -247,7 +247,7 @@ export function IccRankings() {
           <p className="max-w-3xl text-xs leading-relaxed text-dim">
             ICC names people in full where this dataset uses the scorecard form, and publishes no
             shared identifier, so entries are matched on surname and initial with country as a
-            tiebreak. Anything ambiguous resolves to no link rather than a guess — about one entry in
+            tiebreak. Anything ambiguous resolves to no link rather than a guess - about one entry in
             six stays unlinked, and those still show ICC's figure.
           </p>
         </>

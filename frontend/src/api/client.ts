@@ -152,7 +152,7 @@ export const api = {
     params: { competition?: string; competition_type?: string } = {}
   ) => getJson<PlayerComparison>('/api/players/compare', { a, b, ...params }),
 
-  // The explorers (§21). Every filter, sort and page is applied server-side —
+  // The explorers (§21). Every filter, sort and page is applied server-side -
   // the unfiltered population is ~5,400 players, and sorting a page of them in
   // the browser would give a different answer from the ranking endpoints.
   explorer: (
@@ -175,7 +175,7 @@ export const api = {
     } = {}
   ) => getJson<ExplorerPage>(`/api/analytics/${explorer}`, { gender, ...params }),
 
-  // The Performance Index (§14). Always returns its own decomposition — a
+  // The Performance Index (§14). Always returns its own decomposition - a
   // score without its components is not usable by someone who has to defend
   // the decision it informs (§30).
   performanceIndex: (
@@ -196,7 +196,7 @@ export const api = {
       competition,
     }),
 
-  // Fitted opposition difficulty — the model that scales every adjusted
+  // Fitted opposition difficulty - the model that scales every adjusted
   // figure elsewhere. Exposed so a reader can check the adjustment (§30).
   teamStrength: (gender: ApiGender, competitionType?: string) =>
     getJson<TeamStrengthTable>('/api/analytics/opposition', {

@@ -65,10 +65,10 @@ async def main() -> None:
 
     try:
         await client.create_schedule(SCHEDULE_ID, schedule)
-        print(f"Created schedule '{SCHEDULE_ID}' — runs daily at {RUN_HOUR:02d}:00")
+        print(f"Created schedule '{SCHEDULE_ID}' - runs daily at {RUN_HOUR:02d}:00")
     except ScheduleAlreadyRunningError:
         await handle.update(lambda _: schedule)
-        print(f"Updated existing schedule '{SCHEDULE_ID}' — daily at {RUN_HOUR:02d}:00")
+        print(f"Updated existing schedule '{SCHEDULE_ID}' - daily at {RUN_HOUR:02d}:00")
 
     desc = await handle.describe()
     print(f"  next run: {desc.info.next_action_times[:1]}")

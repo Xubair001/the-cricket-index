@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { useTheme, type ThemePreference } from '../theme/useTheme'
 
 /**
- * Theme control — a three-way segmented control, not a switch.
+ * Theme control - a three-way segmented control, not a switch.
  *
  * A two-state switch cannot express "follow my machine", so the moment anyone
  * touches it they are opted out of their OS setting permanently. The third

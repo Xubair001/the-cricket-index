@@ -9,8 +9,8 @@
  * England, Scotland and Wales are not ISO countries but are cricketing nations,
  * so they use Unicode subdivision tag sequences instead of the letter pair.
  *
- * A side with no code — every franchise, the invitational XIs, and the West
- * Indies — renders a neutral mark rather than nothing, so a row's leading
+ * A side with no code - every franchise, the invitational XIs, and the West
+ * Indies - renders a neutral mark rather than nothing, so a row's leading
  * column stays aligned and the absence reads as deliberate. See
  * `backend/app/flags.py` for why those cases carry no country.
  *

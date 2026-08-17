@@ -11,7 +11,7 @@ interface StatCardProps {
 /**
  * A single figure with its label.
  *
- * The figure is set in the display face because it is the thing being read —
+ * The figure is set in the display face because it is the thing being read -
  * everything else on the card is apparatus. That is also why the label sits
  * above rather than below: the reader needs to know what they are looking at
  * before the number means anything.

@@ -28,7 +28,7 @@ cd ingestion && python starter.py fixtures # ICC schedule: results + upcoming
 cd ingestion && python starter.py daily    # both of the above (what the schedule runs)
 cd ingestion && python starter.py enrich   # cricinfo crosswalk + Wikidata bios/names/photos
 ```
-Re-running match ingestion is cheap — each match is content-hashed; unchanged
+Re-running match ingestion is cheap - each match is content-hashed; unchanged
 matches are skipped, not re-parsed.
 
 **Register the daily ICC sync** (rankings + fixtures; re-running updates it):
@@ -36,7 +36,7 @@ matches are skipped, not re-parsed.
 cd ingestion && python schedule.py        # --delete to remove
 ```
 
-**Frontend lint/build** (this is what CI runs — no test suite exists in this repo):
+**Frontend lint/build** (this is what CI runs - no test suite exists in this repo):
 ```bash
 cd frontend && npm run lint && npm run build
 ```
@@ -46,7 +46,29 @@ cd frontend && npm run lint && npm run build
 cd backend && python -m compileall -q . && python -c "from main import app"
 ```
 
-**Git workflow**: see `CONTRIBUTING.md` — never commit directly to `dev`/`main`; branch from `dev` as `feature/*`, `fix/*`, or `chore/*`.
+**Git workflow**: see `CONTRIBUTING.md` - never commit directly to `dev`/`main`; branch from `dev` as `feature/*`, `fix/*`, or `chore/*`.
+
+## Writing style
+
+**Never use an em dash (U+2014).** Not in UI copy, not in code comments, not
+in docstrings, not in this file, not in commit messages. Use a plain hyphen
+`-`, or restructure the sentence. The repo was swept clean of 318 of them; do
+not reintroduce one.
+
+The same applies to the em dash used as a "no value" marker in a table cell:
+`format.ts`'s `rate`/`percent`/`count` helpers default to `'-'`, and any new
+placeholder should match.
+
+The character is written here as a code point rather than literally, so that
+the repo contains none at all and the check below is exact rather than always
+matching this paragraph:
+
+```bash
+# -I skips binaries: the Cricsheet archives under data/ contain the byte
+# sequence and are not ours to edit.
+grep -rnI "$(printf '\u2014')" . --exclude-dir=node_modules --exclude-dir=venv \
+  --exclude-dir=.git --exclude-dir=dist --exclude-dir=__pycache__ --exclude-dir=data --exclude='*.log'
+```
 
 ## Architecture
 
@@ -54,17 +76,17 @@ cd backend && python -m compileall -q . && python -c "from main import app"
 
 `ingestion/` (writes) and `backend/` (reads) both talk to the same `cricket.db`
 at the repo root, independently. Neither imports from the other. Both resolve
-its path the same way — via a `PROJECT_ROOT` computed from `__file__`
-(`ingestion/shared.py`, `backend/app/database.py`) — so everything works
+its path the same way - via a `PROJECT_ROOT` computed from `__file__`
+(`ingestion/shared.py`, `backend/app/database.py`) - so everything works
 regardless of the process's cwd or the repo's absolute location. Follow this
 convention for any new script; don't hardcode paths.
 
 ### Gender separation is a schema property, not a query filter
 
 Men's and women's cricket share no identity below the API layer. `teams` are
-keyed by `(name, gender, team_type)` — men's and women's "India" are
+keyed by `(name, gender, team_type)` - men's and women's "India" are
 different rows with different `team_id`s. `competitions` are keyed by
-`(key, gender)` — "Test" has a separate row per gender. `players.gender` is
+`(key, gender)` - "Test" has a separate row per gender. `players.gender` is
 set once, from the gender of the first match they're seen in (a real person
 never plays both). Every list/browse endpoint (`dashboard`, `rankings`,
 `teams`, `players` search, `matches` list) takes a required `gender` query
@@ -75,18 +97,18 @@ The frontend mirrors this with a `/:gender/*` path prefix (`men`/`women`,
 mapped to the API's `male`/`female` via `frontend/src/gender/useGender.ts`).
 `Layout.tsx`'s gender switcher deliberately drops to the current section's
 *list* page rather than trying to preserve a specific team/player/match ID
-when switching — an ID from one gender is meaningless in the other's context.
+when switching - an ID from one gender is meaningless in the other's context.
 
 ### International vs franchise is the same kind of split as gender
 
-Adding the PSL needed no migration — `teams.team_type` and `competitions.type`
+Adding the PSL needed no migration - `teams.team_type` and `competitions.type`
 already carried the vocabulary. The rule the code enforces is that the two
 never merge into one number:
 - `teams` are keyed by `(name, gender, team_type)`, and `GET /api/teams` takes
   an optional `team_type` so a list is national sides *or* franchises, never
   both interleaved. The frontend Teams page defaults to `international`.
 - Rankings are confined to one competition type at a time
-  (`queries._ranking_scope`). An unscoped request is **not** "everything" — it
+  (`queries._ranking_scope`). An unscoped request is **not** "everything" - it
   falls back to `international`, and franchise cricket must be asked for via
   `competition=psl` or `competition_type=domestic_league`. Blending a player's
   Test/ODI/T20I runs with their PSL runs would produce a figure no cricket
@@ -105,7 +127,7 @@ change rather than an API code change.
 
 `CricsheetIngestionWorkflow` (`ingestion/ingestion_workflow.py`) downloads a
 Cricsheet archive, then fans out to concurrent **activities** (not child
-workflows) for each match — ingesting one match is a single unit of work
+workflows) for each match - ingesting one match is a single unit of work
 (hash-check → parse → upsert), not a multi-step process, so activities are
 the right granularity. It processes matches in batches of
 `BATCH_SIZE_PER_GENERATION` and calls `workflow.continue_as_new` between
@@ -113,40 +135,40 @@ batches so history stays bounded across the ~9,000+ match archives.
 
 Idempotency: `ingest_match` (`activities.py`) SHA-256-hashes each match's raw
 JSON and compares against the stored `matches.content_hash` before doing any
-parsing or writes — an unchanged match is a no-op. This is also how a
+parsing or writes - an unchanged match is a no-op. This is also how a
 periodic re-sync (re-running `starter.py` against a refreshed Cricsheet
 archive) would stay cheap.
 
-### No ball-by-ball data is stored — only derived aggregates
+### No ball-by-ball data is stored - only derived aggregates
 
 `ingestion/parsing.py` walks each match's `innings/overs/deliveries`
 structure purely to accumulate per-player totals (`PlayerMatchStat`), then
 discards the balls. The scoring rules encoded there are real cricket domain
 logic, not incidental:
-- `BOWLER_CREDITED_KINDS` / `NOT_OUT_KINDS` — which wicket kinds count against
+- `BOWLER_CREDITED_KINDS` / `NOT_OUT_KINDS` - which wicket kinds count against
   a bowler's figures, and which don't count as a batting dismissal (e.g.
   "retired hurt" isn't out; "run out" isn't the bowler's wicket).
 - Wides don't count as a ball faced; wides and no-balls don't count as a
   legal ball bowled but do count as runs conceded; byes/leg-byes count as a
   legal ball but never count against the bowler.
-- `dismissals` is a count, not a boolean — a Test can have two innings per
+- `dismissals` is a count, not a boolean - a Test can have two innings per
   side, so a player can be dismissed twice in one match. This matters for
   batting average (`runs / dismissals`), computed in
   `backend/app/queries.py`.
 
 Don't "simplify" any of this without checking real figures against known
-career stats first — these rules were reverse-engineered from actual
+career stats first - these rules were reverse-engineered from actual
 Cricsheet delivery records, not assumed.
 
 ### Three data sources, kept visibly separate
 
 Cricsheet is still the only source of match data, and it is the reason every
-derived figure exists — the per-player aggregates come from its ball-by-ball
+derived figure exists - the per-player aggregates come from its ball-by-ball
 records. Two others feed non-match facts, and neither is allowed to blur into
 the first:
 
 - **ICC rankings** (`icc_player_rankings`, `icc_team_rankings`) come from
-  ICC's own JSON feed — the one their site consumes. They live behind
+  ICC's own JSON feed - the one their site consumes. They live behind
   `/api/icc/*` and a separate "ICC" nav section, deliberately not merged with
   `/api/rankings`, which this project *computes* from ball-by-ball data.
   Conflating a derived figure with an official rating is the one mistake the
@@ -158,13 +180,13 @@ the first:
     carries the previous position forward. Treating `'='` as unparseable
     silently drops every tied player (6 of the top 100 Test batters).
     Because ties share a position, `player_name` is part of the primary key
-    **and must stay `primary_key=True` on the SQLAlchemy model** — omit it
+    **and must stay `primary_key=True` on the SQLAlchemy model** - omit it
     there and tied rows collapse into one ORM identity, which the session then
     emits twice.
   - ICC names people "Travis Head" where Cricsheet says "TM Head", and
     publishes no ID we share. `enrichment.resolve_player` matches on
     (surname, first initial) with country as a tiebreak, and returns None
-    whenever more than one player fits — "Moeen Ali" will not be guessed at
+    whenever more than one player fits - "Moeen Ali" will not be guessed at
     between `M Ali` and `MM Ali`. Unlinked entries still display; they just
     aren't links. ~72% link cleanly.
 
@@ -174,7 +196,7 @@ the first:
   is a calendar entry and an upcoming one has no result at all. Merging would
   put resultless rows into the table every aggregate query reads.
   - The feed paginates on **`page_number`**, not `page`. `page` is accepted and
-    silently ignored, so a loop using it returns page one every time — which
+    silently ignored, so a loop using it returns page one every time - which
     looks exactly like a working paginated fetch that collected 24 copies of
     the same 500 rows. It also needs `from_date`/`to_date` (YYYYMMDD); without
     them no upcoming fixtures come back at all.
@@ -195,13 +217,13 @@ the first:
   Run via `python starter.py enrich`; not scheduled, since bios rarely change.
   - The public SPARQL endpoint burst-throttles with 429 and no `Retry-After`.
     `_wikidata_get` backs off exponentially, and `enrich_from_wikidata` **fails
-    the activity** when more than half the batches fail — a throttled run
+    the activity** when more than half the batches fail - a throttled run
     otherwise returns "0 matched" and is indistinguishable from Wikidata
     genuinely knowing nobody.
 
 ### Names: `JE Root` is correct, `Joe Root` is for reading
 
-Cricsheet's `players.name` uses the standard scorecard convention — every
+Cricsheet's `players.name` uses the standard scorecard convention - every
 initial, then surname (`JE Root` = Joseph Edward Root). That is what Wisden,
 CricketArchive and ESPNcricinfo's own scorecard guidelines use; it is **not**
 stale or wrong data, and it is not to be "fixed" by replacing the source.
@@ -215,7 +237,7 @@ fabricated full name.
 **Preferring the Wikidata label unconditionally is wrong**, and `app/names.py`
 owns the rule that replaced it. Wikidata stores a *formal* name, so where the
 scorecard form is already natural the label makes it less recognisable, not
-more — `Babar Azam` → `Mohammad Babar Azam`, `Imran Khan` →
+more - `Babar Azam` → `Mohammad Babar Azam`, `Imran Khan` →
 `Mohammad Imran Khan`, `Liton Das` → `Litton Das`. The label is therefore used
 only when the scorecard name needs expanding, i.e. its first token is an
 initials cluster (`JE Root` → `Joe Root`, `HMRKB Herath` → `Rangana Herath`).
@@ -224,7 +246,7 @@ That pattern allows up to eight letters: Sri Lankan initials run long
 as initials. 3,103 of the 4,119 labelled players take the label; of the 1,016
 that keep their scorecard name, 102 would otherwise have been renamed wrongly.
 Known limit: players best known *by* their initials (`MS Dhoni`) get expanded,
-because nothing distinguishes them from `JE Root` — the sourced label wins over
+because nothing distinguishes them from `JE Root` - the sourced label wins over
 a guess.
 
 Search matches **both** columns. Matching only `players.name` meant a player
@@ -233,11 +255,11 @@ returned nothing while "JE Root" worked.
 
 `players.image_url` is a Wikimedia Commons photo (P18), for ~1,000 players.
 Two non-obvious details:
-- P18 points at the **original** upload — Joe Root's is 2568x1794 / 4.8 MB,
+- P18 points at the **original** upload - Joe Root's is 2568x1794 / 4.8 MB,
   enough to time out a page load. The stored URL is a thumbnail.
 - Wikimedia no longer renders arbitrary widths; an unlisted size returns
   `400 Use thumbnail sizes listed on ...`. Probing the handler, the sizes it
-  serves are **120, 250, 500, 960, 1280** — `enrichment.COMMONS_ALLOWED_THUMB_WIDTHS`.
+  serves are **120, 250, 500, 960, 1280** - `enrichment.COMMONS_ALLOWED_THUMB_WIDTHS`.
   The thumb path is computed from the MD5 of the underscored filename
   (`/thumb/<md5[0]>/<md5[:2]>/<file>/250px-<file>`) rather than costing an API
   round trip per player.
@@ -245,7 +267,7 @@ Two non-obvious details:
 ### Playing status is derived, and "retired" is never guessed
 
 `queries.player_status` returns `active` / `inactive` / `retired`. The word
-**retired only appears when a source says so** — Wikidata's P2032 or a date of
+**retired only appears when a source says so** - Wikidata's P2032 or a date of
 death. It is never inferred from a gap in appearances, because a gap covers
 retirement, injury, being dropped, and cricket this dataset doesn't cover, and
 nothing here distinguishes them. Those render as "Last played 2019".
@@ -255,7 +277,7 @@ cricketers in Wikidata**, so exactly 2 players in this database have a
 retirement date (plus 41 with a date of death). MS Dhoni shows as *inactive*,
 not retired. That is correct behaviour, not a bug to "fix" by lowering the bar.
 
-`active` is measured against the newest match **in the dataset**, not today —
+`active` is measured against the newest match **in the dataset**, not today -
 anchoring to now would silently reclassify every current player the moment the
 Cricsheet archive went stale.
 
@@ -263,14 +285,14 @@ Cricsheet archive went stale.
 
 Phase 1.5 landed: `deliveries` holds ~4.9M ball-by-ball rows beside the 221k
 `player_match_stats` rows. Both are written by the same parse, and that
-duplication is deliberate — §28 forbids a page request touching raw
+duplication is deliberate - §28 forbids a page request touching raw
 ball-by-ball data, so an average still comes from the aggregate table while
 phase splits, dot-ball rates, batting position and chasing come from
 `deliveries`.
 
 Measured, not estimated (§34 #4 asked for a sizing estimate):
 **64 bytes per delivery, ~0.31 GB for the full backfill.** That is affordable
-because of two schema choices — `WITHOUT ROWID` with a `(match_id, innings, seq)`
+because of two schema choices - `WITHOUT ROWID` with a `(match_id, innings, seq)`
 key, and extras stored as four small integers rather than a repeated kind
 string. Don't "tidy" either without re-measuring.
 
@@ -279,33 +301,40 @@ Ball-within-over cannot: a wide or no-ball adds a delivery to the over, so
 `(over, ball)` is not unique.
 
 Deliveries are DELETEd and re-inserted per match rather than upserted, because
-the key is positional — a re-parse that changes the ball count would otherwise
+the key is positional - a re-parse that changes the ball count would otherwise
 strand tail rows from the previous version.
 
 **The two tables must reconcile.** After the backfill, summing deliveries back
-up to per-player figures matched `player_match_stats` on 100% of rows for runs,
-balls faced, balls bowled and runs conceded. Re-run that check after any parser
-change; a disagreement means every Tier B figure will contradict the boards the
-product already ships.
+up to per-player figures matches `player_match_stats` on 100% of 168,458 batting
+and 119,730 bowling rows. Re-run that check after any parser change; a
+disagreement means every Tier B figure will contradict the boards the product
+already ships.
+
+When re-running it, apply the parser's *own* rules or the check will report a
+false failure. A first pass showed one disagreeing row and the fault was the
+query: the parser skips wides entirely for a batter, and Cricsheet has a
+delivery flagged as a wide that also credits the batter a run. The parser is
+right - nobody scores off the bat on a wide - so the reconciliation must exclude
+wides from batter runs, not just from balls faced.
 
 ### Forward-looking schema, not yet populated
 
 Two things exist in `schema.sql` for a future phase and currently do
-nothing — don't treat them as dead code:
+nothing - don't treat them as dead code:
 - `matches.data_granularity` (`'full'` vs `'result_only'`) anticipates a
   coarser-grained future data source (e.g. pre-2001 results without
   per-player breakdowns). Everything ingested today is `'full'`.
 - `player_career_totals` would hold aggregate-only figures for players whose
   stats can't be decomposed per-match. Unused until that source exists.
 `players.date_of_birth` / `birth_place` / `nationality` / `cricinfo_id` /
-`bio_source` used to be listed here as "always `null`". They are not — the
+`bio_source` used to be listed here as "always `null`". They are not - the
 Wikidata enrichment pass populates them, `nationality` for 3,098 of 9,442. They
 remain *partial*, so the API and UI still render an absent value as "Not
 available", and nothing is ever inferred to fill a gap.
 
 `nationality` in particular is not a safe field to build on. It is a Wikidata
 citizenship claim, not a cricketing one, and it is wrong often enough to
-matter — it records **Chris Gayle as Australian**, and 2,554 West Indies
+matter - it records **Chris Gayle as Australian**, and 2,554 West Indies
 appearance-rows carry a nationality that is not a Caribbean territory. See the
 player-flag section below for what to use instead.
 
@@ -318,7 +347,7 @@ validating against a published source rather than by reading the code: Joe Root
 came out at 1,523 Test fours against ESPNcricinfo's 1,515. After the fix he
 matches exactly, along with matches (166), runs (14,114) and sixes (46).
 
-`runs_scored` is unaffected — a non-boundary four is still four runs. What
+`runs_scored` is unaffected - a non-boundary four is still four runs. What
 changes is `fours`, `sixes` and anything derived from them, notably the batting
 explorer's boundary %.
 
@@ -328,11 +357,11 @@ Idempotency is a SHA-256 of the raw match JSON, and Cricsheet's bytes do not
 change when our parser does. `shared.PARSER_VERSION` is mixed into that hash for
 exactly this reason: without it, a parser fix plus a re-run skips all 10,040
 matches and **reports success**. This is the trap §5 names, and it is not
-hypothetical — the first attempt at the boundary fix returned "357 unchanged
+hypothetical - the first attempt at the boundary fix returned "357 unchanged
 (skipped)".
 
 Two things are needed to land a parser change: bump `PARSER_VERSION`, **and
-restart the Temporal worker** — it holds the old module in memory and will
+restart the Temporal worker** - it holds the old module in memory and will
 happily keep using it.
 
 ### Venue normalisation: comma-collapse is safe, substring merging is not
@@ -342,15 +371,15 @@ and the reasoning behind the last two is the load-bearing part:
 
 - **Comma-collapse** (automatic, safe): the text before the first comma is the
   ground. "Arnos Vale Ground, Kingstown, St Vincent" -> "Arnos Vale Ground".
-- **Curated aliases only.** The tempting rule — merge when one name contains the
-  other — is wrong invisibly. Dubai has "ICC Academy" *and* "ICC Academy Ground
+- **Curated aliases only.** The tempting rule - merge when one name contains the
+  other - is wrong invisibly. Dubai has "ICC Academy" *and* "ICC Academy Ground
   No 2" (different pitches); Pakistan has "Arbab Niaz Stadium" in Peshawar and
   "Niaz Stadium" in Hyderabad, 1,000km apart. Substring similarity is used only
   to **report** candidates for review, never to merge.
 - **City qualifies only the names that actually collide** (`CITY_QUALIFIED`).
   "County Ground" is EIGHT English grounds; "National Stadium" is Karachi *and*
   Hamilton, Bermuda. But city cannot be part of the key generally, because the
-  column is itself inconsistent — the same ground appears under Bridgetown and
+  column is itself inconsistent - the same ground appears under Bridgetown and
   Barbados, Kingston and Jamaica, Port Elizabeth and Gqeberha, Dhaka and Mirpur.
   Of 28 same-name-different-city cases, most are one ground written two ways.
 
@@ -358,19 +387,19 @@ and the reasoning behind the last two is the load-bearing part:
 
 `backend/app/analytics/venue.py`. §20 marks "average score, average winning
 score, chasing success rate" as Tier B, assuming knowing who chased needs the
-innings sequence that only stored deliveries provide. It does not — **the toss
+innings sequence that only stored deliveries provide. It does not - **the toss
 gives it exactly**. `toss_winner_team_id` and `toss_decision` are populated for
 100% of the 10,040 matches, and together they name the side that batted first:
 the toss winner if they chose to bat, otherwise their opponent.
 
 That makes the most useful thing a venue page can say available today. Sharjah
-PSL: batting first wins 30.6% and captains choose to bat 15.8% of the time —
+PSL: batting first wins 30.6% and captains choose to bat 15.8% of the time -
 outcome and behaviour agree. Sharjah ODIs: captains bat 87.9% of the time and
-win 45.5% doing it — they do not.
+win 45.5% doing it - they do not.
 
 Two things the module is careful about:
 - **"Runs off the bat", never "average score".** `player_match_stats` has no
-  extras — a wide is charged to the bowler, byes and leg-byes to nobody — so
+  extras - a wide is charged to the bowler, byes and leg-byes to nobody - so
   summing a side's batters understates a true total by roughly 5%. The figure is
   named for what it is. The par indices are unaffected, since both sides of the
   ratio are measured the same way, which is why they carry the interpretation.
@@ -384,7 +413,7 @@ detail and are correctness:
 
 - **Percentiles are pooled within (scope x discipline).** Measured over this
   dataset a bowler's mean opposition-adjusted impact is **1.08 par units against
-  a batter's 0.64** — a 69% gap that is an artefact of the impact model (a
+  a batter's 0.64** - a 69% gap that is an artefact of the impact model (a
   four-wicket haul converts to ~120 runs-equivalent where a good innings is 45),
   not a statement about quality. Pooled together the first cut returned eleven
   bowlers in a top twelve. The form board never exposed this because form is
@@ -392,7 +421,7 @@ detail and are correctness:
   so it does not.
 - **"Recent performance" is the absolute standard of the window, not the form
   delta.** §14 words that component as "recent window versus the player's own
-  baseline", which is literally the form figure — but scored that way the Index
+  baseline", which is literally the form figure - but scored that way the Index
   inherits form's self-relativity, a journeyman improving from poor to ordinary
   out-rates a great player playing normally, and the Index becomes a reweighted
   copy of a board we already ship (violating §15's requirement that the three
@@ -403,7 +432,7 @@ Consistency is **downside deviation**, not variance: plain variance punishes a
 match-winning 150 as hard as a duck, so the most "consistent" player is the
 reliably mediocre one. Only shortfalls below par count.
 
-Absent components (role, situation, availability — 25% of §14's weighting) are
+Absent components (role, situation, availability - 25% of §14's weighting) are
 dropped and the rest renormalised, never scored as zero. The API returns every
 component with both its specified and applied weight, and the UI states the
 shortfall.
@@ -413,7 +442,7 @@ shortfall.
 The explorers (`backend/app/analytics/explorer.py`) gate on minimum balls, and
 that is **not** sufficient to keep a batter off a bowling board. Over a long
 career a top-order batter's occasional overs clear any sane minimum: Kohli has
-bowled 989 balls, Tendulkar 2,812, Root 8,120 — all past a 300-ball gate. The
+bowled 989 balls, Tendulkar 2,812, Root 8,120 - all past a 300-ball gate. The
 mirror held too, with Muralitharan, Bumrah and Anderson all clearing a 200-ball
 batting gate.
 
@@ -425,7 +454,7 @@ all-rounders, all-round admits only all-rounders.
 
 The two cuts (0.25 / 0.78) are read off the observed distribution over the 1,782
 men's internationals with 20+ matches, and classify every well-known player
-correctly — Kohli .03, Root .19 (batters); Maxwell .50, Shakib .62, Afridi .76
+correctly - Kohli .03, Root .19 (batters); Maxwell .50, Shakib .62, Afridi .76
 (all-rounders); Ashwin .83, Bumrah .94, Muralitharan .96 (bowlers). The middle
 band is deliberately wide: excluding a genuine all-rounder from a list they
 belong on is the expensive error; admitting a marginal one is cheap.
@@ -437,7 +466,7 @@ sourced fact about a player.
 
 `backend/app/analytics/opposition.py` scales every performance by how hard the
 side it came against actually is. Without it the form board ranked by *weakness*
-of opposition — players whose recent cricket was against Norway, Portugal and
+of opposition - players whose recent cricket was against Norway, Portugal and
 Malta outranked Virat Kohli.
 
 Two measures were tried and rejected **against data**, so don't reach for them:
@@ -449,7 +478,7 @@ Two measures were tried and rejected **against data**, so don't reach for them:
   measured was the run-scoring environment, not the side.
 - **Opponents' raw share of match impact.** Cancels the environment (it is a
   ratio within one match) and fixed the above, but still put UAE, Uganda and
-  Japan above Australia — a share measures dominance over *whoever you played*.
+  Japan above Australia - a share measures dominance over *whoever you played*.
 
 What works is fitting those shares with **Bradley-Terry**, which makes strength
 transitive, and referencing the fitted powers against the opposition in an
@@ -457,17 +486,17 @@ transitive, and referencing the fitted powers against the opposition in an
 are ~110 men's international sides and most play rarely, so a team-count
 reference puts "par opposition" at roughly Malta and pins every Test nation to
 the multiplier clamp. Validated against ICC team ratings at Spearman ρ ≈ +0.81
-to +0.83 across all three formats — ICC is the *check*, never an input (it ranks
+to +0.83 across all three formats - ICC is the *check*, never an input (it ranks
 only ~10-20 sides, is a current snapshot against 25 years of data, and §6 keeps
 official ratings out of derived figures).
 
-Conventional figures — average, strike rate, economy — are deliberately **not**
+Conventional figures - average, strike rate, economy - are deliberately **not**
 adjusted, because they have to match what a scorecard source publishes. Only
 this project's own impact measures carry the adjustment.
 
 **Fitted per era, referenced against a stable core.** Team strength moves over 25
 years: on own-share of match output Bangladesh runs 0.387 in the early 2000s to
-0.505 in the mid-2020s, Australia 0.570 down to 0.488 — Bangladesh's swing alone
+0.505 in the mid-2020s, Australia 0.570 down to 0.488 - Bangladesh's swing alone
 is wider than the gap between many pairs of sides, so one career rating credits a
 2003 century against them exactly as much as a 2025 one. `opposition.multiplier`
 therefore takes the match date (§14's "opponent standing at the time").
@@ -478,14 +507,14 @@ granted T20I status to every member, so the 2020s pool holds dozens of associate
 that played no international cricket in the 2000s; referenced against its own
 era's average, *every* established side inflated in the 2020s and Australia came
 out harder to face in 2020 than in 2000. Anchored to the core, the curves match
-cricket history instead — Australia 1.240 → 1.038, Bangladesh 0.796 → 0.964,
+cricket history instead - Australia 1.240 → 1.038, Bangladesh 0.796 → 0.964,
 Sri Lanka declining after the Murali era, Zimbabwe dipping in 2005.
 
-### `opposition.index()` falls back; `era_index()` does not — and display needs the second
+### `opposition.index()` falls back; `era_index()` does not - and display needs the second
 
 `index(team, era)` deliberately falls back to a side's long-run figure when an
 era has no fit, which is right for *scoring*: a match in an unfitted era should
-still be adjusted by something. It is wrong for *display*, and silently so — the
+still be adjusted by something. It is wrong for *display*, and silently so - the
 fallback returns the side's whole-career index **and its whole-career match
 count**, so an era a side never played renders as if they played their entire
 career in it. Ireland's curve showed "2000: from 301 matches" before this was
@@ -502,7 +531,7 @@ no current figure is stated at all.
 `FormLeader.rank_score` is `delta_absolute × confidence`, not
 `delta_ratio × confidence`. A percentage is a ratio against the player's own
 baseline, so a player who was dreadful and is now merely below average posts a
-huge one — Sharvin Muniandy reached the in-form board at +97% while producing
+huge one - Sharvin Muniandy reached the in-form board at +97% while producing
 **0.70 par units**, below what an average appearance is worth. Every leaderboard
 row carries `recent_mean` so the absolute standard is visible beside the change.
 
@@ -512,22 +541,22 @@ row carries `recent_mean` so the absolute standard is visible beside the change.
 run one SQL `GROUP BY` per call, then compute averages/strike-rate/economy
 and sort in Python across the full result set before slicing for pagination.
 
-They group by `player_identifier`, **not** `player_name` — 78 names in this
+They group by `player_identifier`, **not** `player_name` - 78 names in this
 dataset map to more than one real person (two distinct "SR Taylor"s, two
 "Shahid Afridi"s), and grouping by name silently summed their careers into a
 single ranking row. `max(player_name)` just picks a stable display spelling.
 Both helpers also take an optional `team_id`, which is what makes a team page
 show a player's figures *for that team* rather than their gender-wide career
-totals — without it a franchise page credits Babar Azam with his Test runs.
+totals - without it a franchise page credits Babar Azam with his Test runs.
 This is intentional (average requires a divide-by-zero guard that's awkward
 in SQLite SQL) but means an unfiltered all-players query is O(total players)
-in Python — acceptable at this dataset's size (~9,300 players), worth
+in Python - acceptable at this dataset's size (~9,300 players), worth
 revisiting with a materialized summary table if that ever changes.
 
 ### A squad window is the side's own last N matches, not a date range
 
-`backend/app/analytics/squad.py`. The obvious implementation — "everyone who
-played in the last 12 months" — reports most of this dataset as having no squad
+`backend/app/analytics/squad.py`. The obvious implementation - "everyone who
+played in the last 12 months" - reports most of this dataset as having no squad
 at all. There are ~110 international sides here and the great majority play a
 handful of matches a year and then nothing for a long stretch; a calendar
 window makes that a statement about the fixture list rather than about the
@@ -537,7 +566,7 @@ means the same thing for Australia and for Malta.
 The window is read through `player_match_stats`, not `matches.team1_id/team2_id`,
 so the window and the appearances that fill it come from the same rows.
 
-Role is `explorer.discipline` applied to **this window, for this team** — never
+Role is `explorer.discipline` applied to **this window, for this team** - never
 a career role. A career role is wrong twice over: a player bowls a different
 share for their country than for a franchise, and a different share in Tests
 than in T20Is. Axar Patel comes out a *bowler* for India over these 20 matches
@@ -545,7 +574,7 @@ at a 0.784 share, just past the 0.78 cut, and that is the honest reading of
 what he was picked to do in that window rather than of what he is. The raw
 share travels with every row so the inference stays checkable.
 
-Roles read off very few deliveries are marked uncertain rather than withheld —
+Roles read off very few deliveries are marked uncertain rather than withheld -
 below `ROLE_MIN_BALLS` (60) they carry the same dotted rule the form verdicts
 use. On a franchise squad that is typically a third of the list.
 
@@ -558,7 +587,7 @@ it verbatim, so a partial picture cannot quietly present itself as a whole one.
 `queries._player_country_map` resolves the flag beside a player name from their
 own **appearances**, so it means exactly what the flag beside a team means. It
 does not read `players.nationality`: that answers a different question
-(citizenship) and gets it wrong often — Wikidata has Chris Gayle as Australian,
+(citizenship) and gets it wrong often - Wikidata has Chris Gayle as Australian,
 and it stores values like "United Kingdom" and "Guyana" that name no cricketing
 side. 8,194 of 9,442 players resolve.
 
@@ -568,10 +597,10 @@ Four cases the data forces, none of which may be "simplified" away:
   Asia XI, ICC World XI) is deliberately *narrower* than `flags.NO_NATION`,
   which also contains the West Indies. Use `flags.is_national_side` for this
   question and `flags.country_code` for drawing. Without the split, the 146
-  players with more than one "international" side look dual-national — Dravid
+  players with more than one "international" side look dual-national - Dravid
   becomes India/ICC World XI and Tikolo Kenya/Africa XI.
 - **The West Indies is a real side with no ISO code.** It resolves to a name
-  with `country_code = None` — neutral mark, side named on hover, 227 players.
+  with `country_code = None` - neutral mark, side named on hover, 227 players.
   Dropping code-less sides entirely would erase them.
 - **Franchise-only players (1,247, mostly PSL) get no flag at all.** Nothing is
   inferred from where the league is played, so a PSL board shows Rilee Rossouw
@@ -582,7 +611,7 @@ Four cases the data forces, none of which may be "simplified" away:
   times for Pakistan to 2023 and 56 times for Bahrain since.
 
 `/api/icc/*` rows derive their flag from ICC's own `country` column instead,
-because that table is ICC's claim about ICC's list — resolving it from our
+because that table is ICC's claim about ICC's list - resolving it from our
 appearance data would mix a derived figure into a published one (§6). That path
 needs `flags.ALIASES`, since feeds spell nations differently ("USA" against the
 team table's "United States of America"). Afghanistan was missing from
@@ -610,10 +639,10 @@ Three things here are load-bearing:
   deuteranopia. Since amber means *uncertainty* and red means *below par*, and
   the two sit in adjacent columns of a form row, uncertainty moved to the
   `.uncertain` dotted rule plus a marker. **Do not "fix" this by picking a
-  better amber** — there isn't one. Amber survives only where it is isolated,
+  better amber** - there isn't one. Amber survives only where it is isolated,
   such as the "soon" nav tag.
 - **Charts read tokens at runtime** (`theme/useChartTheme.tsx`). Recharts takes
-  literal colours, so hardcoding hex pins every chart to one theme — which is
+  literal colours, so hardcoding hex pins every chart to one theme - which is
   exactly what happened when a light theme was added to a dark-only palette.
   Legend text wears ink tokens, never the series colour.
 
@@ -625,6 +654,6 @@ series.
 
 The signature device is the **par datum** (`.par-track`, `components/ParMeter.tsx`):
 a hairline at 1.00 with the bar growing away from it. Its scale tops out at
-**3.0, not 2.0** — the in-form board routinely returns 2.0–3.0 par units, and at
+**3.0, not 2.0** - the in-form board routinely returns 2.0–3.0 par units, and at
 a ceiling of 2 every one of those rows drew an identical full bar, which is the
 one thing the meter exists to prevent.

@@ -17,7 +17,7 @@ import {
 } from '../components/ui'
 
 /**
- * The analytics explorers (§21) — the power-user surface.
+ * The analytics explorers (§21) - the power-user surface.
  *
  * One page serves all three explorers because §21 specifies a *shared* filter
  * model: a scout who narrows to "T20Is against Australia since 2024" expects
@@ -96,13 +96,13 @@ const ROLES = [
   { value: 'bowler', label: 'Bowlers' },
 ]
 
-// Roles are neutral chips. They classify, they don't judge — green/red/amber
+// Roles are neutral chips. They classify, they don't judge - green/red/amber
 // stay reserved for above/below baseline and low confidence.
 const ROLE_LABEL: Record<string, string> = {
   batter: 'Bat',
   bowler: 'Bowl',
   allrounder: 'All',
-  unknown: '—',
+  unknown: '-',
 }
 
 const field = 'rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
@@ -110,7 +110,7 @@ const fieldLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 function cell(row: ExplorerRow, col: Column): string {
   const value = row[col.key]
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return '-'
   if (col.kind === 'int') return Number(value).toLocaleString()
   return rate(Number(value))
 }
@@ -313,7 +313,7 @@ export function Explorer() {
 
       {error && <ErrorMessage message={error} />}
 
-      {/* The qualification in force is stated rather than left implicit — a
+      {/* The qualification in force is stated rather than left implicit - a
           leaderboard that silently excludes people looks like it covers
           everyone (§21). */}
       {data && (
@@ -321,7 +321,7 @@ export function Explorer() {
           {data.total.toLocaleString()} players qualify ·{' '}
           <span className="tnum">{data.filters.min_innings}</span> matches and{' '}
           <span className="tnum">{data.filters.min_balls}</span> balls minimum
-          {data.filters.min_balls > 0 && ' — rate columns are meaningless below a volume floor'}
+          {data.filters.min_balls > 0 && ' - rate columns are meaningless below a volume floor'}
         </p>
       )}
 
@@ -385,7 +385,7 @@ export function Explorer() {
                     <td className={tdClass}>
                       <span
                         className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
-                        title="Inferred from balls faced versus balls bowled — no source states a playing role"
+                        title="Inferred from balls faced versus balls bowled - no source states a playing role"
                       >
                         {ROLE_LABEL[row.role] ?? row.role}
                       </span>
@@ -429,17 +429,17 @@ export function Explorer() {
         ) : (
           <>
             These are conventional figures and are deliberately <em>not</em> adjusted for
-            opposition strength — an average here matches what a scorecard source publishes. The
+            opposition strength - an average here matches what a scorecard source publishes. The
             opposition adjustment applies to this project's own impact measures, on the all-round
             explorer and the form boards, which are labelled as derived.
           </>
         )}{' '}
-        Role is <em>inferred</em> from where a player spends their deliveries, never sourced — so a
+        Role is <em>inferred</em> from where a player spends their deliveries, never sourced - so a
         specialist bowler cannot appear on a batting board and a specialist batter cannot appear on
         a bowling one, while all-rounders appear on both. A volume floor alone could not do that:
         Kohli has bowled 989 balls and Tendulkar 2,812, enough to clear any sane minimum.
         Wicketkeeper and opener remain unavailable at any threshold. The ground filter matches on
-        the normalised ground rather than the raw string — Cricsheet files 593 spellings for 396
+        the normalised ground rather than the raw string - Cricsheet files 593 spellings for 396
         grounds, so filtering the raw column would return part of a ground's history while
         appearing to return all of it.
       </p>

@@ -155,6 +155,40 @@ BATTER_MAX_BOWLING_SHARE = 0.25
 BOWLER_MIN_BOWLING_SHARE = 0.78
 
 # --------------------------------------------------------------------------
+# Match phases
+# --------------------------------------------------------------------------
+
+# Powerplay / middle / death, as (first_over, last_over) inclusive, 0-based.
+#
+# Per competition, because the phases are a property of the FORMAT, not of
+# cricket: a T20 powerplay is six overs and an ODI's is ten. Applying one
+# format's bands to another invents a split nobody plays to.
+#
+# Tests are deliberately ABSENT rather than given bands. There is no powerplay
+# in a Test and no death overs; an innings ends when ten wickets fall or a
+# captain declares. Slicing over 0-5 of a Test innings and calling it a
+# powerplay would produce a figure that looks like the T20 one and means
+# something entirely different. `phase_bands()` returns None for Tests and the
+# API says the split does not apply, which is the honest answer.
+PHASE_BANDS: dict[str, list[tuple[str, str, int, int]]] = {
+    "t20is": [
+        ("powerplay", "Powerplay (1-6)", 0, 5),
+        ("middle", "Middle (7-16)", 6, 15),
+        ("death", "Death (17-20)", 16, 99),
+    ],
+    "psl": [
+        ("powerplay", "Powerplay (1-6)", 0, 5),
+        ("middle", "Middle (7-16)", 6, 15),
+        ("death", "Death (17-20)", 16, 99),
+    ],
+    "odis": [
+        ("powerplay", "Powerplay (1-10)", 0, 9),
+        ("middle", "Middle (11-40)", 10, 39),
+        ("death", "Death (41-50)", 40, 99),
+    ],
+}
+
+# --------------------------------------------------------------------------
 # Opposition strength
 # --------------------------------------------------------------------------
 
@@ -225,6 +259,17 @@ INDEX_WINDOW_MATCHES = 15
 # Below this, the percentile of a component says more about sample size than
 # about the player, so they are left off the board rather than rated badly.
 INDEX_MIN_MATCHES = 8
+
+# The situation component compares a player chasing with the same player
+# batting first. Both sides need this many dismissals before the ratio is used
+# at all, and it is then shrunk towards 1.0 on the thinner side.
+#
+# MEASURED, not chosen. Over men's internationals, at a 5-dismissal floor the
+# ratio reached 14.19 -- nobody chases fourteen times better -- with a p10-p90
+# spread of 0.55 to 1.77. At 10 the spread is 0.65 to 1.50 and 1,004 players
+# still qualify, which is signal rather than sample size.
+INDEX_SITUATION_MIN_DISMISSALS = 10
+INDEX_SITUATION_SHRINKAGE = 10
 
 # --------------------------------------------------------------------------
 # Form leaderboards

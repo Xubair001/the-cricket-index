@@ -15,7 +15,7 @@ import { tableClass, theadRowClass, trClass } from '../components/ui'
  * There is no scorecard here and there cannot be one: ingestion accumulates
  * per-player totals and discards the deliveries, so there is no batting order,
  * no fall of wickets and no innings sequence to render. What is shown is what
- * was derived — runs, balls, and bowling figures — and nothing is inferred to
+ * was derived - runs, balls, and bowling figures - and nothing is inferred to
  * fill the gap.
  */
 
@@ -71,9 +71,9 @@ function PerformerTable({
                         were never dismissed in this match. */}
                     {p.dismissals === 0 && p.balls_faced > 0 ? '*' : ''}
                   </td>
-                  <td className="tnum px-3 py-2 text-right text-muted">{p.balls_faced || '—'}</td>
+                  <td className="tnum px-3 py-2 text-right text-muted">{p.balls_faced || '-'}</td>
                   <td className="tnum px-4 py-2 text-right text-muted">
-                    {p.balls_bowled > 0 ? `${p.wickets_taken}/${p.runs_conceded}` : '—'}
+                    {p.balls_bowled > 0 ? `${p.wickets_taken}/${p.runs_conceded}` : '-'}
                   </td>
                 </tr>
               ))}
@@ -153,7 +153,7 @@ export function MatchDetail() {
       </div>
 
       {/* The result is a recorded fact, not a verdict, so it carries no
-          semantic colour — it earns its weight from size and position. */}
+          semantic colour - it earns its weight from size and position. */}
       <div className="rounded-xl border border-border-subtle bg-surface shadow-card p-4">
         <p className="text-lg font-semibold text-ink">
           {match.winner ? `${match.winner.name} won${margin}` : (match.outcome_result ?? 'Result unknown')}

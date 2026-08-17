@@ -89,10 +89,10 @@ def team_squad(
         top_wicket_share=result.top_wicket_share,
         reliance_top_n=squad_mod.RELIANCE_TOP_N,
         unavailable=[
-            "Wicketkeeper — no source in this dataset states who kept",
-            "Batting position and openers — ball-by-ball order is not retained",
-            "Handedness — not carried by Cricsheet or the enrichment sources",
-            "Availability and injury — no squad-list feed covers it",
+            "Wicketkeeper - no source in this dataset states who kept",
+            "Batting position and openers - ball-by-ball order is not retained",
+            "Handedness - not carried by Cricsheet or the enrichment sources",
+            "Availability and injury - no squad-list feed covers it",
         ],
     )
 

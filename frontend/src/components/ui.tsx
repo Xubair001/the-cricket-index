@@ -115,7 +115,7 @@ export function PageHeader({
 /**
  * An empty result.
  *
- * Always says what to do next rather than only what is missing — an empty
+ * Always says what to do next rather than only what is missing - an empty
  * screen is an invitation to act, not a dead end.
  */
 export function EmptyState({ title, hint }: { title: string; hint?: ReactNode }) {
@@ -143,8 +143,8 @@ export function Provenance({ children }: { children: ReactNode }) {
  * colSpan, sorting handlers and links on these elements, and a component that
  * forwarded all of that would be longer than the string it replaced. */
 
-/* No min-width here. Every table needs a different one — the nine in this app
- * range from 380px to 840px — and a shared floor either lets a narrow table
+/* No min-width here. Every table needs a different one - the nine in this app
+ * range from 380px to 840px - and a shared floor either lets a narrow table
  * scroll when it did not need to or lets a wide one crush its columns. Each
  * page appends its own. */
 export const tableClass = 'w-full border-collapse text-sm'
@@ -166,7 +166,7 @@ export const tdClass = 'px-3 py-2.5 text-ink'
 
 /**
  * A numeric cell. Right-aligned and tabular, which together are what make a
- * column of figures scannable — the decimal points land in one vertical line.
+ * column of figures scannable - the decimal points land in one vertical line.
  * Muted by default: in a row of eight figures at most one is the point, and
  * that one gets `tdNumStrongClass`.
  */

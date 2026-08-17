@@ -1,8 +1,15 @@
-"""Workflows for the two non-Cricsheet data sources.
+"""Workflows for the non-Cricsheet sources, plus the daily job that ties all
+three together.
 
-Both are separate from CricsheetIngestionWorkflow on purpose: they run on their
-own cadence (ICC daily, Wikidata rarely), they fail independently, and neither
-should be able to hold up or corrupt a match ingest.
+The ICC and Wikidata workflows stay separate from CricsheetIngestionWorkflow:
+they fail independently and neither can hold up or corrupt a match ingest.
+IccDailySyncWorkflow is the scheduled entry point and composes them, calling
+Cricsheet ingestion as a child workflow rather than duplicating it.
+
+Wikidata is deliberately NOT in the daily job. It is the slowest source by an
+order of magnitude (48 throttled SPARQL batches), and bios, names and photos
+change on the scale of years -- running it daily would spend most of the
+schedule's wall clock re-confirming dates of birth.
 """
 import asyncio
 from datetime import timedelta
@@ -13,6 +20,8 @@ from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from enrichment import icc_feeds
+    from shared import CRICSHEET_URLS, IngestionJobInput
+    from ingestion_workflow import CricsheetIngestionWorkflow
     from activities import (
         enrich_from_wikidata,
         fetch_icc_feed,
@@ -24,6 +33,11 @@ with workflow.unsafe.imports_passed_through():
 # pick up results that landed after a match finished; forwards for the schedule.
 FIXTURE_WINDOW_PAST_DAYS = 120
 FIXTURE_WINDOW_FUTURE_DAYS = 365
+
+# Which Cricsheet archives the daily job refreshes. Every configured one --
+# listing them from CRICSHEET_URLS rather than repeating the names means adding
+# a league is still a one-line change in shared.py.
+DAILY_COMPETITIONS = sorted(CRICSHEET_URLS)
 
 
 @workflow.defn
@@ -94,14 +108,29 @@ class IccFixturesWorkflow:
 
 @workflow.defn
 class IccDailySyncWorkflow:
-    """The scheduled daily job: rankings and fixtures together.
+    """The scheduled daily job: ICC rankings, ICC fixtures, and Cricsheet.
 
-    One schedule rather than two, because they share a cadence and a source;
-    each half still fails independently.
+    One schedule rather than three, because they share a cadence; each part
+    still fails independently (return_exceptions), so a bad ICC feed cannot
+    stop match ingestion and vice versa.
+
+    The three sources move at genuinely different speeds, and running them on
+    one daily tick is what keeps that from mattering:
+
+    * ICC fixtures change hourly during play (a scoreline landing).
+    * ICC rankings republish roughly weekly.
+    * Cricsheet publishes match archives in bulk every few days -- so the
+      Cricsheet leg mostly gets a 304 and costs nothing. It is scheduled
+      anyway because the alternative is noticing by hand, and a new archive
+      then sits uningested for however long that takes.
+
+    Cricsheet runs sequentially after the ICC legs rather than alongside them:
+    the archives share one SQLite file with everything else, and a bulk ingest
+    is the one job here heavy enough to be worth not overlapping.
     """
 
     @workflow.run
-    async def run(self) -> str:
+    async def run(self, competitions: list[str] | None = None) -> str:
         rankings, fixtures = await asyncio.gather(
             workflow.execute_child_workflow(
                 IccRankingsWorkflow.run, id=f"{workflow.info().workflow_id}-rankings"
@@ -115,6 +144,19 @@ class IccDailySyncWorkflow:
             r if isinstance(r, str) else f"FAILED: {type(r).__name__}"
             for r in (rankings, fixtures)
         ]
+
+        for competition in competitions if competitions is not None else DAILY_COMPETITIONS:
+            try:
+                result = await workflow.execute_child_workflow(
+                    CricsheetIngestionWorkflow.run,
+                    IngestionJobInput(competition=competition, archive_path="", match_ids=[]),
+                    id=f"{workflow.info().workflow_id}-{competition}",
+                )
+                parts.append(str(result))
+            except Exception as e:  # noqa: BLE001 - one archive must not sink the rest
+                workflow.logger.warning(f"cricsheet {competition} failed: {e!r}")
+                parts.append(f"{competition}: FAILED {type(e).__name__}")
+
         return " | ".join(parts)
 
 

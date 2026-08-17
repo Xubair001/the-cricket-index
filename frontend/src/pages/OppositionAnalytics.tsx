@@ -16,7 +16,7 @@ import {
 } from '../components/ui'
 
 /**
- * Opposition analytics — how hard is each side to play against?
+ * Opposition analytics - how hard is each side to play against?
  *
  * This surfaces the model that already scales every performance elsewhere in
  * the product: the form boards, the Performance Index and the all-round
@@ -25,7 +25,7 @@ import {
  * opposite, so the model gets its own page.
  *
  * The framing is load-bearing and is stated on the page rather than buried in a
- * tooltip. This is a *difficulty* rating — how hard a side is to play against —
+ * tooltip. This is a *difficulty* rating - how hard a side is to play against -
  * and it is neither an official rating nor a prediction of who wins a match. It
  * also merges batting and bowling strength into one number, because separating
  * them needs per-innings data this dataset does not hold.
@@ -33,7 +33,7 @@ import {
 
 /** The era curve, drawn small. Difficulty clusters near 1.0 so the band is tight. */
 function EraCurve({ eras }: { eras: TeamStrengthRow['eras'] }) {
-  if (eras.length < 2) return <span className="text-dim">—</span>
+  if (eras.length < 2) return <span className="text-dim">-</span>
   const width = 96
   const height = 22
   // 0.6–1.5 covers the fitted range with room to spare; values are clamped
@@ -72,7 +72,7 @@ function EraCurve({ eras }: { eras: TeamStrengthRow['eras'] }) {
 }
 
 function Difficulty({ value }: { value: number | null }) {
-  if (value === null) return <span className="tnum text-dim">—</span>
+  if (value === null) return <span className="tnum text-dim">-</span>
   const pct = Math.round((value - 1) * 100)
   return (
     <span className="tnum" title={`${value.toFixed(2)}x an average side to play against`}>
@@ -153,7 +153,7 @@ export function OppositionAnalytics() {
       <PageHeader
         eyebrow="Analytics"
         title="Opposition Analytics"
-        blurb="How hard each side is to play against — the model that scales every adjusted figure elsewhere in this product."
+        blurb="How hard each side is to play against - the model that scales every adjusted figure elsewhere in this product."
       />
 
       {error && <ErrorMessage message={error} />}
@@ -167,7 +167,7 @@ export function OppositionAnalytics() {
           <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-muted">
             <li>
               It measures <span className="text-ink">difficulty to play against</span>, fitted from
-              how sides share the cricket in their own matches — not who would win a given match.
+              how sides share the cricket in their own matches - not who would win a given match.
             </li>
             <li>
               It merges batting and bowling strength into one figure. A side with a fearsome attack
@@ -175,7 +175,7 @@ export function OppositionAnalytics() {
             </li>
             <li>
               It is <span className="text-ink">not an official rating</span>. It agrees with ICC's
-              published team ratings at {table.validated_against_icc} — but that is a check on the
+              published team ratings at {table.validated_against_icc} - but that is a check on the
               model, never an input to it. For the official tables see{' '}
               <Link to={`/${slug}/icc-rankings`} className="text-analytic-ink hover:underline">
                 ICC Rankings
@@ -228,7 +228,7 @@ export function OppositionAnalytics() {
                           className="text-dim"
                           title="Too few matches in the most recent era to state a current figure"
                         >
-                          —
+                          -
                         </span>
                       ) : (
                         <Difficulty value={r.current_difficulty} />
@@ -246,7 +246,7 @@ export function OppositionAnalytics() {
             </table>
           </div>
           <Provenance>
-            Fitted with a Bradley-Terry model so that difficulty is transitive — beating a side that
+            Fitted with a Bradley-Terry model so that difficulty is transitive - beating a side that
             beats strong sides counts, beating Malta does not. Each era is referenced against a
             stable core of sides present across eras, because the 2019 expansion of T20I status to
             every ICC member would otherwise make every established side look harder in the 2020s

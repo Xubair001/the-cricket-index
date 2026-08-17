@@ -1,4 +1,4 @@
-"""Squad analysis — who a side is currently picking, and what that XI is made of.
+"""Squad analysis - who a side is currently picking, and what that XI is made of.
 
 Three decisions here look like detail and are correctness:
 
@@ -9,7 +9,7 @@ handful of matches a year and then nothing for eighteen months. Their squad
 still exists. Anchoring to the side's own fixtures means "current squad" means
 the same thing for Australia and for Malta.
 
-**Role is inferred from this window, for this team — not from a career.** A
+**Role is inferred from this window, for this team - not from a career.** A
 player's career role is the wrong answer twice over: Jadeja bowls a far larger
 share for India in Tests than in T20Is, and a franchise picks players into
 different jobs than their country does. `explorer.discipline` is reused so the
@@ -38,7 +38,7 @@ from .explorer import discipline
 DEFAULT_WINDOW_MATCHES = 20
 
 # Below this many deliveries in the window, the inferred role is reported but
-# marked uncertain. Roughly two overs bowled or half an innings faced — enough
+# marked uncertain. Roughly two overs bowled or half an innings faced - enough
 # to be a signal, not enough to be a claim.
 ROLE_MIN_BALLS = 60
 

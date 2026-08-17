@@ -117,7 +117,7 @@ export interface TeamRef {
   team_id: number
   name: string
   // ISO 3166-1 alpha-2, or a GB subdivision tag. null for franchises, the
-  // invitational XIs and the West Indies — see backend/app/flags.py.
+  // invitational XIs and the West Indies - see backend/app/flags.py.
   country_code: string | null
 }
 
@@ -441,7 +441,7 @@ export interface FormLeaderRow extends PlayerCountry {
   baseline_matches: number
   // Absolute standard in par units, where 1.0 is an average appearance.
   // A large delta with a recent_mean below 1.0 means "improved, but still
-  // below par" — the percentage alone cannot say that.
+  // below par" - the percentage alone cannot say that.
   recent_mean: number | null
   baseline_mean: number | null
   explanation: string
@@ -495,7 +495,7 @@ export interface ExplorerRow extends PlayerCountry {
   player_name: string
   player_identifier: string | null
   matches: number
-  // INFERRED from balls faced vs balls bowled — never a sourced fact.
+  // INFERRED from balls faced vs balls bowled - never a sourced fact.
   role: PlayerRole
   [metric: string]: string | number | null
 }
@@ -513,7 +513,7 @@ export interface ExplorerFilters {
   min_innings: number
   min_balls: number
   role: PlayerRole | null
-  // Which inferred roles this explorer admits at all — a specialist bowler is
+  // Which inferred roles this explorer admits at all - a specialist bowler is
   // absent from a batting board by design, not by accident.
   roles_shown: PlayerRole[] | null
 }
@@ -579,7 +579,7 @@ export interface VenueFormatStats {
   competition_key: string
   competition_name: string
   matches: number
-  /** Runs OFF THE BAT — extras are not attributed to a batter, so this runs
+  /** Runs OFF THE BAT - extras are not attributed to a batter, so this runs
    *  about 5% under a true team total. Named for what it actually is. */
   runs_off_bat_per_match: number | null
   runs_per_wicket: number | null
@@ -624,7 +624,7 @@ export interface TeamStrengthRow {
   country_code: string | null
   matches: number
   difficulty: number
-  /** Null when the latest era is too thin to state — withheld, not guessed. */
+  /** Null when the latest era is too thin to state - withheld, not guessed. */
   current_difficulty: number | null
   eras: TeamStrengthEra[]
 }
@@ -633,7 +633,7 @@ export interface TeamStrengthTable {
   gender: ApiGender
   competition_type: string
   total: number
-  /** Correlation with ICC's published ratings — a check, never an input. */
+  /** Correlation with ICC's published ratings - a check, never an input. */
   validated_against_icc: string
   items: TeamStrengthRow[]
 }

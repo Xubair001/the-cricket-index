@@ -120,7 +120,7 @@ def _player_country_map(
     The flag beside a player means the same thing as the flag beside a team:
     the nation they turn out for. It is read from their appearances, which is
     Cricsheet-derived and exact, and deliberately *not* from
-    `players.nationality` — that is a Wikidata citizenship claim answering a
+    `players.nationality` - that is a Wikidata citizenship claim answering a
     different question. A Guyanese passport does not make a West Indies player
     Guyanese in cricketing terms, and the dataset carries values like "United
     Kingdom" that name no cricketing side at all.
@@ -131,12 +131,12 @@ def _player_country_map(
       nation here and get no entry. They render as the neutral mark, exactly
       as a franchise team does.
     * **Invitational appearances** are skipped, so the 146 players with more
-      than one "international" side collapse to their real one — an ICC World
+      than one "international" side collapse to their real one - an ICC World
       XI cap does not make Dravid dual-national.
     * **Genuine switchers** remain (van der Merwe: South Africa then
       Netherlands; Garth: Australia then Ireland). The most recent side wins,
-      tie-broken on appearances. That is a sourced fact — who they last played
-      for — rather than a guess at allegiance, and the side's name travels with
+      tie-broken on appearances. That is a sourced fact - who they last played
+      for - rather than a guess at allegiance, and the side's name travels with
       the code so the UI can say which on hover.
     """
     # Memoised for the life of one request. Building this scans every

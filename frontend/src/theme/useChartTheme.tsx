@@ -15,7 +15,7 @@ import { useTheme } from './useTheme'
  * and on every swap, not on every render.
  */
 export interface ChartTheme {
-  /** Categorical identity, in fixed order. Never cycled — see index.css. */
+  /** Categorical identity, in fixed order. Never cycled - see index.css. */
   series: [string, string, string, string]
   grid: string
   axis: string

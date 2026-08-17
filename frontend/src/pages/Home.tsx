@@ -13,14 +13,14 @@ import { PlayerName } from '../components/PlayerName'
  *
  * Its job is to say "cricket intelligence, not cricket scores" within one
  * screen, so it opens with questions a person can act on rather than a wall of
- * totals. The counts are present but small and below the fold of attention —
+ * totals. The counts are present but small and below the fold of attention -
  * they establish the dataset's size, they are not the product.
  *
  * The hero is the par scale rather than a headline figure. Every board on this
  * page is ordered on par units, and a reader who has not been told what 1.00
  * means cannot read any of them; putting the unit first turns the boards from
  * a list of names into something checkable. It is also the one device that is
- * particular to this product — par here is fitted against the strength of the
+ * particular to this product - par here is fitted against the strength of the
  * opposition, not against a raw average.
  *
  * Every section is a computed entry point into the product. Deliberately not a
@@ -53,7 +53,7 @@ function TrendGlyph({ trend }: { trend: FormLeaderRow['trend'] }) {
 }
 
 /**
- * The par scale — the legend for every board on this page.
+ * The par scale - the legend for every board on this page.
  *
  * Drawn rather than described, and drawn with the same track the rows use, so
  * the meters below are already familiar by the time they appear.
@@ -68,7 +68,7 @@ function ParScale() {
         </p>
       </div>
 
-      {/* Same track and same datum position as the row meters — a third of the
+      {/* Same track and same datum position as the row meters - a third of the
           way in, because the scale runs to 3.00. Drawing the legend on a
           different scale to the thing it explains would be worse than not
           drawing it. The 2px gaps either side of the datum are what keep the
@@ -101,7 +101,7 @@ function ParScale() {
         A par unit is what one average appearance is worth, after every performance has been scaled
         by the strength of the side it came against. A player at{' '}
         <span className="tnum font-mono text-negative-ink">0.70x</span> is producing less than an
-        average appearance even if their form is improving sharply — which is why the absolute
+        average appearance even if their form is improving sharply - which is why the absolute
         figure sits beside the change on every row.
       </p>
     </div>
@@ -147,8 +147,8 @@ function FormBoard({
             const deltaText =
               r.delta_percent !== null
                 ? `${r.delta_percent > 0 ? '+' : ''}${r.delta_percent.toFixed(0)}%`
-                : '—'
-            const confidenceNote = `Confidence ${Math.round(r.confidence * 100)}% — from ${
+                : '-'
+            const confidenceNote = `Confidence ${Math.round(r.confidence * 100)}% - from ${
               r.recent_matches
             } recent and ${r.baseline_matches} earlier matches`
 
@@ -169,7 +169,7 @@ function FormBoard({
 
                   {/* The absolute standard, drawn against the datum. A player
                       can post a huge percentage and still be below par, having
-                      improved from very poor — the board is ordered on par
+                      improved from very poor - the board is ordered on par
                       units gained, so this is what explains the order. */}
                   <ParMeter value={r.recent_mean} className="w-14 shrink-0" />
                   <span
@@ -177,7 +177,7 @@ function FormBoard({
                       (r.recent_mean ?? 0) >= 1 ? 'text-muted' : 'text-negative-ink'
                     }`}
                   >
-                    {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '—'}
+                    {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '-'}
                   </span>
 
                   <span
@@ -253,7 +253,7 @@ export function Home() {
           Understand cricket beyond the scorecard.
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted">
-          Discover players, analyse performance, compare talent and track form — with the workings
+          Discover players, analyse performance, compare talent and track form - with the workings
           shown for every figure.
         </p>
 
@@ -293,7 +293,7 @@ export function Home() {
         />
         <FormBoard
           title="Rising"
-          blurb="Improving within their current run — the trend is upward, not just the level."
+          blurb="Improving within their current run - the trend is upward, not just the level."
           rows={rising}
           loading={loading}
           slug={slug}
@@ -315,7 +315,7 @@ export function Home() {
         {kpis.map(([label, value]) => (
           <div key={label} className="bg-surface px-4 py-3">
             <div className="u-display tnum text-lg text-ink">
-              {value === undefined ? '—' : value.toLocaleString()}
+              {value === undefined ? '-' : value.toLocaleString()}
             </div>
             <div className="u-eyebrow mt-0.5">{label}</div>
           </div>
@@ -324,11 +324,11 @@ export function Home() {
 
       <Provenance>
         Form compares a player against their own preceding 12 months, scoped to international
-        cricket — never blended with franchise cricket. The percentage is the change against that
+        cricket - never blended with franchise cricket. The percentage is the change against that
         baseline; the meter beside it is the absolute standard against par. A dotted rule under a
         change means confidence below 60%, from a thin sample. Every performance is weighted by the
         strength of the side it came against, fitted from what every team concedes across the whole
-        fixture list — so runs against a weak attack count for less. Boards are ordered on par units
+        fixture list - so runs against a weak attack count for less. Boards are ordered on par units
         gained rather than on the percentage, because a player improving from poor to below-average
         can post a bigger percentage than one playing the best cricket in the world.
       </Provenance>

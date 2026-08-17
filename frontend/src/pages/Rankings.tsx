@@ -19,7 +19,7 @@ import {
 } from '../components/ui'
 
 /**
- * Computed leaderboards — this project's own figures, derived from Cricsheet
+ * Computed leaderboards - this project's own figures, derived from Cricsheet
  * ball-by-ball aggregates. Deliberately not the same page as ICC Rankings,
  * which are official published ratings (§6, derived figures and official
  * ratings stay separate).
@@ -110,7 +110,7 @@ export function Rankings() {
   useEffect(() => {
     // Guards against a slower, now-superseded request (e.g. the previous
     // tab's) resolving after a newer one and overwriting its state with
-    // stale data — there's no built-in fetch cancellation here, so this
+    // stale data - there's no built-in fetch cancellation here, so this
     // flag is what makes only the most recent request's result "win".
     let cancelled = false
     setLoading(true)
@@ -147,7 +147,7 @@ export function Rankings() {
       <div>
         <h1 className="u-display text-title text-ink">Rankings</h1>
         <p className="mt-1 text-sm text-muted">
-          Career leaderboards computed from ball-by-ball aggregates — not the ICC's official
+          Career leaderboards computed from ball-by-ball aggregates - not the ICC's official
           ratings, which are{' '}
           <Link to={`/${slug}/icc-rankings`} className="text-analytic-ink hover:underline">
             published separately
@@ -313,7 +313,7 @@ export function Rankings() {
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
         Figures are aggregated by player identifier rather than name, because 70 names in this
         dataset belong to more than one person. Internationals and franchise cricket are ranked
-        separately and never summed — a career total blending Test and PSL runs is a figure no
+        separately and never summed - a career total blending Test and PSL runs is a figure no
         cricket source publishes.
       </p>
     </div>

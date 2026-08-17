@@ -1,5 +1,5 @@
 /**
- * The par datum — this product's signature device.
+ * The par datum - this product's signature device.
  *
  * Every derived figure here is relative to par: form boards rank on par units
  * gained, and opposition strength is fitted so that par means an average
@@ -9,7 +9,7 @@
  *
  * The bar grows *from* the datum, right when above par and left when below,
  * so direction is carried by geometry. Colour reinforces it but is never the
- * only channel — which matters because a below-par figure sits inches from an
+ * only channel - which matters because a below-par figure sits inches from an
  * uncertainty marker in the same row, and those two hues cannot be told apart
  * (see the note in index.css).
  */
@@ -18,7 +18,7 @@
  * Top of the scale.
  *
  * 3.0, not 2.0. The in-form board routinely returns 2.0–3.0 par units, and at
- * a ceiling of 2 every one of those rows drew an identical full-width bar —
+ * a ceiling of 2 every one of those rows drew an identical full-width bar -
  * 2.94 and 2.01 were indistinguishable, which is the one thing the meter is
  * there to prevent. Three puts the datum a third of the way in, keeps the
  * observed below-par range (0.11–0.65) legible, and leaves headroom.
@@ -63,7 +63,7 @@ export function ParMeter({
 
   const description =
     label ??
-    `${value.toFixed(2)} par units — ${
+    `${value.toFixed(2)} par units - ${
       above ? 'above' : 'below'
     } the 1.00 average appearance${value > max ? ', clamped to the top of the scale' : ''}`
 

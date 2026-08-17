@@ -103,6 +103,39 @@ class PlayerMatchStat(Base):
     match: Mapped["Match"] = relationship(back_populates="player_stats")
 
 
+class Delivery(Base):
+    """One ball. ~4.8M rows - see ingestion/schema.sql for the storage notes.
+
+    Read by the splits and phase analytics, never by a list endpoint: §28
+    forbids a page request touching raw ball-by-ball data, which is why the
+    per-match aggregates in `player_match_stats` still exist beside this.
+    """
+
+    __tablename__ = "deliveries"
+
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"), primary_key=True)
+    innings: Mapped[int] = mapped_column(primary_key=True)
+    # Position within the innings. The key cannot be (over, ball): a wide or
+    # no-ball adds a delivery to the over, so that pair is not unique.
+    seq: Mapped[int] = mapped_column(primary_key=True)
+    over: Mapped[int]
+    ball: Mapped[int]
+    batting_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.team_id"))
+    batter: Mapped[str | None] = mapped_column(ForeignKey("players.identifier"))
+    bowler: Mapped[str | None] = mapped_column(ForeignKey("players.identifier"))
+    non_striker: Mapped[str | None] = mapped_column(ForeignKey("players.identifier"))
+    runs_batter: Mapped[int]
+    runs_extras: Mapped[int]
+    runs_total: Mapped[int]
+    non_boundary: Mapped[int]
+    wides: Mapped[int]
+    noballs: Mapped[int]
+    byes: Mapped[int]
+    legbyes: Mapped[int]
+    wicket_kind: Mapped[str | None]
+    player_out: Mapped[str | None] = mapped_column(ForeignKey("players.identifier"))
+
+
 class PlayerCareerTotal(Base):
     __tablename__ = "player_career_totals"
 

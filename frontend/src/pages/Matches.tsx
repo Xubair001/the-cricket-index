@@ -161,7 +161,7 @@ export function Matches() {
                     <CompetitionBadge competition={m.competition_key} />
                   </td>
                   <td className="tnum whitespace-nowrap px-3 py-2.5 align-top text-muted">
-                    {m.match_date_start ?? '—'}
+                    {m.match_date_start ?? '-'}
                   </td>
                   <td className={tdClass}>
                     <Link
@@ -175,7 +175,7 @@ export function Matches() {
                     <div className="mt-0.5 text-xs text-dim">{m.venue ?? 'Venue not recorded'}</div>
                   </td>
                   <td className="px-4 py-2.5 text-right align-top text-muted">
-                    {m.winner ? `${m.winner.name} won` : (m.outcome_result ?? '—')}
+                    {m.winner ? `${m.winner.name} won` : (m.outcome_result ?? '-')}
                   </td>
                 </tr>
               ))}

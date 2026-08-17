@@ -6,6 +6,7 @@ import os
 import sqlite3
 import zipfile
 from datetime import datetime, timezone
+from email.utils import formatdate
 
 import httpx
 from temporalio import activity
@@ -89,7 +90,8 @@ def _get_or_create_season(conn: sqlite3.Connection, competition_id: int, label: 
 
 @activity.defn
 async def download_archive(competition: str) -> DownloadResult:
-    """Downloads the competition's zip archive if not already cached.
+    """Fetches the competition's zip archive, refreshing it when Cricsheet has
+    republished.
 
     Deliberately does NOT extract it: match files are read directly out of
     the zip on demand (see ingest_match), so disk usage stays bounded to the
@@ -102,16 +104,43 @@ async def download_archive(competition: str) -> DownloadResult:
     os.makedirs(DATA_DIR, exist_ok=True)
     archive_path = os.path.join(DATA_DIR, f"{competition}.zip")
 
-    if not os.path.exists(archive_path):
-        activity.logger.info(f"Downloading {competition} archive from Cricsheet")
-        url = CRICSHEET_URLS[competition]
-        async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
+    # Conditional refresh, not cache-forever. The previous rule was "download
+    # only if the file is absent", which made a scheduled re-run incapable of
+    # ever seeing a new match: the stale zip was re-read and every match in it
+    # hash-matched, so the job reported success having ingested nothing.
+    #
+    # Cricsheet serves Last-Modified and honours If-Modified-Since, so asking
+    # costs one 304 and no body when nothing has been published. Note the
+    # publishing cadence is Cricsheet's, not ours -- the archives update in
+    # bulk every few days, so a daily run mostly 304s and that is the point.
+    url = CRICSHEET_URLS[competition]
+    headers = {}
+    if os.path.exists(archive_path):
+        headers["If-Modified-Since"] = formatdate(
+            os.path.getmtime(archive_path), usegmt=True
+        )
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
+        resp = await client.get(url, headers=headers)
+        if resp.status_code == 304:
+            activity.logger.info(
+                f"{competition}: archive unchanged since last fetch (304), using cache"
+            )
+        elif resp.status_code == 200:
             with open(archive_path, "wb") as f:
                 f.write(resp.content)
-    else:
-        activity.logger.info(f"Using cached archive for {competition}")
+            activity.logger.info(
+                f"{competition}: downloaded {len(resp.content) / 1_048_576:.1f} MB "
+                f"(published {resp.headers.get('last-modified', 'unknown')})"
+            )
+        elif os.path.exists(archive_path):
+            # A transient upstream failure must not take out a scheduled run
+            # when a perfectly usable archive is already on disk.
+            activity.logger.warning(
+                f"{competition}: HTTP {resp.status_code} fetching archive; using cached copy"
+            )
+        else:
+            resp.raise_for_status()
 
     with zipfile.ZipFile(archive_path) as z:
         match_ids = sorted(

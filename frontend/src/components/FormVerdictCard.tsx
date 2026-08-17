@@ -8,7 +8,7 @@ import type { FormState, FormVerdict } from '../api/types'
  * never shown alone: the delta, both means, the sample sizes behind them and a
  * confidence figure are all on the card, and the full decomposition is one
  * click away. The confidence bar turns amber below the point where the verdict
- * rests on enough cricket to be trusted — a classification drawn from four
+ * rests on enough cricket to be trusted - a classification drawn from four
  * innings must not look like one drawn from forty.
  */
 
@@ -87,7 +87,7 @@ function Sparkline({ verdict }: { verdict: FormVerdict }) {
             fill={above ? 'var(--color-positive)' : 'var(--color-negative)'}
           >
             <title>
-              {`${p.impact_normalized.toFixed(2)} par units — ${above ? 'at or above' : 'below'} the baseline`}
+              {`${p.impact_normalized.toFixed(2)} par units - ${above ? 'at or above' : 'below'} the baseline`}
             </title>
           </rect>
         )
@@ -146,7 +146,7 @@ export default function FormVerdictCard({
           </div>
           {lowConfidence && (
             <p className="mt-1.5 text-[11px] leading-snug text-warning-ink">
-              Thin sample — treat as indicative.
+              Thin sample - treat as indicative.
             </p>
           )}
         </div>
@@ -164,7 +164,7 @@ export default function FormVerdictCard({
         {verdict.timeline.length > 1 && (
           <div className="mt-4">
             <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              <span>Impact per match — oldest to newest</span>
+              <span>Impact per match - oldest to newest</span>
               <span>Dashed line = baseline</span>
             </div>
             <div className="mt-2">
@@ -186,10 +186,10 @@ export default function FormVerdictCard({
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border-subtle pt-3 text-sm sm:grid-cols-3">
             {[
               ['Recent window', verdict.recent_window],
-              ['Recent mean', verdict.recent_mean?.toFixed(2) ?? '—'],
+              ['Recent mean', verdict.recent_mean?.toFixed(2) ?? '-'],
               ['Recent matches', String(verdict.recent_matches)],
               ['Baseline window', verdict.baseline_window],
-              ['Baseline mean', verdict.baseline_mean?.toFixed(2) ?? '—'],
+              ['Baseline mean', verdict.baseline_mean?.toFixed(2) ?? '-'],
               ['Baseline matches', String(verdict.baseline_matches)],
             ].map(([label, value]) => (
               <div key={label}>
@@ -201,7 +201,7 @@ export default function FormVerdictCard({
             ))}
             <p className="col-span-full mt-1 max-w-prose text-xs leading-relaxed text-muted">
               Means are per match, expressed as a multiple of a par performance in the same
-              competition — 1.00 is exactly par. Each performance is valued in runs-equivalent
+              competition - 1.00 is exactly par. Each performance is valued in runs-equivalent
               (runs scored, plus runs above the going scoring rate, plus wickets valued at what a
               wicket costs and runs saved against par economy), then divided by what a typical
               appearance in that competition is worth so formats stay comparable. The recent mean

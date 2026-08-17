@@ -49,7 +49,7 @@ function tooltip(status: PlayerStatus): string {
   }
   return (
     `No appearances since ${status.last_played} in this dataset. ` +
-    `That may mean retirement, injury, or cricket this dataset doesn't cover — ` +
+    `That may mean retirement, injury, or cricket this dataset doesn't cover - ` +
     `no source confirms which, so none is claimed.`
   )
 }

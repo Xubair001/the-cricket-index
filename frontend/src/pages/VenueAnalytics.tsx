@@ -16,12 +16,12 @@ import {
 } from '../components/ui'
 
 /**
- * Venue intelligence (§20) — what kind of cricket does this ground produce?
+ * Venue intelligence (§20) - what kind of cricket does this ground produce?
  *
  * The page is organised around that one question rather than around a table of
  * everything known about the ground. The lead figure is therefore the bat-first
  * win rate, because it is the decision a captain actually makes at the toss,
- * and it is set beside what captains *choose* here — where those two disagree
+ * and it is set beside what captains *choose* here - where those two disagree
  * is the most interesting thing a venue page can show.
  *
  * Every rate is scoped to one competition. A ground that hosts Tests and T20Is
@@ -30,7 +30,7 @@ import {
 
 /** Bat-first rates cluster near 50%, so the scale is stretched around it. */
 function BatFirstBar({ pct }: { pct: number | null }) {
-  if (pct === null) return <span className="text-dim">—</span>
+  if (pct === null) return <span className="text-dim">-</span>
   // 30–70% spans the bar; anything beyond is pinned rather than clipped.
   const position = Math.max(0, Math.min(100, ((pct - 30) / 40) * 100))
   return (
@@ -47,7 +47,7 @@ function BatFirstBar({ pct }: { pct: number | null }) {
 
 /** An index against the format's own par, where 1.00 is typical. */
 function ParIndex({ value, label }: { value: number | null; label: string }) {
-  if (value === null) return <span className="tnum text-dim">—</span>
+  if (value === null) return <span className="tnum text-dim">-</span>
   const pct = Math.round((value - 1) * 100)
   const sign = pct > 0 ? '+' : ''
   return (
@@ -111,7 +111,7 @@ export function VenueAnalytics() {
       <PageHeader
         eyebrow="Analytics"
         title="Venue Analytics"
-        blurb="What kind of cricket a ground produces — how it scores, how hard wickets are to take, and whether batting first is worth it."
+        blurb="What kind of cricket a ground produces - how it scores, how hard wickets are to take, and whether batting first is worth it."
       />
 
       <div className="max-w-xl">
@@ -122,7 +122,7 @@ export function VenueAnalytics() {
             {grounds.map((g) => (
               <option key={g.venue} value={g.venue}>
                 {g.venue}
-                {g.city && !g.venue.includes('(') ? ` — ${g.city}` : ''} ({g.matches})
+                {g.city && !g.venue.includes('(') ? ` - ${g.city}` : ''} ({g.matches})
               </option>
             ))}
           </select>
@@ -135,7 +135,7 @@ export function VenueAnalytics() {
       {!selected && !loading && (
         <EmptyState
           title="Pick a ground"
-          hint={`${grounds.length.toLocaleString()} grounds, normalised from 593 raw venue strings — every spelling of a ground contributes to one page.`}
+          hint={`${grounds.length.toLocaleString()} grounds, normalised from 593 raw venue strings - every spelling of a ground contributes to one page.`}
         />
       )}
 
@@ -185,7 +185,7 @@ export function VenueAnalytics() {
                 blurb={
                   f.reliable
                     ? `${f.matches} matches at this ground.`
-                    : `Only ${f.matches} matches here — too few for these rates to describe the ground, so read them as indicative.`
+                    : `Only ${f.matches} matches here - too few for these rates to describe the ground, so read them as indicative.`
                 }
                 aside={
                   !f.reliable && (
@@ -200,7 +200,7 @@ export function VenueAnalytics() {
                   <div>
                     <p className={fieldLabelClass}>Batting first</p>
                     <p className="tnum mt-1 text-2xl font-semibold text-ink">
-                      {f.bat_first_win_pct !== null ? `${rate(f.bat_first_win_pct)}%` : '—'}
+                      {f.bat_first_win_pct !== null ? `${rate(f.bat_first_win_pct)}%` : '-'}
                       <span className="ml-2 text-sm font-normal text-muted">
                         of {f.decided_matches} decided
                       </span>
@@ -216,7 +216,7 @@ export function VenueAnalytics() {
                     <p className="mt-3 text-xs leading-relaxed text-muted">
                       Captains choose to bat{' '}
                       <span className="tnum text-ink">
-                        {f.chose_to_bat_pct !== null ? `${rate(f.chose_to_bat_pct)}%` : '—'}
+                        {f.chose_to_bat_pct !== null ? `${rate(f.chose_to_bat_pct)}%` : '-'}
                       </span>{' '}
                       of the time here.
                       {f.bat_first_win_pct !== null && f.chose_to_bat_pct !== null && (
@@ -258,7 +258,7 @@ export function VenueAnalytics() {
                       label="Toss winner wins"
                       value={
                         <span className="tnum">
-                          {f.toss_win_pct !== null ? `${rate(f.toss_win_pct)}%` : '—'}
+                          {f.toss_win_pct !== null ? `${rate(f.toss_win_pct)}%` : '-'}
                         </span>
                       }
                     />
@@ -266,8 +266,8 @@ export function VenueAnalytics() {
                 </div>
 
                 <Provenance>
-                  Who batted first is derived from the toss — the toss winner if they chose to bat,
-                  otherwise their opponent — which is recorded for every match, so this needs no
+                  Who batted first is derived from the toss - the toss winner if they chose to bat,
+                  otherwise their opponent - which is recorded for every match, so this needs no
                   ball-by-ball data. “Runs off the bat” excludes extras, which are not attributed to
                   a batter, so it runs about 5% under a true team total; the indices against par are
                   unaffected because both sides are measured the same way.{' '}
@@ -313,7 +313,7 @@ function Figure({
 
 /**
  * The interesting case is disagreement between what captains choose and what
- * actually wins — that is where a venue page tells a selector something they
+ * actually wins - that is where a venue page tells a selector something they
  * did not already assume.
  *
  * A strong preference that does not pay is worth saying even when the win rate
@@ -327,7 +327,7 @@ function describeToss(batFirstWin: number, choseBat: number): string {
   const prefersBat = choseBat > 65
   const prefersField = choseBat < 35
 
-  if (chasing && prefersBat) return 'They mostly bat — and mostly lose doing it.'
+  if (chasing && prefersBat) return 'They mostly bat - and mostly lose doing it.'
   if (batting && prefersField) return 'Batting first wins here, yet most captains field.'
   if (chasing) return 'Chasing wins here, and captains largely act on it.'
   if (batting) return 'Batting first wins here, and captains act on it.'

@@ -108,8 +108,8 @@ export function Teams() {
             </thead>
             <tbody>
               {/* Wins and losses render neutrally. Colouring a whole column
-                  green or red carries no per-row information — every cell in it
-                  would be the same colour — and green/red are reserved for
+                  green or red carries no per-row information - every cell in it
+                  would be the same colour - and green/red are reserved for
                   above/below baseline elsewhere. Win % is the comparative
                   figure, so that is the one given weight. */}
               {teams.map((t, i) => (

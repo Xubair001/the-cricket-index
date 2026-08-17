@@ -32,7 +32,7 @@ import {
 /*
  * Colour here follows the player, not their rank, so the mapping learned in
  * the identity header holds for every mark below it. Player A takes
- * categorical slot 1 and player B slot 2 — the first two of the fixed order
+ * categorical slot 1 and player B slot 2 - the first two of the fixed order
  * defined in index.css, which is validated as a set in both themes.
  *
  * The values are read from the stylesheet rather than written here. They used
@@ -48,7 +48,7 @@ const SCOPES = [
 ]
 
 function fmt(value: number | null, format: string): string {
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return '-'
   if (format === 'int') return Math.round(value).toLocaleString()
   return value.toFixed(2)
 }
@@ -112,7 +112,7 @@ function MetricRow({ metric, nameA, nameB }: { metric: ComparisonMetric; nameA: 
  *
  * Searches the API rather than filtering a preloaded slice: the dataset holds
  * ~9,400 players, so a client-side filter over the first page would silently
- * make most of them unselectable — "compare any two players" has to mean any.
+ * make most of them unselectable - "compare any two players" has to mean any.
  */
 function PlayerPicker({
   label,
@@ -153,8 +153,8 @@ function PlayerPicker({
     }
   }, [apiGender, debounced])
 
-  // A player chosen in the URL rather than in this dropdown — arriving from a
-  // profile's "compare" link, or from a shared comparison — is very unlikely to
+  // A player chosen in the URL rather than in this dropdown - arriving from a
+  // profile's "compare" link, or from a shared comparison - is very unlikely to
   // sit in the default first fifty. Resolve their name directly so the control
   // shows who is selected, instead of reading "Select a player…" underneath a
   // comparison that is already using them.
@@ -219,7 +219,7 @@ function PlayerPicker({
       </select>
       {total > listed.length && (
         <p className="tnum text-xs text-dim">
-          Showing {listed.length} of {total.toLocaleString()} — type to narrow.
+          Showing {listed.length} of {total.toLocaleString()} - type to narrow.
         </p>
       )}
     </div>
@@ -324,7 +324,7 @@ export function Compare() {
       <PageHeader
         eyebrow="Scout"
         title="Compare Players"
-        blurb="Head-to-head within one competition at a time — international and franchise figures are never summed together."
+        blurb="Head-to-head within one competition at a time - international and franchise figures are never summed together."
       />
 
       <div className="grid gap-4 rounded-xl border border-border-subtle bg-surface p-4 shadow-card sm:grid-cols-3">
@@ -360,13 +360,13 @@ export function Compare() {
       {!a || !b ? (
         <EmptyState
           title="Pick two players to compare"
-          hint="Search either picker above by name. Both players must be in the same gender's register — an identifier from one is meaningless in the other."
+          hint="Search either picker above by name. Both players must be in the same gender's register - an identifier from one is meaningless in the other."
         />
       ) : null}
 
       {data && !loading && (
         <>
-          {/* Identity header — colour is introduced here and reused for every
+          {/* Identity header - colour is introduced here and reused for every
               mark below, so a reader learns the mapping once. */}
           <div className="grid gap-4 sm:grid-cols-2">
             {(['a', 'b'] as const).map((side) => {
@@ -416,14 +416,14 @@ export function Compare() {
 
           {/* Legend is always present for two series: identity must never rest
               on colour alone. */}
-          <Panel title={`Head to head — ${data.scope_label}`} aside={seriesLegend}>
+          <Panel title={`Head to head - ${data.scope_label}`} aside={seriesLegend}>
             {data.metrics.map((m) => (
               <MetricRow key={m.key} metric={m} nameA={data.a.name} nameB={data.b.name} />
             ))}
             <div className="mt-3">
               <Provenance>
                 Rate metrics (averages, strike rate, economy) declare a winner only when both
-                players clear a minimum volume — otherwise the numbers are shown without a verdict.
+                players clear a minimum volume - otherwise the numbers are shown without a verdict.
               </Provenance>
             </div>
           </Panel>

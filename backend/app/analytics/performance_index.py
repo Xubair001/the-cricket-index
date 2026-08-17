@@ -85,10 +85,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Match, Player
+from ..models import Competition, Delivery, Match, Player
 from ..names import preferred_name
 from . import config, explorer, form, impact as impact_mod
 
@@ -99,11 +99,11 @@ COMPONENTS: dict[str, tuple[float, bool, str | None]] = {
     "opposition": (0.15, True, None),
     "match_impact": (0.10, True, None),
     "role": (0.10, False, "No playing role exists in any current source (Tier C)."),
-    "situation": (
-        0.10,
-        False,
-        "Chasing, defending and pressure need per-delivery records (Tier B).",
-    ),
+    # Live since the deliveries backfill: the innings sequence gives chasing
+    # directly, so "does this player deliver under a chase" is computable.
+    # Pressure in the fuller sense (required rate, wickets in hand) still is
+    # not -- what is scored here is chasing specifically, and the basis says so.
+    "situation": (0.10, True, None),
     "availability": (
         0.05,
         False,
@@ -123,9 +123,10 @@ COMPONENT_LABELS = {
 
 COMPONENT_BASIS = {
     "recent_performance": "Absolute output over the recent window, in par units, adjusted for opposition",
-    "consistency": "Downside deviation below par — only failures count against it",
+    "consistency": "Downside deviation below par - only failures count against it",
     "opposition": "Mean strength of the sides faced in the window",
     "match_impact": "Share of the side's own effort in matches it won",
+    "situation": "Output when chasing, against the same player batting first",
 }
 
 
@@ -186,6 +187,7 @@ _cache: dict[tuple, list["PlayerIndex"]] = {}
 
 def invalidate() -> None:
     _cache.clear()
+    _chasing_cache.clear()
 
 
 def page(
@@ -204,6 +206,11 @@ def page(
     too slow for the request path (§28) and is deterministic between ingests --
     the same reason the form boards are cached.
     """
+    # Both the floor and the shrinkage are what keep this measuring a
+    # situational edge rather than a small sample. See the note in `config`.
+    floor = config.INDEX_SITUATION_MIN_DISMISSALS
+    k = config.INDEX_SITUATION_SHRINKAGE
+
     key = (gender, competition_key, competition_type)
     if key not in _cache:
         _cache[key] = compute(
@@ -287,6 +294,12 @@ def compute(
             shares.append(share if won == m.team_id else 0.0)
         match_impact = sum(shares) / len(shares) if shares else 0.0
 
+        # Situation: how the player goes chasing, relative to how they go
+        # batting first. A ratio rather than a raw chasing figure, because a
+        # top-order batter chases more often than a finisher and the raw number
+        # would rank opportunity. 1.0 means "the same player either way".
+        chasing = _chasing_ratio(db, pid, gender, competition_key, competition_type)
+
         rated.append(
             PlayerIndex(
                 player_identifier=pid,
@@ -300,6 +313,7 @@ def compute(
                     "consistency": round(-_downside_deviation(values), 3),
                     "opposition": round(mean_multiplier, 3),
                     "match_impact": round(match_impact, 3),
+                    "situation": round(chasing, 3),
                 },
             )
         )
@@ -326,6 +340,57 @@ def compute(
     rated.sort(key=lambda r: r.player_identifier)
     rated.sort(key=lambda r: r.index, reverse=True)
     return rated
+
+
+# Cached per scope: one query per player would be ~3,000 round trips.
+_chasing_cache: dict[tuple, dict[str, float]] = {}
+
+
+def _chasing_ratio(db: Session, pid, gender, competition_key, competition_type) -> float:
+    """Runs per dismissal chasing, over the same batting first.
+
+    A RATIO, not a raw chasing average. An opener chases far more often than a
+    finisher, so a raw figure would score opportunity; comparing a player with
+    themselves removes that. 1.0 means they are the same player either way,
+    which is also the value returned when there is too little of one side to
+    compare -- absent evidence, assume no situational edge rather than invent one.
+    """
+    key = (gender, competition_key, competition_type)
+    if key not in _chasing_cache:
+        stmt = (
+            select(
+                Delivery.batter,
+                func.sum(func.iif(Delivery.innings == 1, Delivery.runs_batter, 0)),
+                func.sum(func.iif(Delivery.innings == 1, func.iif(Delivery.player_out == Delivery.batter, 1, 0), 0)),
+                func.sum(func.iif(Delivery.innings > 1, Delivery.runs_batter, 0)),
+                func.sum(func.iif(Delivery.innings > 1, func.iif(Delivery.player_out == Delivery.batter, 1, 0), 0)),
+            )
+            .join(Match, Match.match_id == Delivery.match_id)
+            .join(Competition, Competition.competition_id == Match.competition_id)
+            .where(Delivery.batter.is_not(None), Match.gender == gender)
+            .group_by(Delivery.batter)
+        )
+        if competition_key:
+            stmt = stmt.where(Competition.key == competition_key)
+        if competition_type:
+            stmt = stmt.where(Competition.type == competition_type)
+
+        out: dict[str, float] = {}
+        for batter, first_runs, first_outs, chase_runs, chase_outs in db.execute(stmt).all():
+            # Both sides need real evidence; below that the ratio is noise.
+            if (first_outs or 0) < floor or (chase_outs or 0) < floor:
+                continue
+            first_avg = (first_runs or 0) / first_outs
+            chase_avg = (chase_runs or 0) / chase_outs
+            if first_avg <= 0:
+                continue
+            ratio = chase_avg / first_avg
+            # Shrunk towards 1.0 -- "no situational edge" -- on the THINNER of
+            # the two sides, since that is what the comparison actually rests on.
+            n = min(first_outs, chase_outs)
+            out[batter] = (n * ratio + k * 1.0) / (n + k)
+        _chasing_cache[key] = out
+    return _chasing_cache[key].get(pid, 1.0)
 
 
 def describe_components() -> list[dict]:

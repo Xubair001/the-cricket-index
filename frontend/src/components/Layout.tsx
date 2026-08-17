@@ -65,7 +65,7 @@ const NAV: NavGroup[] = [
     label: 'Rankings',
     items: [
       { label: 'Performance Rankings', to: 'rankings' },
-      // Shipped, so the 'Phase 2 — see the scope document' stub that used to
+      // Shipped, so the 'Phase 2 - see the scope document' stub that used to
       // sit at the end of this group is gone. Leaving both meant the group
       // listed Performance Index twice, once as a link and once as blocked.
       { label: 'Performance Index', to: 'performance-index' },
@@ -209,7 +209,7 @@ function Brand({ slug }: { slug: string }) {
     <NavLink to={`/${slug}`} className="flex items-center gap-2.5">
       {/* The mark is the par datum the product is built on: two bars either
           side of the 1.00 line, the same device as the meters on the form
-          boards. The line sits off-centre deliberately — centred with equal
+          boards. The line sits off-centre deliberately - centred with equal
           bars it read as a plus sign rather than as a scale. */}
       <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink">
         <svg viewBox="0 0 20 20" className="h-4 w-4">
@@ -237,7 +237,7 @@ export function Layout() {
 
   // Falls back to the first group rather than to nothing. The dashboard itself
   // matches no nav item, so an unqualified null left the whole rail collapsed
-  // on the one page every session starts from — eight closed rows and no sign
+  // on the one page every session starts from - eight closed rows and no sign
   // of what the product contains.
   const [openGroup, setOpenGroup] = useState<string | null>(
     () => activeGroupLabel(location.pathname, slug) ?? NAV[0].label

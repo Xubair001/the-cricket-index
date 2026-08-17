@@ -24,7 +24,7 @@ export function CompetitionBadge({ competition }: { competition: string }) {
     <span
       className={`inline-flex items-center rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] ring-1 ring-inset ${style}`}
       title={
-        franchise ? 'Franchise cricket — never blended with international figures' : undefined
+        franchise ? 'Franchise cricket - never blended with international figures' : undefined
       }
     >
       {label}

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Design system — The Cricket Index
+ * Design system - The Cricket Index
  * ================================================================
  *
  * Light is the default and dark is a peer, not an afterthought. The dark
@@ -16,12 +16,12 @@
  *    red is "below par", blue is neutral analytical information.
  *
  * 2. Semantic colour is NEVER the only channel. Amber and red cannot be
- *    separated at any lightness — every candidate pair tested landed ΔE 11.5
+ *    separated at any lightness - every candidate pair tested landed ΔE 11.5
  *    to 12.8 for *normal* vision, under the 15 floor, and as low as ΔE 0.6
  *    under deuteranopia. Since amber means *uncertainty* and red means *below
  *    baseline*, and the two sit side by side in a form row, uncertainty was
  *    moved off hue entirely: it is now a dotted underline (`.uncertain`) plus
- *    a marker glyph. Amber survives only where it is isolated from red — a
+ *    a marker glyph. Amber survives only where it is isolated from red - a
  *    lone chip, a "soon" tag. Above/below par always carries a sign as well as
  *    a colour.
  *
@@ -29,7 +29,7 @@
  *    columns of numbers, proportional digits make rows fail to line up and the
  *    eye has to re-find the decimal point on every line.
  *
- * The signature device is the *par datum* — a hairline at 1.00x that figures
+ * The signature device is the *par datum* - a hairline at 1.00x that figures
  * sit above or below. It is not decoration: par is this product's own unit
  * (form boards rank on par units gained, and opposition strength is fitted so
  * that par means an average match), so the line encodes the one idea the
@@ -43,7 +43,7 @@
    * Archivo is the display face, used only for page titles and headline
    * figures, and always at an expanded width (see `.u-display`). It is a
    * newspaper-lineage grotesque, which is the right register for a reference
-   * work — and deliberately not the high-contrast serif that this kind of
+   * work - and deliberately not the high-contrast serif that this kind of
    * brief usually attracts.
    *
    * Inter stays the body face. It is the obvious choice, and it is kept on
@@ -65,7 +65,7 @@
   --text-title--line-height: 1.15;
   --text-title--letter-spacing: -0.018em;
 
-  /* ── Surfaces — light ──────────────────────────────────────────
+  /* ── Surfaces - light ──────────────────────────────────────────
    * A cool grey-blue paper rather than a warm cream. Cream is the reflex
    * choice for anything that wants to feel like a printed record, and it
    * pushes every neutral warm; a figures product reads better on a ground
@@ -79,15 +79,15 @@
   --color-border-default: #cfd8e0;
   --color-border-strong: #aab8c4;
 
-  /* ── Ink — light ───────────────────────────────────────────────
+  /* ── Ink - light ───────────────────────────────────────────────
    * Against #ffffff: ink 17.6:1, muted 6.2:1, dim 4.5:1. `dim` is the
-   * tertiary tier and is set to clear AA rather than merely look quiet —
+   * tertiary tier and is set to clear AA rather than merely look quiet -
    * it carries real content (confidence figures, provenance notes). */
   --color-ink: #0f1a24;
   --color-muted: #55636f;
   --color-dim: #6b7885;
 
-  /* ── Semantic marks — light ────────────────────────────────────
+  /* ── Semantic marks - light ────────────────────────────────────
    * Fills, dots, rules and bar segments. Validated ≥ 3:1 against the
    * white chart surface. Not used for text; see the -ink tier below. */
   --color-positive: #0f7a56;
@@ -95,31 +95,31 @@
   --color-warning: #c98a00;
   --color-analytic: #1f5fc4;
 
-  /* ── Semantic text — light ─────────────────────────────────────
+  /* ── Semantic text - light ─────────────────────────────────────
    * The same four meanings, darkened to clear AA for body text:
    * 6.5:1 / 6.5:1 / 5.9:1 / 6.0:1 against white. Two tiers exist because
-   * one set cannot do both jobs — a colour dark enough to read as 12px text
+   * one set cannot do both jobs - a colour dark enough to read as 12px text
    * is too dark to keep its hue apart from its neighbours as a 6px dot. */
   --color-positive-ink: #0a6b4a;
   --color-negative-ink: #b3271c;
   --color-warning-ink: #8a5a00;
   --color-analytic-ink: #1f5fc4;
 
-  /* ── Semantic fills — light ────────────────────────────────────
+  /* ── Semantic fills - light ────────────────────────────────────
    * Badge and callout backgrounds. Each pairs with its -ink tier at ≥ 5.2:1. */
   --color-positive-dim: #e6f4ee;
   --color-negative-dim: #fdeceb;
   --color-warning-dim: #fbf1dd;
   --color-analytic-dim: #e8f0fd;
 
-  /* ── Chart series — light ──────────────────────────────────────
+  /* ── Chart series - light ──────────────────────────────────────
    * Categorical identity, assigned in this fixed order and never cycled.
    * Validated as a set on the light surface: lightness band PASS, chroma
    * floor PASS, worst adjacent CVD ΔE 10.2 (deutan) PASS, worst adjacent
    * normal-vision ΔE 19.1 PASS, contrast all ≥ 3:1 PASS.
    *
    * Known bound: slots 2 and 4 (orange, ochre) collide when every pair is on
-   * screen at once — ΔE 1.4 protan, 9.5 normal. That is fine for lines, bars
+   * screen at once - ΔE 1.4 protan, 9.5 normal. That is fine for lines, bars
    * and stacks, where only adjacent pairs matter, but any all-pairs form
    * (scatter, bubble, small multiples) caps at three series and folds the
    * rest into "Other". */
@@ -276,7 +276,7 @@ body {
 /* ── Type utilities ──────────────────────────────────────────── */
 
 /* The display face, always expanded. Archivo's width axis is the reason it
- * was chosen — at 112% the caps pick up the horizontal emphasis of a ruled
+ * was chosen - at 112% the caps pick up the horizontal emphasis of a ruled
  * ledger, which is what distinguishes a title here from body text set large. */
 .u-display {
   font-family: var(--font-display);
@@ -302,7 +302,7 @@ body {
 
 /* ── Uncertainty ─────────────────────────────────────────────────
  * The second channel that replaced amber-as-text. A figure the product does
- * not want fully trusted gets a dotted rule under it — a texture, legible
+ * not want fully trusted gets a dotted rule under it - a texture, legible
  * without colour, and impossible to confuse with the red of a below-par
  * figure sitting in the next column. */
 .uncertain {

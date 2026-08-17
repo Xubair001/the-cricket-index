@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import queries, schemas, validation
-from ..analytics import config, form
+from ..analytics import splits as splits_mod, config, form
 from ..analytics import leaderboard as form_board
 from ..database import get_db
 
@@ -137,6 +137,45 @@ def player_form(
         competition_type=validation.check_competition_type(db, competition_type),
     )
     return schemas.FormVerdict(**verdict.as_dict())
+
+
+@router.get("/{identifier}/splits", response_model=schemas.PlayerSplits)
+def player_splits(
+    identifier: str,
+    split: str = Query(default="phase"),
+    gender: str = Query(pattern="^(male|female)$"),
+    competition: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> schemas.PlayerSplits:
+    """One split for one player (§12), split type as a parameter (§25).
+
+    Phase and situation come off the stored deliveries; venue, opposition and
+    competition come off the match. Splits §12 lists but no source supports are
+    returned in `unavailable` with a reason rather than omitted, so the caller
+    can see the difference between "no data for this player" and "this cut is
+    not computable at all".
+    """
+    if split not in splits_mod.AVAILABLE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown split '{split}'; available: {sorted(splits_mod.AVAILABLE)}",
+        )
+    key = validation.check_competition_key(db, competition)
+    result = splits_mod.compute(
+        db, identifier, split=split, gender=gender, competition_key=key
+    )
+    return schemas.PlayerSplits(
+        player_identifier=identifier,
+        split=result.split,
+        label=result.label,
+        gender=gender,
+        competition_key=key,
+        applies=result.applies,
+        not_applicable_because=result.not_applicable_because,
+        available=sorted(splits_mod.AVAILABLE),
+        unavailable=splits_mod.UNAVAILABLE,
+        buckets=[schemas.SplitBucket(**vars(b)) for b in result.buckets],
+    )
 
 
 @router.get("/{identifier}", response_model=schemas.PlayerDetail)

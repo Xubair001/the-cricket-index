@@ -36,7 +36,7 @@ class PlayerCountry(BaseModel):
     Resolved from their appearances (`queries._player_country_map`), so it means
     the same thing as the flag beside a team and carries no claim the data does
     not support. Both fields are null for a franchise-only player, and
-    `country_code` alone is null for the West Indies — a real side with no ISO
+    `country_code` alone is null for the West Indies - a real side with no ISO
     code, which renders as the neutral mark with the name on hover.
     """
 
@@ -457,6 +457,46 @@ class TeamStrengthTable(BaseModel):
     # never an input to it (§6).
     validated_against_icc: str
     items: list[TeamStrengthRow]
+
+
+class SplitBucket(BaseModel):
+    """One slice of a player's cricket, batting and bowling side by side."""
+
+    key: str
+    label: str
+    innings: int
+    runs: int
+    balls_faced: int
+    dismissals: int
+    fours: int
+    sixes: int
+    dots: int
+    average: float | None
+    strike_rate: float | None
+    dot_pct: float | None
+    boundary_pct: float | None
+    wickets: int
+    balls_bowled: int
+    runs_conceded: int
+    economy: float | None
+    bowling_average: float | None
+    bowling_dot_pct: float | None
+
+
+class PlayerSplits(BaseModel):
+    player_identifier: str
+    split: str
+    label: str
+    gender: Gender
+    competition_key: str | None
+    # False when the split does not describe this format at all -- phases in a
+    # Test, for instance. Reported rather than computed anyway.
+    applies: bool
+    not_applicable_because: str | None
+    available: list[str]
+    # Splits §12 names that no current source supports, with the reason.
+    unavailable: dict[str, str]
+    buckets: list[SplitBucket]
 
 
 class ExplorerRow(BaseModel):

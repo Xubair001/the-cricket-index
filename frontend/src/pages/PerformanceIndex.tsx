@@ -21,7 +21,7 @@ import {
  * §30 is the governing requirement here: "Rating 87" is incomplete until the
  * user can see the components that produced 87. So no score renders without its
  * decomposition one click away, and the page states up front which components
- * are missing and why — a rating that quietly omits a quarter of its intended
+ * are missing and why - a rating that quietly omits a quarter of its intended
  * inputs looks more precise than it is.
  */
 
@@ -46,7 +46,7 @@ const ROLE_LABEL: Record<string, string> = {
   batter: 'Bat',
   bowler: 'Bowl',
   allrounder: 'All',
-  unknown: '—',
+  unknown: '-',
 }
 
 const field = 'rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
@@ -154,7 +154,7 @@ export function PerformanceIndex() {
       <div>
         <h1 className="u-display text-title text-ink">Performance Index</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted">
-          This project's own rating of who is playing the best cricket right now — distinct from{' '}
+          This project's own rating of who is playing the best cricket right now - distinct from{' '}
           <Link to={`/${slug}/rankings`} className="text-analytic-ink hover:underline">
             computed leaderboards
           </Link>{' '}
@@ -194,11 +194,11 @@ export function PerformanceIndex() {
       </div>
 
       {/* §14: the UI must state which components are active. Amber because this
-          is a statement about coverage — exactly what the colour is reserved for. */}
+          is a statement about coverage - exactly what the colour is reserved for. */}
       {inactive.length > 0 && (
         <div className="rounded-lg border border-warning/30 bg-warning-dim/40 px-4 py-3">
           <p className="text-sm text-warning-ink">
-            Running on {data?.components.filter((c) => c.active).length} of 7 components —{' '}
+            Running on {data?.components.filter((c) => c.active).length} of 7 components -{' '}
             <span className="tnum">{Math.round(missingWeight * 100)}%</span> of the intended
             weighting cannot yet be computed.
           </p>
@@ -206,7 +206,7 @@ export function PerformanceIndex() {
             {inactive.map((c) => (
               <li key={c.key}>
                 <span className="text-ink">{c.label}</span> ({Math.round(c.specified_weight * 100)}
-                %) — {c.unavailable_because}
+                %) - {c.unavailable_because}
               </li>
             ))}
           </ul>
@@ -236,7 +236,7 @@ export function PerformanceIndex() {
             </thead>
             <tbody>
               {data.items.map((row, i) => (
-                // The key belongs on the fragment, which is what `map` returns —
+                // The key belongs on the fragment, which is what `map` returns -
                 // on the inner <tr> React still treats the list as unkeyed.
                 <Fragment key={row.player_identifier}>
                   <tr
@@ -255,7 +255,7 @@ export function PerformanceIndex() {
                     <td className={tdClass}>
                       <span
                         className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
-                        title="Percentiles are taken against peers of this discipline — inferred from balls faced versus balls bowled"
+                        title="Percentiles are taken against peers of this discipline - inferred from balls faced versus balls bowled"
                       >
                         {ROLE_LABEL[row.role] ?? row.role}
                       </span>
@@ -306,7 +306,7 @@ export function PerformanceIndex() {
         Each component is scored as a percentile among peers of the same inferred discipline in this
         scope, over the last {data?.window_matches ?? 15} matches, with a minimum of{' '}
         {data?.min_matches ?? 8}. Disciplines are pooled separately because a bowler's mean impact
-        in this dataset is 1.08 par units against a batter's 0.64 — pooled together, the Index would
+        in this dataset is 1.08 par units against a batter's 0.64 - pooled together, the Index would
         rank discipline rather than quality. An Index of 87 therefore means "better than 87% of
         qualified players of this discipline in this scope", and scores from different scopes are
         not comparable.

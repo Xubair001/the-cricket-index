@@ -16,7 +16,7 @@ const WINDOWS: { value: FixtureWindow; label: string }[] = [
 
 /** ISO date -> "Wed 12 Aug 2026". */
 function formatDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const d = new Date(`${iso}T00:00:00Z`)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString(undefined, {
@@ -48,11 +48,11 @@ function FixtureCard({ fixture, slug }: { fixture: FixtureRow; slug: string }) {
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default">
-            {f.match_type ?? '—'}
+            {f.match_type ?? '-'}
           </span>
           {/* "In progress" is analytical information, not a judgement, so it
               takes the neutral analytic colour. Red stays reserved for below
-              baseline / declining — a live match is neither. */}
+              baseline / declining - a live match is neither. */}
           {f.is_live && (
             <span className="inline-flex items-center gap-1 rounded-full bg-analytic-dim px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-analytic-ink ring-1 ring-inset ring-analytic/30">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-analytic" aria-hidden />
@@ -197,7 +197,7 @@ export function Fixtures() {
       )}
 
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
-        The ICC feed carries internationals and youth internationals only — no franchise cricket, so
+        The ICC feed carries internationals and youth internationals only - no franchise cricket, so
         a PSL window will not appear here. Sides this dataset has never covered are shown but not
         linked. Results are date-bounded rather than filtered on a flag, because a cancelled future
         fixture is marked as concluded and would otherwise sort to the top as a match that never

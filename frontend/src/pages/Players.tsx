@@ -10,7 +10,7 @@ import { PlayerName } from '../components/PlayerName'
 import { tableClass, tdNumClass, theadRowClass, trClass } from '../components/ui'
 
 /**
- * The player directory — the main discovery interface (§7).
+ * The player directory - the main discovery interface (§7).
  *
  * Filter state lives in the URL, not in component state alone, so a filtered
  * view is a link a scout can send to a colleague and land on the same numbers
@@ -200,7 +200,7 @@ export function Players() {
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Search</span>
           <input
             type="text"
-            placeholder="Any spelling — Joe Root or JE Root"
+            placeholder="Any spelling - Joe Root or JE Root"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="w-64 rounded-md border border-border-default bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-dim"
@@ -265,13 +265,13 @@ export function Players() {
                     <td className="tnum px-3 py-2.5 text-right text-ink">{p.runs.toLocaleString()}</td>
                     <td className={tdNumClass}>{rate(p.batting_average)}</td>
                     <td className={tdNumClass}>{rate(p.strike_rate)}</td>
-                    <td className={tdNumClass}>{p.wickets || '—'}</td>
+                    <td className={tdNumClass}>{p.wickets || '-'}</td>
                     <td className={tdNumClass}>{rate(p.economy)}</td>
                     <td className="px-4 py-2.5 text-right">
                       {p.form_state ? (
                         <span
                           className={`tnum text-xs font-semibold ${FORM_TONE[p.form_state]}`}
-                          title={`${p.form_label} — confidence ${Math.round((p.form_confidence ?? 0) * 100)}%`}
+                          title={`${p.form_label} - confidence ${Math.round((p.form_confidence ?? 0) * 100)}%`}
                         >
                           {p.form_delta !== null
                             ? `${p.form_delta > 0 ? '+' : ''}${p.form_delta.toFixed(0)}%`
@@ -279,7 +279,7 @@ export function Players() {
                         </span>
                       ) : (
                         <span className="text-xs text-dim" title="Not enough recent cricket in this scope">
-                          —
+                          -
                         </span>
                       )}
                     </td>
@@ -308,7 +308,7 @@ export function Players() {
       </div>
 
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
-        Form compares each player against their own preceding 12 months within this scope — it
+        Form compares each player against their own preceding 12 months within this scope - it
         measures change, not standard, so a modest player having a good run can outrank a great one
         playing normally. A dash means not enough recent cricket to judge. Internationals and
         franchise cricket are never blended into one figure.

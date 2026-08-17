@@ -20,7 +20,7 @@ import {
  * A team's record and its leading players.
  *
  * The leaderboards here are that player's figures *for this team*, not their
- * gender-wide career totals — the API scopes them by team_id, which is what
+ * gender-wide career totals - the API scopes them by team_id, which is what
  * stops a franchise page crediting a player with their Test runs.
  */
 
@@ -45,7 +45,7 @@ function Result({ match, teamId }: { match: MatchSummary; teamId: number }) {
   const won = match.winner.team_id === teamId
   return (
     <span className={won ? 'text-positive-ink' : 'text-negative-ink'}>
-      {won ? 'Won' : `Lost — ${match.winner.name}`}
+      {won ? 'Won' : `Lost - ${match.winner.name}`}
     </span>
   )
 }
@@ -199,7 +199,7 @@ export function TeamDetail() {
                     <td className="px-4 py-2.5">
                       <CompetitionBadge competition={m.competition_key} />
                     </td>
-                    <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '—'}</td>
+                    <td className="tnum px-3 py-2.5 text-muted">{m.match_date_start ?? '-'}</td>
                     <td className={tdClass}>
                       <Link to={`/${slug}/matches/${m.match_id}`} className="text-ink hover:text-analytic-ink">
                         <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
@@ -219,7 +219,7 @@ export function TeamDetail() {
       </Panel>
 
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
-        Run and wicket leaders are scoped to this team, not to the player's whole career — a
+        Run and wicket leaders are scoped to this team, not to the player's whole career - a
         franchise page shows what a player did for that franchise. Squad composition and role
         balance need per-delivery data this dataset does not yet store.
       </p>

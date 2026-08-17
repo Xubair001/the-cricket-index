@@ -25,14 +25,14 @@ import {
 } from '../components/ui'
 
 /**
- * The form boards (§7 — In Form, Rising Players).
+ * The form boards (§7 - In Form, Rising Players).
  *
  * One page serves every board for the same reason the Explorer serves three
  * metric sets: they share a filter model and a reading. Splitting them into
  * separate files is how two views of one engine drift into disagreeing about
  * what "in form" means.
  *
- * The home page shows the top six of three of these. This is the full board —
+ * The home page shows the top six of three of these. This is the full board -
  * paginated, scoped, and with the evidence each verdict rests on visible in the
  * row rather than in a tooltip.
  *
@@ -47,7 +47,7 @@ const LIMIT = 25
 type Board = {
   slug: string
   label: string
-  /** API params — a board is either a state or a trend, never both. */
+  /** API params - a board is either a state or a trend, never both. */
   query: { state?: string; trend?: string }
   blurb: string
   tone: 'positive' | 'negative'
@@ -67,7 +67,7 @@ const BOARDS: Board[] = [
     label: 'Rising',
     query: { trend: 'rising' },
     blurb:
-      'Improving within their current run — the direction is upward, which is a different claim from being above baseline.',
+      'Improving within their current run - the direction is upward, which is a different claim from being above baseline.',
     tone: 'positive',
   },
   {
@@ -151,8 +151,8 @@ export function FormBoards() {
     return () => {
       cancelled = true
     }
-    // `board` is a stable module-level object — `find` returns the same
-    // identity for a given slug — so depending on it is both correct and what
+    // `board` is a stable module-level object - `find` returns the same
+    // identity for a given slug - so depending on it is both correct and what
     // the effect actually reads.
   }, [apiGender, board, competition, offset])
 
@@ -161,7 +161,7 @@ export function FormBoards() {
       <PageHeader
         eyebrow="Discover"
         title={board.label}
-        blurb="Form measures change against a player's own recent baseline — not standard. For who is playing the best cricket outright, see the Performance Index."
+        blurb="Form measures change against a player's own recent baseline - not standard. For who is playing the best cricket outright, see the Performance Index."
         actions={
           <Link
             to={`/${slug}/performance-index`}
@@ -244,7 +244,7 @@ export function FormBoards() {
                   const delta =
                     r.delta_percent !== null
                       ? `${r.delta_percent > 0 ? '+' : ''}${r.delta_percent.toFixed(0)}%`
-                      : '—'
+                      : '-'
                   const trend = TREND_GLYPH[r.trend]
                   const evidence = `${r.recent_matches} recent vs ${r.baseline_matches} earlier matches`
 
@@ -262,7 +262,7 @@ export function FormBoards() {
                       </td>
                       {/* The absolute standard, drawn against par. This is the
                           column that distinguishes "improved to excellent" from
-                          "improved to still below average" — the percentage
+                          "improved to still below average" - the percentage
                           beside it cannot. */}
                       <td className="px-3 py-2.5">
                         <ParMeter value={r.recent_mean} className="w-24" label={r.player_name} />
@@ -273,11 +273,11 @@ export function FormBoards() {
                           r.recent_mean === null
                             ? undefined
                             : `${r.recent_mean.toFixed(2)}x an average appearance${
-                                belowPar ? ' — still below par' : ''
+                                belowPar ? ' - still below par' : ''
                               }`
                         }
                       >
-                        {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '—'}
+                        {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '-'}
                       </td>
                       <td
                         className={`tnum px-3 py-2.5 text-right font-semibold ${
@@ -285,7 +285,7 @@ export function FormBoards() {
                         }`}
                       >
                         {thin ? (
-                          <Uncertain reason={`Confidence ${Math.round(r.confidence * 100)}% — ${evidence}`}>
+                          <Uncertain reason={`Confidence ${Math.round(r.confidence * 100)}% - ${evidence}`}>
                             {delta}
                           </Uncertain>
                         ) : (
@@ -330,13 +330,13 @@ export function FormBoards() {
 
       <Provenance>
         Each player is compared with their own preceding twelve months in this scope, never with
-        other players — that is what makes “in form” mean <em>changed</em> rather than{' '}
+        other players - that is what makes “in form” mean <em>changed</em> rather than{' '}
         <em>good</em>. Boards are ordered on par units gained rather than on the percentage,
         because a player improving from poor to below-average can post a bigger percentage than one
         playing the best cricket in the world. Every performance is weighted by the strength of the
         side it came against, fitted per era. Internationals and franchise cricket are never blended
-        into one figure. The last column is the evidence the verdict rests on — recent matches
-        against earlier ones — and a change marked with a dotted rule rests on a thin sample.
+        into one figure. The last column is the evidence the verdict rests on - recent matches
+        against earlier ones - and a change marked with a dotted rule rests on a thin sample.
       </Provenance>
     </div>
   )
