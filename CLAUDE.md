@@ -36,6 +36,20 @@ matches are skipped, not re-parsed.
 cd ingestion && python schedule.py        # --delete to remove
 ```
 
+**Keep it running** (what makes the schedule actually daily):
+```bash
+./deploy/install-systemd.sh              # --uninstall to remove
+```
+The 06:00 schedule only fires while the Temporal server AND the worker are both
+up. Started by hand they die with the terminal session, and a missed run leaves
+no error anywhere - the schedule fired on 13 and 14 Aug 2026 and silently
+skipped the 15th and 16th for exactly that reason. The units set
+`Restart=always`, and the worker `Requires=` the server so it restarts with it.
+
+Note `loginctl enable-linger` is still needed for the units to survive logout;
+the installer prints the command rather than running it, since it changes the
+login session rather than the repo.
+
 **Frontend lint/build** (this is what CI runs - no test suite exists in this repo):
 ```bash
 cd frontend && npm run lint && npm run build
@@ -139,12 +153,15 @@ parsing or writes - an unchanged match is a no-op. This is also how a
 periodic re-sync (re-running `starter.py` against a refreshed Cricsheet
 archive) would stay cheap.
 
-### No ball-by-ball data is stored - only derived aggregates
+### The scoring rules in the parser are cricket, not bookkeeping
 
-`ingestion/parsing.py` walks each match's `innings/overs/deliveries`
-structure purely to accumulate per-player totals (`PlayerMatchStat`), then
-discards the balls. The scoring rules encoded there are real cricket domain
-logic, not incidental:
+(For where the balls themselves live, see "Deliveries are stored" below - this
+section is about how each ball is *counted*, which is the part that has been
+wrong before.)
+
+`ingestion/parsing.py` walks each match's `innings/overs/deliveries` structure
+and accumulates per-player totals (`PlayerMatchStat`). The scoring rules
+encoded there are real cricket domain logic, not incidental:
 - `BOWLER_CREDITED_KINDS` / `NOT_OUT_KINDS` - which wicket kinds count against
   a bowler's figures, and which don't count as a batting dismissal (e.g.
   "retired hurt" isn't out; "run out" isn't the bowler's wicket).
@@ -406,7 +423,7 @@ Two things the module is careful about:
 - **Every rate is per competition.** A ground hosting Tests and T20Is has two
   different characters and one average describes neither.
 
-### The ICC scorecard endpoint carries squads — and role, hand and bowling type
+### The ICC scorecard endpoint carries squads - and role, hand and bowling type
 
 The single most valuable finding in this project. §34 lists "source for role,
 handedness and bowling type" (#1) and "source for squad lists" (#2) as open
@@ -432,6 +449,70 @@ LHB, and a bowling style good enough to split pace from spin.
 *schedule* endpoint and false of the *scorecard* one. Check the second before
 declaring anything Tier C on squad data again.
 
+### Squad attributes come from COMPLETED fixtures too, and that is the whole difference
+
+The first squad sync fetched only upcoming fixtures, because the feature it fed
+was availability and a played match cannot be a commitment. That left sourced
+role, hand and bowling style on **343 of 9,472 players (3.6%)** - a filter that
+silently excludes almost everyone, which is precisely what §17 warns against.
+
+The same payload for a *completed* fixture still carries every player's Role,
+Batting.Style and Bowling.Style. Fetching those as well (`sync_fixture_squads`
+takes `include_completed`) took the register to **16,996 squad rows over 757
+fixtures, 2,295 players with a sourced role and hand, 1,981 with a bowling
+style** - 42% of players active in the last three years. Availability still
+reads only upcoming fixtures; the widened pull is for the attributes.
+
+Two details that bite:
+- The feed spells the same role two ways. 74 players carry `"Batsman"` against
+  the majority's `"Batter"`, so an unnormalised filter for one drops the other.
+  `scout.normalise_role` owns the mapping.
+- **`func.max()` per column is not "the latest row".** It returns the
+  alphabetically-largest value of each column *independently*, so it can report
+  a player's newest batting hand beside a role they were given years earlier,
+  and it ranks `"Wicket Keeper"` over `"All-Rounder"` purely on the letter W.
+  `_sourced_attributes` walks rows ordered oldest-first instead, letting later
+  rows overwrite earlier ones only where they actually carry a value.
+
+### A bowling style is a NOMINAL attribute, and filtering on it alone puts batters on a bowling brief
+
+The mirror of the volume-floor trap, and it bit in exactly the same way. The
+feed records a bowling style for anyone who has ever turned an arm over, so
+asking the PSL for spin returned **Babar Azam, Tim David and Abdullah Shafique**
+- all recorded `OB`, none of them spinners.
+
+So a style filter (`analytics/scout.py`) additionally requires the player to be
+picked to bowl at all: role Bowler or All-Rounder, sourced or inferred. The same
+brief then returns Mohammad Nabi, Sikandar Raza, Abrar Ahmed and Liam Dawson.
+
+The display rule follows from the same fact: `BestXI` renders a bowling type
+only on a bowling slot, because "spin" beside Ben Duckett's name is true and
+useless.
+
+### The Scout page declares what it could not do, and that is the feature
+
+`backend/app/analytics/scout.py` serves §17, whose own warning is that shipping
+it early means "a filter that quietly ignores half the brief". Every response
+therefore carries `applied` and `ignored` maps, and the page renders both, so a
+constraint the data cannot honour is named on screen with its reason rather than
+dropped.
+
+Three honesty devices, all load-bearing:
+- **Coverage above the results.** `with_sourced_attributes / candidates_considered`
+  (659 of 1,806 internationally, 16 of 120 for the PSL) sits above the table,
+  because a hand or style filter can only ever match inside that subset and a
+  reader would otherwise take "no left-handers" for a fact about cricket.
+- **Age is a SOFT bound.** Date of birth covers about 42% of the register, so
+  players of unknown age are kept and counted in `unknown_age`, never dropped.
+  A hard bound would silently discard the majority.
+- **The franchise caveat is stated, not implied.** The squad feed is ICC's, so a
+  franchise brief only knows attributes for players who also appear for their
+  country. That goes in `ignored` rather than being left to be guessed from a
+  short result list.
+
+Validated by asking for left-handed keepers: Rishabh Pant, Devon Conway, Ishan
+Kishan, Tom Latham. All four are exactly that.
+
 ### Availability: committed is sourced, available is not
 
 `backend/app/analytics/availability.py`. The asymmetry governs the whole
@@ -440,7 +521,7 @@ feature and the UI is built around it.
 A player named in a squad is a fact. A player **absent** from every squad is
 evidence of nothing, because squads are announced a few weeks out: of 160
 fixtures in a 60-day window, 33 had a squad. So the API never returns a list
-called "available players" — it returns commitments plus
+called "available players" - it returns commitments plus
 `fixtures_with_squads / fixtures_in_window`, and the page puts that coverage
 figure ABOVE the results. A scout reading "142 free players" off an unannounced
 squad table would be badly misled.
@@ -461,9 +542,15 @@ response, not left to be discovered.
   openers, straight from `seq = 0`.
 - **Role** was already inferrable from balls faced versus bowled.
 
+**A squad naming somebody a keeper now beats the stumping inference.** 291
+players carry a sourced `Wicket Keeper` role, and that reaches the one case the
+stumping rule was known to miss: a keeper who simply never stumped in the scope.
+`Pick.keeper_source` records which route identified them (`squad` or
+`stumping`), and the stumping rule below remains the fallback, unchanged.
+
 **Catches are NOT a fallback for identifying a keeper.** They cannot be told
 apart from outfield catches, so any long-serving fielder clears a catch
-threshold — at 25 catches the selector named Mohammad Hafeez, an off-spinning
+threshold - at 25 catches the selector named Mohammad Hafeez, an off-spinning
 all-rounder, as a PSL wicketkeeper, with Babar Azam close behind on 58 catches
 and zero stumpings. A stumping is now required; catches only rank keepers
 already confirmed by one. The cost is missing a keeper who never stumped in the
@@ -477,15 +564,27 @@ eleven by rating, because the latter reliably returns six openers and no keeper.
 
 The weighting matters more than it looks. The Performance Index measures a
 player's **last 15 matches**, so scoring on Index-plus-form is recency counted
-twice and career record counted not at all — which picked a PSL XI containing
+twice and career record counted not at all - which picked a PSL XI containing
 neither Mohammad Rizwan (102 PSL matches, index 41 on a poor recent window) nor
 Babar Azam. Career standing over the whole scope now carries 55%, the Index 30%,
 form 15%. "Best XI" has to mean more than "hottest XI" while still moving for a
 player out of touch.
 
-Handedness, bowling type and availability remain Tier C, so a left-right opening
-pair and a seam/spin balance cannot be requested. The response says so in
-`unavailable` rather than picking as though they were considered.
+**Balance is reported, never selected for.** Handedness and bowling type left
+Tier C when the squad feed was read for them, but only partly: they are known
+for most current internationals and few historical or franchise-only players.
+Filling a seam/spin quota on that would systematically prefer players who happen
+to have squad data over better players who do not, which is a selection bias
+dressed up as balance. So the side is picked on the role shape as before and the
+split is stated underneath.
+
+The note is also thresholded, for the same reason the flag rules are. An
+all-time PSL XI is mostly players who retired before the feed's window, so 5 of
+6 bowling picks have no style on record - and saying "no spinner in this attack"
+of a side containing **Rashid Khan and Sunil Narine** would be a conclusion drawn
+from a blank sample. Counts are always reported; the interpretation is only added
+when the known picks outnumber the unknown ones. Availability genuinely does stay
+out of selection, and `unavailable` still says so.
 
 ### Match intelligence: partnerships key on the pair, spells group by bowler
 
@@ -500,13 +599,13 @@ pair and a seam/spin balance cannot be requested. The response says so in
   scorecard does.
 
 - **A spell must be grouped BY BOWLER first.** Walking the innings in over order
-  and breaking whenever the bowler changes closes every spell after one over —
+  and breaking whenever the bowler changes closes every spell after one over -
   a bowler cannot bowl consecutive overs, so their overs are never adjacent in
   the sequence. Group by bowler, then split where their own overs are more than
   `MAX_SPELL_GAP` (2) apart, since bowlers alternate ends.
 
   This is the whole value of the feature: Jomel Warrican's 6/112 in one Test
-  innings is three spells — 1/69 off 22, 2/34 off 17, then **3/9 off 7** when he
+  innings is three spells - 1/69 off 22, 2/34 off 17, then **3/9 off 7** when he
   ran through the tail. Match figures hide that.
 
 **Win probability is NOT built**, and that is deliberate: §22 defers it, and an
@@ -522,7 +621,7 @@ venue, opposition and competition come off the match.
 
 Two refusals are the point of the module:
 - **Phases don't exist in a Test.** A T20 powerplay is six overs and an ODI's is
-  ten, so the bands live in `config.PHASE_BANDS` per competition — and Tests get
+  ten, so the bands live in `config.PHASE_BANDS` per competition - and Tests get
   no entry at all. Slicing overs 0-5 off a Test innings would produce a number
   that looks like the T20 one and means something else. The split reports that
   it does not apply.
@@ -534,7 +633,7 @@ rather than omitted, so a caller can tell "no data for this player" from "this
 cut is not computable at all".
 
 Validated against a published figure: Kohli's ODI situation split gives 65.46
-chasing against 52.69 batting first, versus ESPNcricinfo's 65.5 and 51.7 — the
+chasing against 52.69 batting first, versus ESPNcricinfo's 65.5 and 51.7 - the
 "Chase Master" statistic reproduced from the innings sequence alone.
 
 ### The Index's situation component is a RATIO, and needs both a floor and shrinkage
@@ -545,7 +644,7 @@ often than a finisher, so a raw number would rank opportunity.
 
 Both guards are load-bearing and were set from the distribution. At a
 5-dismissal floor with no shrinkage the ratio reached **14.19** and the p10-p90
-spread was 0.55-1.77 — that is sample size, not a situational edge. At 10
+spread was 0.55-1.77 - that is sample size, not a situational edge. At 10
 dismissals each side, shrunk towards 1.0 on the thinner side, the spread is
 0.65-1.50 with 1,004 players still qualifying.
 

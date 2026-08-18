@@ -567,6 +567,9 @@ class SelectionPick(PlayerCountry):
     role: str
     slot: str
     is_wicketkeeper: bool
+    # 'squad' (ICC named them a keeper), 'stumping' (they took one, which only
+    # a keeper can), or null for a non-keeper.
+    keeper_source: str | None = None
     opens: bool
     matches: int
     index: float | None
@@ -575,6 +578,9 @@ class SelectionPick(PlayerCountry):
     recent_mean: float | None
     selection_score: float
     reason: str
+    # Sourced from ICC squads where present, else null. Never inferred.
+    batting_style: str | None = None
+    bowling_family: str | None = None
 
 
 class SelectedSide(BaseModel):
@@ -628,6 +634,43 @@ class AvailabilityWindow(BaseModel):
     fixtures_with_squads: int
     players: list[PlayerAvailabilityRow]
     caveats: dict
+
+
+class ScoutCandidate(PlayerCountry):
+    player_identifier: str
+    player_name: str
+    matches: int
+    role: str | None
+    # True when the role came from a squad list; False when inferred from
+    # balls faced versus bowled. A scout filtering on role needs to know which.
+    role_sourced: bool
+    batting_style: str | None
+    bowling_style: str | None
+    bowling_family: str | None
+    age: int | None
+    index: float | None
+    form_delta: float | None
+    form_state: str | None
+    recent_mean: float | None
+    committed_in_window: bool | None
+    score: float
+    reason: str
+
+
+class ScoutResult(BaseModel):
+    scope: str
+    gender: Gender
+    candidates_considered: int
+    # How many of those have any sourced attribute at all. A hand or bowling
+    # filter can only ever match within this subset.
+    with_sourced_attributes: int
+    unknown_age: int
+    # Which constraints in the brief were honoured...
+    applied: dict
+    # ...and which could not be, with the reason. §17 is explicit that a filter
+    # quietly ignoring half the brief is the failure to avoid.
+    ignored: dict
+    candidates: list[ScoutCandidate]
 
 
 class ExplorerRow(BaseModel):

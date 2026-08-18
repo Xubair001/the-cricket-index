@@ -99,7 +99,7 @@ const NAV: NavGroup[] = [
   {
     label: 'Scout',
     items: [
-      { label: 'Find a Player', blocked: 'Needs role, handedness and availability data' },
+      { label: 'Find a Player', to: 'scout' },
       { label: 'Build a XI', to: 'best-xi' },
       { label: 'Compare Candidates', to: 'compare' },
     ],

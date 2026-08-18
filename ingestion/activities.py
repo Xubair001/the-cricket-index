@@ -356,11 +356,27 @@ async def sync_people_register() -> int:
     return updated
 
 
+# Longest Retry-After this will sit through inside one activity. See _wikidata_get.
+MAX_RETRY_AFTER = 60.0
+
+
 async def _wikidata_get(client, query: str, batch_index: int, attempts: int = 4):
     """GETs one SPARQL batch, backing off on throttling.
 
-    Wikidata's public endpoint burst-throttles with 429 and no Retry-After, so
-    the wait is exponential (2s, 4s, 8s) unless the header says otherwise.
+    Wikidata's public endpoint burst-throttles with 429, sometimes with a
+    Retry-After and sometimes without, so the wait is exponential (2s, 4s, 8s)
+    unless the header asks for longer.
+
+    The header is honoured only up to MAX_RETRY_AFTER. Wikidata answers a
+    sustained run with `Retry-After: 1000`, and sleeping that off inside the
+    activity would spend 16 minutes per batch against a one-hour
+    start_to_close_timeout -- the activity would die around batch 3 of 48 having
+    written almost nothing. Past the cap the batch is given up on instead, which
+    surfaces as a failed batch and lets Temporal retry the activity later, when
+    the throttle window has passed. Waiting is the right response to a 429; the
+    question is only who does the waiting, and Temporal is better at it than a
+    blocked coroutine.
+
     Returns None once retries are exhausted, and the caller counts that as a
     failed batch rather than an empty answer.
     """
@@ -371,6 +387,13 @@ async def _wikidata_get(client, query: str, batch_index: int, attempts: int = 4)
             return resp
         if resp.status_code == 429 or resp.status_code >= 500:
             wait = float(resp.headers.get("retry-after") or delay)
+            if wait > MAX_RETRY_AFTER:
+                activity.logger.warning(
+                    f"wikidata batch {batch_index}: HTTP {resp.status_code} asks for "
+                    f"{wait:.0f}s, above the {MAX_RETRY_AFTER:.0f}s cap; giving the batch "
+                    f"up so Temporal can retry the activity after the throttle clears"
+                )
+                return None
             activity.logger.info(
                 f"wikidata batch {batch_index}: HTTP {resp.status_code}, "
                 f"retrying in {wait:.0f}s ({attempt + 1}/{attempts})"
@@ -413,10 +436,31 @@ async def enrich_from_wikidata(batch_size: int = 200) -> dict:
     }
     total_batches = (len(pending) + batch_size - 1) // batch_size
 
+    # Resume point from a previous attempt. Without this a worker restart at
+    # batch 40 of 48 would re-query all forty, and every one of them is a
+    # throttled round trip against a shared public endpoint.
+    resume_from = 0
+    try:
+        details = activity.info().heartbeat_details
+        if details:
+            resume_from = int(details[0])
+    except Exception:  # noqa: BLE001 - a missing/odd heartbeat just means start over
+        resume_from = 0
+    if resume_from:
+        activity.logger.info(f"wikidata enrichment resuming at batch {resume_from}")
+
     async with httpx.AsyncClient(follow_redirects=True, timeout=180, headers=headers) as client:
         for start in range(0, len(pending), batch_size):
+            batch_index = start // batch_size
+            if batch_index < resume_from:
+                continue
+            # Heartbeat carries the batch index, so it does double duty: it tells
+            # Temporal the worker is alive (without it a worker that dies mid-run
+            # is only noticed when start_to_close_timeout expires, an hour later),
+            # and it is the resume point for the next attempt.
+            activity.heartbeat(batch_index)
             chunk = pending[start : start + batch_size]
-            resp = await _wikidata_get(client, wikidata_query(chunk), start // batch_size)
+            resp = await _wikidata_get(client, wikidata_query(chunk), batch_index)
             if resp is None:
                 stats["failed_batches"] += 1
                 continue
@@ -805,7 +849,10 @@ async def ingest_icc_scorecards(icc_match_ids: list[str]) -> dict:
     async with httpx.AsyncClient(follow_redirects=True, timeout=90) as client:
         register = await _cached_register(client)
 
-        for icc_id in icc_match_ids:
+        for index, icc_id in enumerate(icc_match_ids):
+            # One heartbeat per match: the batch can be 200 scorecards, and a
+            # worker restart part-way through should be noticed in seconds.
+            activity.heartbeat(index)
             stats["seen"] += 1
             try:
                 resp = await client.get(
@@ -971,7 +1018,7 @@ async def record_progress(
 
 
 @activity.defn
-async def sync_fixture_squads(window_days: int = 120) -> dict:
+async def sync_fixture_squads(window_days: int = 120, include_completed: bool = False) -> dict:
     """Announced squads for upcoming fixtures, from the ICC scorecard feed.
 
     This is what makes availability answerable. §5 lists "squad lists per
@@ -990,13 +1037,24 @@ async def sync_fixture_squads(window_days: int = 120) -> dict:
     link it to a player we hold.
     """
     with get_connection() as conn:
-        rows = conn.execute(
-            """SELECT icc_match_id, gender FROM fixtures
-                WHERE is_upcoming = 1 AND start_date IS NOT NULL
-                  AND start_date <= date('now', ?)
-                ORDER BY start_date""",
-            (f"+{window_days} days",),
-        ).fetchall()
+        # Completed fixtures are worth fetching too, and not for their result:
+        # the same payload carries each player's role, batting hand and bowling
+        # style, and squads only exist for the handful of upcoming fixtures that
+        # have been announced. Without them the sourced attributes cover 3.6% of
+        # the register, which is a filter that silently excludes almost everyone.
+        if include_completed:
+            rows = conn.execute(
+                """SELECT icc_match_id, gender FROM fixtures
+                    WHERE start_date IS NOT NULL ORDER BY start_date DESC"""
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT icc_match_id, gender FROM fixtures
+                    WHERE is_upcoming = 1 AND start_date IS NOT NULL
+                      AND start_date <= date('now', ?)
+                    ORDER BY start_date""",
+                (f"+{window_days} days",),
+            ).fetchall()
 
         players = conn.execute(
             "SELECT identifier, name, gender FROM players"

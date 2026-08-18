@@ -140,6 +140,7 @@ class IccScorecardsWorkflow:
             ingest_icc_scorecards,
             args=[ids],
             start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         return (
@@ -235,6 +236,11 @@ class PlayerEnrichmentWorkflow:
         stats = await workflow.execute_activity(
             enrich_from_wikidata,
             start_to_close_timeout=timedelta(hours=1),
+            # Without a heartbeat timeout a dead worker is only discovered when
+            # start_to_close expires, so a crash at batch 2 stalls the workflow
+            # for the remaining 59 minutes. Two minutes is comfortably longer
+            # than the slowest throttled batch.
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         return (

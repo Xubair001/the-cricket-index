@@ -17,6 +17,7 @@ import { Matches } from './pages/Matches'
 import { PlayerDetail } from './pages/PlayerDetail'
 import { Players } from './pages/Players'
 import { Rankings } from './pages/Rankings'
+import { Scout } from './pages/Scout'
 import { SquadAnalysis } from './pages/SquadAnalysis'
 import { TeamDetail } from './pages/TeamDetail'
 import { Teams } from './pages/Teams'
@@ -54,6 +55,7 @@ function App() {
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />
           <Route path="availability" element={<Availability />} />
+          <Route path="scout" element={<Scout />} />
           <Route path="teams" element={<Teams />} />
           {/* Before "teams/:teamId", or 'squad' is read as a team id. */}
           <Route path="teams/squad" element={<SquadAnalysis />} />

@@ -31,14 +31,14 @@ import {
 } from '../components/ui'
 
 /**
- * Match intelligence (§22) — what happened, and why it mattered.
+ * Match intelligence (§22) - what happened, and why it mattered.
  *
  * §22 is explicit that match pages do not compete with live-score products, so
  * this is deliberately not a scorecard: the scorecard lives on the match page
  * and says who scored what. This says which stand decided the innings and which
  * spell broke it.
  *
- * The lead device is the worm — cumulative runs against overs, one line per
+ * The lead device is the worm - cumulative runs against overs, one line per
  * innings, with the overs that took wickets marked. It is the standard cricket
  * reading of a match's shape, and it answers "when did this game turn" before a
  * reader has parsed a single figure.
@@ -122,7 +122,7 @@ export function MatchIntelligence() {
 
       <Panel
         title="How the innings unfolded"
-        blurb="Cumulative runs against overs — the worm. A marked point is an over that took a wicket."
+        blurb="Cumulative runs against overs - the worm. A marked point is an over that took a wicket."
       >
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={worm} margin={{ top: 4, right: 12, bottom: 0, left: -12 }}>
@@ -172,7 +172,7 @@ export function MatchIntelligence() {
         <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-muted">
           {Object.entries(data.deferred).map(([key, reason]) => (
             <li key={key}>
-              <span className="text-ink">{key.replace(/_/g, ' ')}</span> — {reason}
+              <span className="text-ink">{key.replace(/_/g, ' ')}</span> - {reason}
             </li>
           ))}
         </ul>
@@ -283,7 +283,7 @@ function InningsPanel({ inn, multiple }: { inn: InningsIntelligence; multiple: b
       </div>
 
       <Provenance>
-        A spell is a run of a bowler's own overs with no break — bowlers alternate ends, so
+        A spell is a run of a bowler's own overs with no break - bowlers alternate ends, so
         consecutive overs in a spell are two apart. Match figures hide this: the same bowler can
         have an expensive opening burst and a decisive later one, and only the spells show it.
       </Provenance>

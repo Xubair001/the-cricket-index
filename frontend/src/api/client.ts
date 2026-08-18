@@ -27,13 +27,21 @@ import type {
   MatchIntelligence,
   SelectedSide,
   AvailabilityWindow,
+  ScoutResult,
   TeamSummary,
   TeamType,
   VenueOption,
   VenueProfile,
 } from './types'
 
-async function getJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+// `boolean` is in the value union because FastAPI query flags are real params,
+// not just strings. String(false) is "false", which FastAPI parses as False -
+// so a flag left off must be `undefined`, never `false`, when the intent is
+// "don't send it".
+async function getJson<T>(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>
+): Promise<T> {
   const url = new URL(path, window.location.origin)
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -218,6 +226,25 @@ export const api = {
     gender: ApiGender,
     params: { competition?: string; size?: number; team_id?: number } = {}
   ) => getJson<SelectedSide>('/api/rankings/best-xi', { gender, ...params }),
+
+  // A scouting brief (§17). Returns candidates with `applied` and `ignored`
+  // constraint maps, because a filter that quietly drops half the brief is
+  // the failure mode the section warns about.
+  scout: (params: {
+    gender: ApiGender
+    competition?: string
+    competition_type?: string
+    role?: string
+    batting_style?: string
+    bowling_family?: string
+    max_age?: number
+    min_matches?: number
+    form_state?: string
+    date_from?: string
+    date_to?: string
+    exclude_committed?: boolean
+    limit?: number
+  }) => getJson<ScoutResult>('/api/players/scout', params),
 
   // Who is COMMITTED in a window (§16), from announced squads. Not
   // 'available': absence from a squad is not evidence of freedom.

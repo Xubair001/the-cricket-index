@@ -19,7 +19,7 @@ import {
 /**
  * Best XI / XV (§18).
  *
- * The page has to answer "why is this player in the side", not just list names —
+ * The page has to answer "why is this player in the side", not just list names -
  * §18's whole point is a selection a coach could defend. So every row carries
  * the slot it was picked for, the standard it was picked on and the form it is
  * in, and the caveats sit above the side rather than under it.
@@ -51,7 +51,7 @@ const SLOT_LABEL: Record<string, string> = {
   wicketkeeper: 'Wicketkeeper',
   allrounder: 'All-rounder',
   bowler: 'Bowler',
-  unknown: '—',
+  unknown: '-',
 }
 
 function orderForSheet(picks: SelectionPick[]): SelectionPick[] {
@@ -129,7 +129,7 @@ export function BestXI() {
       <PageHeader
         eyebrow="Discover"
         title={size === 15 ? 'Best XV' : 'Best XI'}
-        blurb="A side picked to a role shape — not the top eleven on rating, which returns six openers and no keeper. Every place shows what it was picked on."
+        blurb="A side picked to a role shape - not the top eleven on rating, which returns six openers and no keeper. Every place shows what it was picked on."
       />
 
       <div className="flex flex-wrap items-end gap-3">
@@ -183,13 +183,16 @@ export function BestXI() {
           <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-muted">
             {Object.entries(side.unavailable).map(([key, reason]) => (
               <li key={key}>
-                <span className="text-ink">{key.replace(/_/g, ' ')}</span> — {reason}
+                <span className="text-ink">{key.replace(/_/g, ' ')}</span> - {reason}
               </li>
             ))}
           </ul>
           <p className="mt-1.5 text-xs text-dim">
-            The roles below are balanced. A left-right opening pair and a seam/spin split are not
-            checked, because no source carries either.
+            The roles below are balanced. Batting hand and bowling type are now sourced from ICC
+            squad announcements, but only for players who appear in one - so the seam/spin split and
+            the left-right pairing are reported beneath the side rather than selected for. Filling a
+            quota on partial coverage would prefer players who happen to have squad data over better
+            players who do not.
           </p>
         </Card>
       )}
@@ -206,7 +209,7 @@ export function BestXI() {
             />
           ) : (
             <Panel
-              title={side.team_name ? `${side.team_name} — best ${size === 15 ? 'XV' : 'XI'}` : `Best ${size === 15 ? 'XV' : 'XI'}`}
+              title={side.team_name ? `${side.team_name} - best ${size === 15 ? 'XV' : 'XI'}` : `Best ${size === 15 ? 'XV' : 'XI'}`}
               blurb={
                 <>
                   Picked from {side.scope} cricket. Shape:{' '}
@@ -236,9 +239,32 @@ export function BestXI() {
                           {p.is_wicketkeeper && (
                             <span
                               className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
-                              title="Identified from stumpings — only a keeper can take one"
+                              title={
+                                p.keeper_source === 'squad'
+                                  ? 'Named a wicketkeeper in an ICC squad announcement'
+                                  : 'Identified from stumpings - only a keeper can take one'
+                              }
                             >
                               wk
+                            </span>
+                          )}
+                          {p.batting_style && (
+                            <span
+                              className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
+                              title="Batting hand, from an ICC squad announcement"
+                            >
+                              {p.batting_style}
+                            </span>
+                          )}
+                          {/* Only on a bowling slot: the feed records a style
+                              for any occasional bowler, so it says nothing
+                              useful beside a specialist batter's name. */}
+                          {p.bowling_family && (p.slot === 'bowler' || p.slot === 'allrounder') && (
+                            <span
+                              className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted ring-1 ring-inset ring-border-default"
+                              title="Bowling type, from an ICC squad announcement"
+                            >
+                              {p.bowling_family}
                             </span>
                           )}
                           {p.opens && (
@@ -255,7 +281,7 @@ export function BestXI() {
 
                       <span
                         className="w-24 shrink-0 text-right text-xs text-muted"
-                        title="Inferred from balls faced versus balls bowled — never a sourced fact"
+                        title="Inferred from balls faced versus balls bowled - never a sourced fact"
                       >
                         {SLOT_LABEL[p.slot] ?? p.slot}
                       </span>
@@ -264,7 +290,7 @@ export function BestXI() {
                       </span>
                       <span
                         className="tnum w-12 shrink-0 text-right text-sm font-semibold text-ink"
-                        title="Career standing 55%, Performance Index 30%, current form 15% — all within this scope"
+                        title="Career standing 55%, Performance Index 30%, current form 15% - all within this scope"
                       >
                         {rate(p.selection_score)}
                       </span>
@@ -287,7 +313,7 @@ export function BestXI() {
                 Each place is scored on career standing in this scope (55%), the Performance Index
                 over the last 15 matches (30%) and current form against the player's own baseline
                 (15%). Career dominates because a best side is not the same as the side in the best
-                touch — but form still moves a player who is badly out of nick. Roles are
+                touch - but form still moves a player who is badly out of nick. Roles are
                 <em> inferred</em>: batter, bowler and all-rounder from balls faced versus bowled,
                 openers from who faces the first ball, and the keeper from stumpings, because only a
                 keeper can take one.

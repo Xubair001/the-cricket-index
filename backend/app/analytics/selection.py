@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session
 from ..models import Competition, Delivery, Match, PlayerMatchStat, Team
 from ..names import preferred_name
 from ..models import Player
-from . import config, explorer, form as form_mod, performance_index as pi
+from . import config, scout, explorer, form as form_mod, performance_index as pi
 
 # The shape a side is picked to. Deliberately a *minimum* per role with the
 # remainder open, rather than a rigid quota: a side with three genuine
@@ -75,11 +75,22 @@ OPENERS_WANTED = 2
 # Below this a player has not played enough in the scope to be picked on it.
 MIN_MATCHES = 8
 
+# What the selector still cannot guarantee. Handedness and bowling type moved
+# OFF this list when the ICC squad feed was read for them, but only partly:
+# they are known for the players who appear in a squad announcement, which is
+# most current internationals and few historical or franchise-only players.
+# They are therefore REPORTED per pick and summarised as a balance note, and
+# deliberately NOT enforced as a quota - filling a seam/spin shape on partial
+# coverage would systematically prefer players who happen to have squad data
+# over better players who do not, which is a selection bias dressed as balance.
 UNAVAILABLE = {
-    "handedness": "No source carries batting or bowling hand, so a left-right "
-                  "opening pair cannot be requested (Tier C).",
-    "bowling_type": "No pace/spin source exists, so the attack cannot be "
-                    "balanced between seam and spin (Tier C).",
+    "handedness": "Batting hand is sourced from ICC squad announcements, so it "
+                  "is known for most current internationals and unknown for "
+                  "much of the rest. A left-right opening pair is reported "
+                  "where both hands are known, never enforced.",
+    "bowling_type": "Bowling style has the same partial coverage, so the "
+                    "seam/spin split of the attack is reported rather than "
+                    "selected for.",
     "availability": "No squad lists per fixture, so nobody here is checked "
                     "against injury, contract or selection (Tier C).",
 }
@@ -92,6 +103,10 @@ class Pick:
     role: str                    # inferred
     slot: str                    # what they were picked as
     is_wicketkeeper: bool
+    # How the keeper was identified: 'squad' (ICC named them one), 'stumping'
+    # (they took one, which nobody else can), or None for a non-keeper. A
+    # sourced role beats our inference and is preferred where both exist.
+    keeper_source: str | None
     opens: bool
     matches: int
     index: float | None          # Performance Index within the scope
@@ -100,8 +115,12 @@ class Pick:
     recent_mean: float | None    # absolute standard, par units
     selection_score: float
     reason: str
+    # Sourced from ICC squad announcements where the player appears in one,
+    # else None. Never inferred: there is no way to guess a batting hand.
+    batting_style: str | None = None
+    bowling_family: str | None = None
     # The national side they represent, resolved from appearances exactly as
-    # every other surface does — never from players.nationality.
+    # every other surface does - never from players.nationality.
     country: str | None = None
     country_code: str | None = None
 
@@ -233,6 +252,7 @@ def select_side(
 
     career = _career_standing(db, gender, competition_key, competition_type)
     keepers = _keepers(db, gender, competition_key, competition_type)
+    sourced = scout._sourced_attributes(db)
     openers = _openers(db, gender, competition_key, competition_type)
 
     # Who is eligible, and their volume in this scope.
@@ -273,7 +293,16 @@ def select_side(
         role = explorer.discipline(bf or 0, bb or 0)
         if role == "unknown":
             continue
-        is_keeper = pid in keepers
+        attrs = sourced.get(pid) or {}
+        # A sourced keeper role beats our stumping inference, and reaches
+        # keepers who simply never stumped in this scope - the one case the
+        # stumping rule was known to miss.
+        if attrs.get("role") == "Wicket Keeper":
+            is_keeper, keeper_source = True, "squad"
+        elif pid in keepers:
+            is_keeper, keeper_source = True, "stumping"
+        else:
+            is_keeper, keeper_source = False, None
         verdict = form_mod.assess(
             db, pid, competition_key=competition_key, competition_type=competition_type
         )
@@ -300,6 +329,7 @@ def select_side(
                 role=role,
                 slot="",
                 is_wicketkeeper=is_keeper,
+                keeper_source=keeper_source,
                 opens=openers.get(pid, 0) >= config.OPENER_MIN_INNINGS,
                 matches=matches,
                 index=rating.index,
@@ -308,6 +338,8 @@ def select_side(
                 recent_mean=verdict.recent_mean,
                 selection_score=round(score, 2),
                 reason="",
+                batting_style=attrs.get("batting_style"),
+                bowling_family=attrs.get("bowling_family"),
                 country=countries.get(pid, (None, None))[0],
                 country_code=countries.get(pid, (None, None))[1],
             )
@@ -350,7 +382,11 @@ def _fill_shape(candidates: list[Pick], size: int) -> list[Pick]:
             break
         if c.is_wicketkeeper and sum(1 for p in chosen if p.slot == "wicketkeeper") < wanted["wicketkeeper"]:
             c.slot = "wicketkeeper"
-            c.reason = "Best available keeper — only a keeper can stump, which is how they are identified."
+            c.reason = (
+                "Best available keeper - named one in an ICC squad."
+                if c.keeper_source == "squad"
+                else "Best available keeper - only a keeper can stump, which is how they are identified."
+            )
             chosen.append(c)
             taken.add(c.player_identifier)
 
@@ -391,8 +427,8 @@ def _notes(picks: list[Pick], size: int) -> list[str]:
     if not any(p.is_wicketkeeper for p in picks):
         notes.append(
             "No wicketkeeper could be identified in this scope, so this side has none. "
-            "A keeper is identified from stumpings and catches; a scope with too little "
-            "cricket carries neither."
+            "A keeper is taken from an ICC squad naming them one, or failing that from "
+            "having taken a stumping; a scope with too little cricket carries neither."
         )
     if sum(1 for p in picks if p.opens) < OPENERS_WANTED:
         notes.append(
@@ -402,6 +438,40 @@ def _notes(picks: list[Pick], size: int) -> list[str]:
     if len(picks) < size:
         notes.append(
             f"Only {len(picks)} players clear the minimum of {MIN_MATCHES} matches in this scope."
+        )
+
+    # Balance is REPORTED, never selected for. Coverage of hand and bowling
+    # style is partial, so a quota would prefer players with squad data over
+    # better players without it. Stating the shortfall lets a selector apply
+    # judgement the data cannot.
+    bowlers = [p for p in picks if p.slot in ("bowler", "allrounder")]
+    known_type = [p for p in bowlers if p.bowling_family]
+    if known_type:
+        seam = sum(1 for p in known_type if p.bowling_family == "pace")
+        spin = len(known_type) - seam
+        unknown = len(bowlers) - len(known_type)
+        note = f"Attack: {seam} seam, {spin} spin of {len(bowlers)} bowling picks"
+        note += f", {unknown} with no style on record." if unknown else "."
+        # Only interpret the split when most of it is actually known. An
+        # all-time PSL side is largely players who retired before the squad
+        # feed's window, so "no spinner" would be said of a side containing
+        # Rashid Khan and Sunil Narine. Counts are reported either way; the
+        # conclusion is not drawn from a mostly-blank sample.
+        if spin == 0 and len(known_type) > unknown and len(known_type) >= 2:
+            note += " No spinner among them, which a turning surface would want."
+        notes.append(note)
+
+    top = [p for p in picks if p.opens or p.slot in ("opener", "batter")]
+    known_hand = [p for p in top if p.batting_style]
+    unknown_hand = len(top) - len(known_hand)
+    if (
+        len(known_hand) >= 2
+        and len(known_hand) > unknown_hand
+        and not any(p.batting_style == "LHB" for p in known_hand)
+    ):
+        notes.append(
+            f"Top order is right-handed across the {len(known_hand)} of {len(top)} picks whose hand "
+            "is on record, so there may be no left-right pair to unsettle a bowler's line."
         )
     return notes
 

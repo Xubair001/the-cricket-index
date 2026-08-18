@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import queries, schemas, validation
-from ..analytics import availability as availability_mod, splits as splits_mod, config, form
+from ..analytics import availability as availability_mod, scout as scout_mod, splits as splits_mod, config, form
 from ..analytics import leaderboard as form_board
 from ..database import get_db
 
@@ -137,6 +137,60 @@ def player_form(
         competition_type=validation.check_competition_type(db, competition_type),
     )
     return schemas.FormVerdict(**verdict.as_dict())
+
+
+@router.get("/scout", response_model=schemas.ScoutResult)
+def scout_search(
+    gender: str = Query(pattern="^(male|female)$"),
+    competition: str | None = Query(default=None),
+    competition_type: str | None = Query(default="international"),
+    role: str | None = Query(default=None),
+    batting_style: str | None = Query(default=None, pattern="^(RHB|LHB)$"),
+    bowling_family: str | None = Query(default=None, pattern="^(pace|spin)$"),
+    max_age: int | None = Query(default=None, ge=15, le=60),
+    min_matches: int = Query(default=10, ge=1, le=500),
+    form_state: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    exclude_committed: bool = Query(default=False),
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> schemas.ScoutResult:
+    """Run a scouting brief and return ranked, explained candidates (§17).
+
+    The response declares `applied` and `ignored` because §17's own warning is
+    that shipping this early means "a filter that quietly ignores half the
+    brief". A constraint that cannot be honoured is named with its reason.
+
+    Age is a SOFT bound: date of birth covers about 42% of the register, so
+    players of unknown age are kept and counted rather than dropped.
+    """
+    result = scout_mod.search(
+        db,
+        gender=gender,
+        competition_key=validation.check_competition_key(db, competition),
+        competition_type=validation.check_competition_type(db, competition_type),
+        role=role,
+        batting_style=batting_style,
+        bowling_family=bowling_family,
+        max_age=max_age,
+        min_matches=min_matches,
+        form_state=form_state,
+        date_from=date_from,
+        date_to=date_to,
+        exclude_committed=exclude_committed,
+        limit=limit,
+    )
+    return schemas.ScoutResult(
+        scope=result.scope,
+        gender=result.gender,
+        candidates_considered=result.candidates_considered,
+        with_sourced_attributes=result.with_sourced_attributes,
+        unknown_age=result.unknown_age,
+        applied=result.applied,
+        ignored=result.ignored,
+        candidates=[schemas.ScoutCandidate(**vars(c)) for c in result.candidates],
+    )
 
 
 @router.get("/availability", response_model=schemas.AvailabilityWindow)

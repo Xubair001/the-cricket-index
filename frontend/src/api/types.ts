@@ -695,7 +695,7 @@ export interface InningsIntelligence {
 export interface MatchIntelligence {
   match_id: string
   innings: InningsIntelligence[]
-  /** What §22 defers, with the reason — a missing feature, not a missing figure. */
+  /** What §22 defers, with the reason - a missing feature, not a missing figure. */
   deferred: Record<string, string>
 }
 
@@ -708,6 +708,8 @@ export interface SelectionPick extends PlayerCountry {
   role: string
   slot: string
   is_wicketkeeper: boolean
+  /** 'squad' (ICC named them a keeper), 'stumping' (they took one), or null. */
+  keeper_source: string | null
   opens: boolean
   matches: number
   index: number | null
@@ -716,6 +718,13 @@ export interface SelectionPick extends PlayerCountry {
   recent_mean: number | null
   selection_score: number
   reason: string
+  /** Sourced from ICC squads where present, else null. Never inferred. */
+  batting_style: string | null
+  /**
+   * NOMINAL: the feed records a style for anyone who bowls at all, so a batter
+   * can carry one. Only meaningful on a bowling slot.
+   */
+  bowling_family: string | null
 }
 
 export interface SelectedSide {
@@ -754,18 +763,55 @@ export interface PlayerAvailabilityRow {
   player_identifier: string | null
   player_name: string
   committed: boolean
-  /** Sourced from the squad feed — role, hand and bowling type. */
+  /** Sourced from the squad feed - role, hand and bowling type. */
   role: string | null
   batting_style: string | null
   bowling_style: string | null
   commitments: CommitmentRow[]
 }
 
+export interface ScoutCandidate {
+  player_identifier: string
+  player_name: string
+  country: string | null
+  country_code: string | null
+  matches: number
+  role: string | null
+  /** True when the role came from a squad list, false when inferred from balls. */
+  role_sourced: boolean
+  batting_style: string | null
+  bowling_style: string | null
+  bowling_family: string | null
+  age: number | null
+  index: number | null
+  /** Already a percentage against the player's own baseline, not a ratio. */
+  form_delta: number | null
+  form_state: string | null
+  recent_mean: number | null
+  committed_in_window: boolean | null
+  score: number
+  reason: string
+}
+
+export interface ScoutResult {
+  scope: string
+  gender: ApiGender
+  candidates_considered: number
+  /** How many of those carry any sourced attribute - the ceiling on a hand or style filter. */
+  with_sourced_attributes: number
+  unknown_age: number
+  /** Constraints honoured, keyed by name. */
+  applied: Record<string, string>
+  /** Constraints that could NOT be honoured, with the reason. */
+  ignored: Record<string, string>
+  candidates: ScoutCandidate[]
+}
+
 export interface AvailabilityWindow {
   date_from: string
   date_to: string
   fixtures_in_window: number
-  /** How much of the window is actually known — absence means nothing below this. */
+  /** How much of the window is actually known - absence means nothing below this. */
   fixtures_with_squads: number
   players: PlayerAvailabilityRow[]
   caveats: Record<string, string>

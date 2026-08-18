@@ -21,12 +21,12 @@ import {
  * The page is built around an asymmetry that governs the whole feature:
  * **committed is sourced, available is not.** A player named in a squad is a
  * fact from ICC's feed. A player absent from every squad is not evidence of
- * anything, because squads are announced a few weeks out — so most fixtures in
+ * anything, because squads are announced a few weeks out - so most fixtures in
  * a forward window have none published.
  *
  * That is why this page never shows a list called "available players". It shows
- * commitments, and it puts the coverage figure — how many fixtures in the window
- * actually have a squad — above the results rather than in a footnote. A scout
+ * commitments, and it puts the coverage figure - how many fixtures in the window
+ * actually have a squad - above the results rather than in a footnote. A scout
  * reading "142 free players" from an empty squad table would be badly misled.
  */
 
@@ -110,7 +110,7 @@ export function Availability() {
       <PageHeader
         eyebrow="Fixtures"
         title="Player Availability"
-        blurb="Who is committed to international cricket in a window — from announced squads, not inferred from recent appearances."
+        blurb="Who is committed to international cricket in a window - from announced squads, not inferred from recent appearances."
       />
 
       <div className="flex flex-wrap items-end gap-3">
@@ -192,7 +192,7 @@ export function Availability() {
 
           <Provenance>
             Squads come from the ICC scorecard feed, which carries a full squad for a fixture that
-            has not been played — including each player's role, batting hand and bowling style.
+            has not been played - including each player's role, batting hand and bowling style.
             Those three were listed as unavailable in this project until this feed was read for
             them. Names are linked to a player profile where they resolve confidently; about one in
             five do not, and those still appear because the commitment is real either way.
@@ -229,15 +229,15 @@ function PlayerRow({ p, slug }: { p: PlayerAvailabilityRow; slug: string }) {
         )}
       </div>
 
-      <span className="w-28 shrink-0 text-right text-xs text-muted">{p.role ?? '—'}</span>
+      <span className="w-28 shrink-0 text-right text-xs text-muted">{p.role ?? '-'}</span>
       <span className="w-16 shrink-0 text-right font-mono text-[11px] text-muted" title="Batting hand, from the squad feed">
-        {p.batting_style ?? '—'}
+        {p.batting_style ?? '-'}
       </span>
       <span
         className="w-20 shrink-0 text-right font-mono text-[11px] text-muted"
         title={p.bowling_style ? `Bowling style: ${p.bowling_style}` : 'No bowling style recorded'}
       >
-        {p.bowling_style ?? '—'}
+        {p.bowling_style ?? '-'}
         {family && <span className="ml-1 text-dim">{family === 'spin' ? 'sp' : 'pc'}</span>}
       </span>
       <span className="tnum w-24 shrink-0 text-right text-sm text-ink">
