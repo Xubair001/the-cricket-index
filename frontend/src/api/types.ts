@@ -816,3 +816,147 @@ export interface AvailabilityWindow {
   players: PlayerAvailabilityRow[]
   caveats: Record<string, string>
 }
+
+/* ── News ──────────────────────────────────────────────────────
+ * A fourth source family beside Cricsheet, computed rankings and ICC's
+ * published figures. Nothing here feeds a derived figure: an article is
+ * editorial copy, and the separation is the same one the backend keeps. */
+
+export interface NewsImage {
+  url: string
+  width: number | null
+  height: number | null
+  alt_text: string | null
+  caption: string | null
+  credit: string | null
+  role?: string
+  image_type?: string | null
+}
+
+/**
+ * What we are entitled to show, which is not the same as what we hold.
+ *
+ * 'full'          body is servable
+ * 'extract'       a capped snippet plus a link out
+ * 'metadata_only' headline, standfirst and hero image; there is no body
+ */
+export type NewsContentPolicy = 'full' | 'extract' | 'metadata_only'
+
+export interface NewsArticleSummary {
+  article_id: number
+  title: string
+  standfirst: string | null
+  /** The publisher's canonical URL. Always link out to this - we do not re-host. */
+  url: string
+  published_at: string | null
+  updated_at: string | null
+  section: string | null
+  word_count: number
+  source: string
+  publisher: string
+  content_policy: NewsContentPolicy
+  /** Credit line the UI must render. The Guardian's licence requires it. */
+  attribution: string | null
+  /** True when the body shown is capped, so a short read is never mistaken for a whole one. */
+  body_truncated: boolean
+  /** Non-null means this body republishes another article already held. */
+  syndication_of_article_id: number | null
+  image: NewsImage | null
+}
+
+export interface PaginatedNews {
+  total: number
+  limit: number
+  offset: number
+  items: NewsArticleSummary[]
+}
+
+export interface NewsTag {
+  kind: string
+  value: string
+  slug: string
+}
+
+/**
+ * A resolved link to a player, team or competition.
+ *
+ * `confidence` is displayed rather than hidden. 'tag_dob' is a publisher tag
+ * whose date of birth matched a player we hold; 'body_name_men_default' is a
+ * team name matched with the gender defaulted because nothing in the text
+ * established one.
+ */
+export interface NewsEntity {
+  type: 'player' | 'team' | 'competition'
+  mention: string
+  confidence: string
+  player_identifier: string | null
+  player_name: string | null
+  team_id: number | null
+  team_name: string | null
+  competition_id: number | null
+  competition_name: string | null
+}
+
+export interface NewsArticleMetadata {
+  meta_title: string | null
+  meta_description: string | null
+  schema_type: string | null
+  open_graph: Record<string, unknown>
+  twitter: Record<string, unknown>
+}
+
+export interface NewsSyndication {
+  article_id: number
+  source: string
+  url: string
+}
+
+export interface NewsArticleDetail extends NewsArticleSummary {
+  body_text: string | null
+  body_html: string | null
+  authors: string[]
+  tags: NewsTag[]
+  entities: NewsEntity[]
+  images: NewsImage[]
+  metadata: NewsArticleMetadata | null
+  syndications: NewsSyndication[]
+}
+
+export interface NewsSourceInfo {
+  key: string
+  name: string
+  home_url: string | null
+  strategy: string
+  content_policy: NewsContentPolicy
+  attribution: string | null
+  /** Why this source is read the way it is, or why it is switched off. */
+  policy_note: string | null
+  enabled: boolean
+  last_synced_at: string | null
+  articles: number
+}
+
+export interface NewsSourceHealth {
+  source: string
+  articles: number
+  latest: string | null
+  with_hero: number
+  linked_players: number
+}
+
+export interface NewsDegradedFeed {
+  source: string
+  feed: string
+  failures: number
+  last_status: number | null
+  last_fetched_at: string | null
+}
+
+export interface NewsHealth {
+  /** Ingestion ledger by status: stored, unchanged, invalid, failed, skipped. */
+  ledger: Record<string, number>
+  sources: NewsSourceHealth[]
+  degraded_feeds: NewsDegradedFeed[]
+  syndicated: number
+  entity_links: Record<string, number>
+}

@@ -173,7 +173,7 @@ def best_side(
     size: int = Query(default=11, ge=11, le=15),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
-    team_id: int | None = Query(default=None),
+    team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     db: Session = Depends(get_db),
 ) -> schemas.SelectedSide:
     """Best XI or XV for a scope (§18).

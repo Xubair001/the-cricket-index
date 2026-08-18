@@ -37,10 +37,10 @@ def compare_players(
 @router.get("/directory", response_model=schemas.PlayerDirectory)
 def player_directory(
     gender: str = Query(pattern="^(male|female)$"),
-    search: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=validation.MAX_SEARCH_LENGTH),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
-    team_id: int | None = Query(default=None),
+    team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     min_matches: int = Query(default=1, ge=1, le=500),
     min_balls_faced: int = Query(default=0, ge=0),
     min_balls_bowled: int = Query(default=0, ge=0),
@@ -95,7 +95,7 @@ def player_directory(
 @router.get("", response_model=schemas.PaginatedPlayers)
 def list_players(
     gender: str = Query(pattern="^(male|female)$"),
-    search: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=validation.MAX_SEARCH_LENGTH),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -126,7 +126,7 @@ def player_form(
     record -- Rule 3 -- and is the expensive half.
     """
     if queries.get_player_detail(db, identifier) is None:
-        raise HTTPException(status_code=404, detail=f"player '{identifier}' not found")
+        raise HTTPException(status_code=404, detail=f"player '{validation.echo(identifier)}' not found")
 
     verdict = form.assess(
         db,
@@ -260,7 +260,7 @@ def player_splits(
     if split not in splits_mod.AVAILABLE:
         raise HTTPException(
             status_code=422,
-            detail=f"unknown split '{split}'; available: {sorted(splits_mod.AVAILABLE)}",
+            detail=f"unknown split '{validation.echo(split)}'; available: {sorted(splits_mod.AVAILABLE)}",
         )
     key = validation.check_competition_key(db, competition)
     result = splits_mod.compute(
@@ -287,5 +287,5 @@ def player_detail(identifier: str, db: Session = Depends(get_db)) -> schemas.Pla
     # resolve, unlike team names.
     detail = queries.get_player_detail(db, identifier)
     if detail is None:
-        raise HTTPException(status_code=404, detail=f"player '{identifier}' not found")
+        raise HTTPException(status_code=404, detail=f"player '{validation.echo(identifier)}' not found")
     return detail

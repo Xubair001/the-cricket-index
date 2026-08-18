@@ -108,11 +108,33 @@ cd ingestion
 python starter.py tests   # or: odis, t20is, psl
 python starter.py icc     # ICC's official rankings
 python starter.py enrich  # player bios from Wikidata
-python schedule.py        # register the daily ICC refresh
+python starter.py news    # sports news from every enabled publisher
+python starter.py news:guardian   # one publisher (guardian|icc|skysports|espncricinfo)
+python schedule.py        # register the daily ICC refresh and the 3-hourly news sync
 ```
 
 Re-running is cheap: each match is content-hashed, so unchanged matches are
-skipped rather than re-parsed.
+skipped rather than re-parsed. News works the same way, keyed on a hash of
+what was extracted rather than of the page.
+
+### News sources
+
+Four publishers, each read through the most structured mechanism that works
+for it: the Guardian Open Platform API, the ICC's Google News sitemap plus
+JSON-LD, Sky Sports RSS plus JSON-LD, and ESPNcricinfo's RSS alone (their
+article pages return an Akamai 403 to any non-browser client). The BBC and
+Cricbuzz are registered and **disabled** on publisher policy, with the reason
+recorded and served from `/api/news/sources`.
+
+Set `GUARDIAN_API_KEY` for your own key; it falls back to their open `test`
+key, which is rate limited to 720/min and 50,000/day.
+
+Check the archive against what should be true of it:
+
+```bash
+cd backend && python -m scripts.validate_news          # add --strict to gate a deploy
+cd ingestion && python test_news_sources.py            # extraction unit tests
+```
 
 ## Contributing
 

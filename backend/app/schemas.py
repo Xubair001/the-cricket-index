@@ -885,3 +885,134 @@ class PlayerDirectory(BaseModel):
     offset: int
     scope: str
     items: list[DirectoryPlayer]
+
+
+# ---------------------------------------------------------------------------
+# News
+# ---------------------------------------------------------------------------
+
+
+class NewsImage(BaseModel):
+    url: str
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = None
+    caption: str | None = None
+    credit: str | None = None
+    role: str = "hero"
+    image_type: str | None = None
+
+
+class NewsArticleSummary(BaseModel):
+    article_id: int
+    title: str
+    standfirst: str | None
+    url: str
+    published_at: str | None
+    updated_at: str | None
+    section: str | None
+    word_count: int
+    source: str
+    publisher: str
+    # Carried on every row, not just capped ones, so a client can always tell
+    # a short article from a trimmed one.
+    content_policy: str
+    attribution: str | None
+    body_truncated: bool = False
+    # Non-null means this body duplicates another article in the archive.
+    syndication_of_article_id: int | None = None
+    image: NewsImage | None = None
+
+
+class PaginatedNews(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[NewsArticleSummary]
+
+
+class NewsTag(BaseModel):
+    kind: str
+    value: str
+    slug: str
+
+
+class NewsEntity(BaseModel):
+    """A link to a player, team or competition, with how it was resolved.
+
+    `confidence` is displayed, not hidden: 'tag_dob' is a publisher tag whose
+    date of birth matched, and 'body_name_men_default' is a team name matched
+    with the gender defaulted because nothing in the text established one.
+    """
+
+    type: str
+    mention: str
+    confidence: str
+    player_identifier: str | None = None
+    player_name: str | None = None
+    team_id: int | None = None
+    team_name: str | None = None
+    competition_id: int | None = None
+    competition_name: str | None = None
+
+
+class NewsArticleMetadata(BaseModel):
+    meta_title: str | None = None
+    meta_description: str | None = None
+    schema_type: str | None = None
+    open_graph: dict = {}
+    twitter: dict = {}
+
+
+class NewsSyndication(BaseModel):
+    article_id: int
+    source: str
+    url: str
+
+
+class NewsArticleDetail(NewsArticleSummary):
+    body_text: str | None = None
+    body_html: str | None = None
+    authors: list[str] = []
+    tags: list[NewsTag] = []
+    entities: list[NewsEntity] = []
+    images: list[NewsImage] = []
+    metadata: NewsArticleMetadata | None = None
+    syndications: list[NewsSyndication] = []
+
+
+class NewsSourceInfo(BaseModel):
+    key: str
+    name: str
+    home_url: str | None
+    strategy: str
+    content_policy: str
+    attribution: str | None
+    policy_note: str | None
+    enabled: bool
+    last_synced_at: str | None
+    articles: int
+
+
+class NewsSourceHealth(BaseModel):
+    source: str
+    articles: int
+    latest: str | None
+    with_hero: int
+    linked_players: int
+
+
+class NewsDegradedFeed(BaseModel):
+    source: str
+    feed: str
+    failures: int
+    last_status: int | None
+    last_fetched_at: str | None
+
+
+class NewsHealth(BaseModel):
+    ledger: dict[str, int]
+    sources: list[NewsSourceHealth]
+    degraded_feeds: list[NewsDegradedFeed]
+    syndicated: int
+    entity_links: dict[str, int]

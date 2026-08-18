@@ -15,11 +15,27 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import cache
+
 from ..models import Player
 from ..names import preferred_name
 from . import config, form
 
 _cache: dict[tuple, list[dict]] = {}
+_cache_version: tuple | None = None
+
+
+def _cache_stale(db: Session) -> bool:
+    """True when the ingester has committed since this module last built."""
+    global _cache_version
+    # `cache.generation` and not `cache.data_version`: the raw counter also moves
+    # on a WAL checkpoint, which would drop this cache several times a minute
+    # while the ingestion worker is up and nothing had actually changed.
+    current = cache.generation(db)
+    if _cache_version != current:
+        _cache_version = current
+        return True
+    return False
 
 
 def invalidate() -> None:
@@ -107,6 +123,10 @@ def leaderboard_page(
         scope = config_default_scope()
 
     key = (gender, competition_key, scope)
+    # Drop every board when the ingester commits: a form verdict built from the
+    # old snapshot would otherwise be served until the process restarts.
+    if _cache_stale(db):
+        _cache.clear()
     if key not in _cache:
         _cache[key] = _build(
             db,

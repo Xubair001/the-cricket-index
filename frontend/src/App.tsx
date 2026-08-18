@@ -14,6 +14,8 @@ import { IccRankings } from './pages/IccRankings'
 import { MatchDetail } from './pages/MatchDetail'
 import { MatchIntelligence } from './pages/MatchIntelligence'
 import { Matches } from './pages/Matches'
+import { News } from './pages/News'
+import { NewsArticle } from './pages/NewsArticle'
 import { PlayerDetail } from './pages/PlayerDetail'
 import { Players } from './pages/Players'
 import { Rankings } from './pages/Rankings'
@@ -54,6 +56,8 @@ function App() {
           <Route path="icc-rankings" element={<IccRankings />} />
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />
+          <Route path="news" element={<News />} />
+          <Route path="news/:articleId" element={<NewsArticle />} />
           <Route path="availability" element={<Availability />} />
           <Route path="scout" element={<Scout />} />
           <Route path="teams" element={<Teams />} />

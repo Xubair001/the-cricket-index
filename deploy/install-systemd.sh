@@ -2,8 +2,11 @@
 #
 # Supervise the ingestion stack with systemd user units.
 #
-# Why this exists: the daily Temporal schedule can only fire while the Temporal
-# server AND the worker are both running. Started by hand in a terminal they die
+# Why this exists: a Temporal schedule can only fire while the Temporal server
+# AND the worker are both running. There are two - `icc-daily-sync` at 06:00
+# and `news-sync` every three hours - and the news one makes this sharper, not
+# softer: eight windows a day means eight silent misses a day, and a news feed
+# that is a day stale is visibly wrong in a way a ranking snapshot is not. Started by hand in a terminal they die
 # with the session, and the schedule then skips silently -- it fired on 13 and 14
 # August 2026 and missed the 15th and 16th for exactly that reason. A missed run
 # leaves no error anywhere; the data just quietly stops being daily.
@@ -64,6 +67,12 @@ Requires=cricket-temporal.service
 Type=simple
 WorkingDirectory=$PROJECT_ROOT/ingestion
 ExecStart=$VENV_PY -u worker.py
+# systemd user units do NOT inherit the shell environment, so anything the
+# worker reads from os.environ has to be named here or it silently takes its
+# default. GUARDIAN_API_KEY falling back to their open `test` key is the one
+# that bites: it works, so nothing fails, it just runs the Guardian leg on a
+# shared key. Set these in ~/.config/cricket-index.env; the file is optional.
+EnvironmentFile=-%h/.config/cricket-index.env
 Restart=always
 RestartSec=5
 # The server needs a moment to accept connections after a cold start; without
@@ -82,10 +91,19 @@ echo
 echo "  status:  systemctl --user status cricket-worker"
 echo "  logs:    journalctl --user -u cricket-worker -f"
 echo
+echo "  Optional worker environment (create if you need it):"
+echo "    ~/.config/cricket-index.env"
+echo "      GUARDIAN_API_KEY=your-key      # defaults to their open 'test' key"
+echo "      NEWS_IMAGE_PROBE=1             # measure image dimensions no source declares"
+echo "      NEWS_USER_AGENT=...            # identify this crawler to publishers"
+echo
+echo "  Register both schedules once the worker is up:"
+echo "    cd $PROJECT_ROOT/ingestion && $VENV_PY schedule.py"
+echo
 if [[ "$(loginctl show-user "$USER" --property=Linger --value 2>/dev/null)" != "yes" ]]; then
   cat <<'NOTE'
-NOTE: linger is off, so these stop when you log out and the 06:00 schedule will
-still miss days on a machine you do not stay logged into. Enable it with:
+NOTE: linger is off, so these stop when you log out and both schedules will
+still miss windows on a machine you do not stay logged into. Enable it with:
 
     sudo loginctl enable-linger $USER
 

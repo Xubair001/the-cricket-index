@@ -95,6 +95,9 @@ def _get_or_create_season(conn: sqlite3.Connection, competition_id: int, label: 
     return row[0]
 
 
+# Ceiling on a single match's uncompressed JSON. See the note in `ingest_match`.
+MAX_MATCH_JSON_BYTES = 16 * 1024 * 1024
+
 @activity.defn
 async def download_archive(competition: str) -> DownloadResult:
     """Fetches the competition's zip archive, refreshing it when Cricsheet has
@@ -166,7 +169,24 @@ async def download_archive(competition: str) -> DownloadResult:
 async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
     try:
         with zipfile.ZipFile(input.archive_path) as z:
-            raw_bytes = z.read(f"{input.match_id}.json")
+            # Check the declared uncompressed size BEFORE reading. `z.read`
+            # decompresses into memory with no bound, so a crafted entry that
+            # expands from a few kB to gigabytes takes the worker down with an
+            # OOM rather than an error. The archive comes from cricsheet.org over
+            # HTTPS, so this is defence in depth rather than a live threat - but
+            # the check is one comparison and the failure mode it prevents is a
+            # process kill, not a bad response.
+            #
+            # The bound is ~18x the largest real match (a Test at 892 kB; ODIs
+            # top out near 217 kB), so it cannot reject genuine data.
+            info = z.getinfo(f"{input.match_id}.json")
+            if info.file_size > MAX_MATCH_JSON_BYTES:
+                raise ApplicationError(
+                    f"{input.match_id}.json declares {info.file_size} bytes, "
+                    f"over the {MAX_MATCH_JSON_BYTES} limit; refusing to decompress",
+                    non_retryable=True,
+                )
+            raw_bytes = z.read(info)
     except KeyError as e:
         raise ApplicationError(
             f"{input.match_id}.json not found in {input.archive_path}: {e}",

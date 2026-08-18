@@ -57,11 +57,18 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import cache
 from ..models import Competition, Match, PlayerMatchStat
 from . import config, impact as impact_mod, opposition as opposition_mod
 
 
-@dataclass
+# slots=True: a form board or a Best XI materialises every impact in a scope -
+# 154,400 objects for men's internationals - and a plain dataclass carries a
+# per-instance __dict__ that dominates the cost at that count. Measured at 731
+# bytes and 113 MB held per scope before, which is what kept these maps off the
+# cache. Nothing here needs a dynamic attribute, and the `value` property works
+# unchanged under slots.
+@dataclass(slots=True)
 class MatchImpact:
     """One match in a player's timeline, with its impact decomposed."""
 
@@ -352,6 +359,78 @@ class FormLeader:
         travels with every row so the absolute standard is visible next to it.
         """
         return (self.verdict.delta_absolute or 0.0) * self.verdict.confidence
+
+
+def scope_summary(
+    db: Session,
+    *,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+) -> "ScopeSummary":
+    """Every player's form verdict and career aggregates for one scope, cached.
+
+    Cached at THIS level rather than at `all_timelines`, and the distinction is
+    the whole point. The timeline map is ~154,400 MatchImpact objects and 107 MB
+    for men's internationals - too much to hold per scope. What its consumers
+    actually want is one verdict and a few totals per player, which is ~5,400
+    small objects. So the expensive map is built once, reduced, and dropped.
+
+    Best XI and Scout both needed the same three things from it (the Index,
+    career standing, and a form verdict each) and were each rebuilding it, which
+    is what made them the two slowest endpoints in the API.
+    """
+    return cache.get_or_compute(
+        db,
+        ("form_scope_summary", gender, competition_key, competition_type),
+        lambda: _build_scope_summary(
+            db, gender=gender, competition_key=competition_key,
+            competition_type=competition_type,
+        ),
+    )
+
+
+@dataclass(slots=True)
+class ScopeSummary:
+    """Reduced per-player facts for one scope. Small enough to cache."""
+
+    verdicts: dict[str, FormVerdict]
+    # Mean par-unit value over the player's whole record in this scope, which is
+    # the "good player" term selection weights against the Index's "playing well
+    # now". Kept here so it comes from the same pass as the verdicts.
+    career_mean: dict[str, float]
+    balls: dict[str, tuple[int, int]]   # (faced, bowled), for role inference
+    match_count: dict[str, int]
+
+
+def _build_scope_summary(
+    db: Session,
+    *,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+) -> ScopeSummary:
+    timelines = all_timelines(
+        db, gender=gender, competition_key=competition_key,
+        competition_type=competition_type,
+    )
+    verdicts: dict[str, FormVerdict] = {}
+    career_mean: dict[str, float] = {}
+    balls: dict[str, tuple[int, int]] = {}
+    match_count: dict[str, int] = {}
+    for pid, timeline in timelines.items():
+        if not timeline:
+            continue
+        verdicts[pid] = assess(db, pid, timeline=timeline)
+        career_mean[pid] = sum(m.value for m in timeline) / len(timeline)
+        balls[pid] = (
+            sum(m.balls_faced for m in timeline),
+            sum(m.balls_bowled for m in timeline),
+        )
+        match_count[pid] = len(timeline)
+    return ScopeSummary(
+        verdicts=verdicts, career_mean=career_mean, balls=balls, match_count=match_count
+    )
 
 
 def leaderboard(

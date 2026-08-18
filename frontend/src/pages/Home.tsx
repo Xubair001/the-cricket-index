@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { DashboardStats, FormLeaderRow } from '../api/types'
+import type { DashboardStats, FormLeaderRow, NewsArticleSummary } from '../api/types'
 import { useGender } from '../gender/useGender'
 import { ParMeter } from '../components/ParMeter'
 import { SkeletonRows } from '../components/LoadingSpinner'
 import { Provenance, Uncertain } from '../components/ui'
 import { PlayerName } from '../components/PlayerName'
+import { NewsRow } from '../components/NewsItem'
 
 /**
  * The landing page.
@@ -23,8 +24,17 @@ import { PlayerName } from '../components/PlayerName'
  * particular to this product - par here is fitted against the strength of the
  * opposition, not against a raw average.
  *
- * Every section is a computed entry point into the product. Deliberately not a
- * news feed (§6).
+ * Every section above the fold is a computed entry point into the product. The
+ * news strip at the foot is the one exception and is placed there on purpose.
+ *
+ * §6 originally ruled a news feed out, and the reason was sound: a feed at the
+ * top would make this look like a scores-and-headlines site, which is the one
+ * thing the page exists to say it is not. What changed is that the news is now
+ * ingested with the same separation the rest of the product keeps - it feeds no
+ * derived figure, it is attributed to the masthead that wrote it, and every
+ * headline links out rather than being re-hosted. So it sits BELOW the computed
+ * boards and the dataset counts, reads as a strip rather than a feed, and is
+ * capped at four stories. It is a way out to the sources, not the product.
  */
 
 const ACTIONS = [
@@ -32,6 +42,15 @@ const ACTIONS = [
   { label: 'Compare Players', to: 'compare', hint: 'Two careers side by side' },
   { label: 'Explore Rankings', to: 'rankings', hint: 'Computed from ball-level aggregates' },
   { label: 'ICC Rankings', to: 'icc-rankings', hint: 'Official published ratings' },
+  // Shipped: squad lists come from the ICC scorecard feed, so this is no longer
+  // "soon". The franchise gap is real but belongs ON the page as a caveat - a
+  // disabled button claimed the feature did not exist, when what is limited is
+  // its coverage.
+  {
+    label: 'Find Available Players',
+    to: 'availability',
+    hint: 'From announced international squads; the fixture feed carries no franchise cricket',
+  },
 ]
 
 function TrendGlyph({ trend }: { trend: FormLeaderRow['trend'] }) {
@@ -203,12 +222,63 @@ function FormBoard({
   )
 }
 
+/**
+ * The news strip.
+ *
+ * Four stories, no images bigger than a thumbnail, and every headline an
+ * external link. Sized and placed so it cannot be mistaken for the product:
+ * the boards above are what this site computes, and this is what other people
+ * wrote about the same cricket.
+ *
+ * It renders nothing at all when there is no news rather than showing an empty
+ * shell - an ingestion that has not run yet is not a thing the reader needs to
+ * see on the landing page, and the news page itself says so properly.
+ */
+function NewsStrip({
+  articles,
+  loading,
+  slug,
+}: {
+  articles: NewsArticleSummary[]
+  loading: boolean
+  slug: string
+}) {
+  if (!loading && articles.length === 0) return null
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-card">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border-subtle px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold tracking-tight text-ink">In the cricket press</h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            From the publishers' own feeds. Nothing here feeds any figure on this page.
+          </p>
+        </div>
+        <Link to={`/${slug}/news`} className="text-xs text-analytic-ink hover:underline">
+          All news →
+        </Link>
+      </header>
+
+      {loading ? (
+        <SkeletonRows rows={4} className="p-4" />
+      ) : (
+        <ul className="divide-y divide-border-subtle">
+          {articles.map((a) => (
+            <NewsRow key={a.article_id} article={a} eager />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export function Home() {
   const { slug, apiGender } = useGender()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [inForm, setInForm] = useState<FormLeaderRow[]>([])
   const [rising, setRising] = useState<FormLeaderRow[]>([])
   const [losing, setLosing] = useState<FormLeaderRow[]>([])
+  const [news, setNews] = useState<NewsArticleSummary[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -229,6 +299,25 @@ export function Home() {
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [apiGender])
+
+  // Fetched on its own, not inside the Promise.all above. News comes from four
+  // third parties and is the only thing on this page that can be stale or
+  // absent through no fault of ours; folding it into the same promise would
+  // let a publisher outage blank the form boards.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .news({ gender: apiGender, limit: 4 })
+      .then((page) => {
+        if (!cancelled) setNews(page.items)
+      })
+      .catch(() => {
+        if (!cancelled) setNews([])
       })
     return () => {
       cancelled = true
@@ -268,15 +357,6 @@ export function Home() {
               {a.label}
             </Link>
           ))}
-          <span
-            title="Needs squad lists per fixture, and the fixture feed carries no franchise cricket"
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg border border-dashed border-border-default px-4 py-2 text-sm text-dim"
-          >
-            Find Available Players
-            <span className="rounded bg-warning-dim px-1 py-px font-mono text-[9px] uppercase tracking-[0.08em] text-warning-ink">
-              soon
-            </span>
-          </span>
         </div>
       </section>
 
@@ -321,6 +401,8 @@ export function Home() {
           </div>
         ))}
       </section>
+
+      <NewsStrip articles={news} loading={loading} slug={slug} />
 
       <Provenance>
         Form compares a player against their own preceding 12 months, scoped to international

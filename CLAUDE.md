@@ -777,6 +777,112 @@ huge one - Sharvin Muniandy reached the in-form board at +97% while producing
 **0.70 par units**, below what an average appearance is worth. Every leaderboard
 row carries `recent_mean` so the absolute standard is visible beside the change.
 
+### Caching: `data_version` alone is NOT a data-change signal
+
+`backend/app/cache.py`. Several figures are derived from the whole dataset rather
+than from the rows a request returns - the par table, the fitted opposition
+strengths, the appearance-derived flag map, the two ranking aggregates. Computing
+them per request was the largest cost on the read path, and caching them needs an
+invalidation signal because `ingestion/` writes the same file while the API is up.
+
+Three things about the signal, each found by measuring rather than reasoning:
+
+- **`PRAGMA data_version` is per-connection and NOT comparable across
+  connections.** SQLite documents this, and the obvious implementation - probe
+  whichever pooled session the request holds, compare to one global - was
+  observed reporting **2 and 3 for an unchanged database from two live sessions**,
+  with a plain *read* appearing to bump the counter. A single dedicated
+  connection is used for the probe so every comparison is same-connection.
+- **A WAL checkpoint bumps the counter with no data change**, verified directly:
+  `baseline 2 -> read 2 -> commit 3 -> wal_checkpoint(TRUNCATE) 4`. With the
+  worker up and reader connections coming and going, that was **11 counter
+  changes in 12 seconds of an idle database**, every row count unchanged. The
+  cache threw away good work several times a minute.
+- So the counter only means *look closer*. When it moves, a cheap content
+  signature decides: row counts over `matches`, `player_match_stats`, `players`,
+  `fixture_squads` plus `max(matches.content_hash)` (so a re-parse of existing
+  matches is caught, not just new ones). Sub-10 ms, and it runs only when the
+  counter has already moved. `deliveries` is deliberately excluded - counting
+  4.8M rows costs 50 ms and nothing writes deliveries without writing
+  `player_match_stats` in the same ingest.
+
+Entries are tagged with the **signature**, not the counter, and `MAX_ENTRIES`
+(512, LRU) is a **security control rather than tidiness**: keys include
+caller-controlled values (`team_id` is any 64-bit int, an explorer's filter set is
+effectively open), so an unbounded store lets an anonymous caller mint an entry
+per request until the process dies.
+
+`compute` runs OUTSIDE the lock - holding it across a multi-second aggregate would
+serialise every request behind the first. An earlier version instead *discarded* a
+value if anything committed while it was being computed, which starved exactly the
+cases that needed caching: the all-round board takes ~3 s to build, the worker
+commits inside that window, and the result was thrown away every single time.
+
+`impact`, `opposition`, `performance_index` and `leaderboard` keep their own dicts
+but compare against `cache.generation()`, which applies the same confirmed rule.
+Before this they had **no invalidation at all** - an ingest mid-session was served
+stale figures until someone restarted the process.
+
+### The N+1s were in the analytics, not the ORM
+
+Measured, with query counts:
+
+- **Best XI: 3,159 queries, 9.0 s.** `form.assess` issues a query per player when
+  called without a prefetched timeline, and `selection.py` was calling it in a
+  loop over 3,145 candidates - while already holding the whole timeline map it
+  needed, and throwing it away. `all_timelines` had existed for exactly this.
+- **Scout: 1,814 queries, 5.9 s**, same cause.
+- **`_hydrate_match_summary`: two queries per match**, so a 25-row match list was
+  51 round trips and the 100-row page the API allows was 201. Individually cheap
+  enough to hide - both tables are small and the identity map absorbs repeats -
+  which is why it survived. `_hydrate_match_summaries` does a page in two.
+
+Batching alone took Best XI to 14 queries but only 13.8 s -> 9.7 s, because the
+cost had never been the round trips: it was building **154,400 MatchImpact objects,
+107 MB, per scope, twice**. `form.scope_summary` reduces that map to the ~5,400
+per-player facts its consumers actually want (one verdict, career mean, ball
+counts) and caches *those*. Caching the timelines themselves was measured and
+rejected at 107 MB per scope across ~14 scopes.
+
+`MatchImpact` gained `slots=True` while investigating this. It is worth keeping and
+it is not the win: 731 -> 691 bytes per object. The nested `Impact` dominates.
+
+### SQLite is tuned for an analytical read replica, not for OLTP
+
+`backend/app/database.py`. The defaults are wrong for a 645 MB file whose every
+board is a GROUP BY over a large scan: `cache_size` was 2 MB, `mmap_size` 0, and
+`temp_store` spilled sorts to disk files. Now 128 MB, 256 MB and MEMORY. These are
+ceilings rather than allocations, so a process serving small queries pays nothing.
+
+**Indexes were measured and mostly not added.** A composite `matches(gender,
+competition_id)` removed an `AUTOMATIC PARTIAL COVERING INDEX` from two hot plans
+and changed wall time by nothing (1.74 s vs 1.74 s; 0.29 s vs 0.28 s) - the
+planner does not choose it for a full aggregate, which is correct. It was dropped
+rather than kept for the write cost. The existing note in `schema.sql` about
+gender-prefixed indexes on `matches` stands and was honoured: re-measure before
+adding one.
+
+### A warmup has to warm the keys REQUESTS use
+
+`backend/main.py`. Cold, the Performance Index board is 6.7 s, the form boards
+3.3 s, the all-round explorer 1.8 s; warm, all three are under 5 ms. Without a
+warmup the first visitor after every restart pays the cold number, so the default
+scopes are built in a daemon thread at startup (`CRICKET_INDEX_WARM_CACHE=0` to
+skip).
+
+Two failed attempts are worth not repeating:
+
+- Warming with `competition_type="international"` where the routers pass **None**
+  (and vice versa) populates keys nothing reads. The routers resolve the default
+  further down, so the cache key is whatever the *request path* produces - which
+  is `international` for rankings and the Index, and the router's per-discipline
+  `min_balls` for the explorers, not `ExplorerFilters`' own default of 0. Verified
+  by diffing cache keys after a warmup against keys created by real requests.
+- Driving the real routes with `TestClient` from the warmup thread **deadlocked
+  the server on startup** - it runs the ASGI app in its own event-loop portal, and
+  doing that inside a process already serving the same app hung it before it
+  answered anything. A warmup must never be able to take the server down.
+
 ### Rankings are computed in Python, not SQL, after a GROUP BY
 
 `backend/app/queries.py`'s `_batting_aggregate_rows` / `_bowling_aggregate_rows`
@@ -860,6 +966,65 @@ team table's "United States of America"). Afghanistan was missing from
 `COUNTRY_CODES` altogether until this shipped: it has no side in the Cricsheet
 archive, so only the ICC feed ever referenced it.
 
+### Security posture: what was fixed, and what is deliberately absent
+
+Audited by probing the running API, not by reading it. The full probe set lives in
+the history; what matters is which findings were real.
+
+**SQL injection is not reachable.** Every query goes through SQLAlchemy with bound
+parameters, and `competition` / `competition_type` / `team_type` are validated
+against the `competitions` and `teams` tables rather than interpolated. Injection
+strings in `search`, `competition`, the venue `:path` route, `match_id` and
+`identifier` all returned clean 200/404/422. Path traversal on the `:path` route
+(`../../../etc/passwd` and its encodings) 404s: the value is a lookup key, never a
+filesystem path, and nothing in the API opens a file from a request.
+
+**Three real findings, all fixed:**
+
+- **Two anonymous 500s.** `GET /api/teams/999999999999999999999` raised
+  `OverflowError: Python int too large to convert to SQLite INTEGER`, and a
+  100k-character `search` raised `OperationalError: LIKE or GLOB pattern too
+  complex`. A 500 is an unhandled path, and both were one request from any
+  caller. Int ids are now bounded by `validation.MAX_DB_INT` (SQLite's signed
+  64-bit ceiling) and search strings by `MAX_SEARCH_LENGTH`; both now 422.
+- **Error messages were a 1:1 reflector.** Naming the bad value is what makes a
+  422 useful, but the value was echoed in full - 100 KB of junk in `competition`
+  produced a **100,086-byte response**. `validation.echo` clips to 60 characters
+  (now 164 bytes), and a real typo still gets the helpful message.
+- **The cache was an unbounded store keyed partly on caller input.** See the
+  caching section: `MAX_ENTRIES` with LRU eviction is the fix.
+
+**Hardening added:** `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy:
+no-referrer` on every response, and a catch-all handler that returns a generic
+500 body so no query, path or driver message can leak regardless of Starlette's
+`debug` setting. No CSP: it governs what a *document* may load and this API
+returns no documents - the SPA's CSP belongs wherever the built frontend is served.
+
+**Ingestion:** there is no `extractall` anywhere, so zip-slip does not apply, but
+`z.read` decompressed without a bound - a crafted entry expanding to gigabytes
+would OOM the worker rather than error. `MAX_MATCH_JSON_BYTES` (16 MB) is checked
+against the declared size first; that is ~18x the largest real match (a Test at
+892 kB, ODIs near 217 kB) so it cannot reject genuine data. Defence in depth,
+since the archive is Cricsheet's over HTTPS. No `pickle`, `eval`, `exec` or shell
+execution exists in either component, and every outbound URL is a hardcoded
+constant, so there is no SSRF surface.
+
+**`ICC_CLIENT_ID` is not a secret** despite matching every secret-scanner pattern.
+It is the public client id ICC's own site sends from browser JavaScript to a public
+CDN. It is documented as such in place so nobody "fixes" it by adding a config step
+that protects nothing. `pip-audit` and `npm audit` both report zero known
+vulnerabilities.
+
+**Deliberately absent, and why:** there is no authentication and no rate limiting.
+Everything binds `127.0.0.1` - the API, Vite, and Temporal's dev server - so
+nothing is network-reachable, CORS is restricted to the Vite origin, and
+`allow_methods=["GET"]` means POST and DELETE return 405. The data is public
+cricket records and the API is read-only. **Both assumptions break the moment
+anything is bound to a public interface**, and the cold-path costs documented above
+(seconds of CPU on an unwarmed scope) are what a rate limiter would exist to
+protect. `/docs`, `/redoc` and `/openapi.json` are open for the same reason and
+should be reconsidered together with the above, not separately.
+
 ### The frontend is light-first with dark as a peer, and semantic colour has two tiers
 
 `frontend/src/index.css` defines both palettes as `--color-*` tokens, so every
@@ -899,3 +1064,233 @@ a hairline at 1.00 with the bar growing away from it. Its scale tops out at
 **3.0, not 2.0** - the in-form board routinely returns 2.0–3.0 par units, and at
 a ceiling of 2 every one of those rows drew an identical full bar, which is the
 one thing the meter exists to prevent.
+
+### News is a fourth source family, and the extraction route is per publisher
+
+`ingestion/news_sources.py` (pure) and `ingestion/news_activities.py` (I/O and
+writes), the same split `enrichment.py`/`activities.py` already uses. Four
+publishers, each read through the most structured mechanism that actually
+works for it, established by probing rather than by assumption:
+
+- **The Guardian** has a real content API (`content.guardianapis.com`). It
+  names the hero image explicitly as the element with `relation="main"` and
+  ships altText, caption, credit, photographer, source and pixel dimensions
+  with it, so "which image is the primary one" needs no heuristic at all. It
+  also ships `wordcount`, which is the only independent check that a body
+  arrived whole rather than truncated. Measured limits on their open `test`
+  key: 720/min, 50,000/day.
+- **The ICC** has no RSS. It publishes a Google News sitemap
+  (`sitemap-article.xml`, reachable from robots.txt) with an exact
+  `news:publication_date`, and its article pages embed a schema.org
+  `NewsArticle` with the full `articleBody`.
+- **Sky Sports** is RSS for discovery, JSON-LD for the article.
+- **ESPNcricinfo** is feed-only, and not by preference. Its article pages, its
+  internal `hs-consumer-api`, and `robots.txt` itself all return an Akamai 403
+  to a non-browser client. Rather than defeat that with a headless browser it
+  is read from the RSS it publishes for the purpose, and `content_policy` says
+  `metadata_only` so nothing downstream expects a body.
+
+**Two publishers are registered and disabled**, which is the point of
+registering them. `bbcsport` is off because bbc.co.uk/robots.txt says in plain
+English "No scraping, crawling, or systematic extraction" and "No creating
+datasets from BBC content"; the adapter parses their feed fine, and the
+exclusion is a policy decision that should be visible and reversible by
+someone holding a licence, not a silent absence. `cricbuzz` is off because
+their edge 403s every non-browser client on every path including RSS.
+`/api/news/sources` returns the disabled ones with their reasons for the same
+reason.
+
+#### Fixing the extractor does nothing until EXTRACTOR_VERSION is bumped
+
+`news_sources.EXTRACTOR_VERSION` plays exactly the role `PARSER_VERSION` plays
+for Cricsheet, and for the same reason: idempotency is a hash of what we
+extracted, and a publisher's bytes do not change when our extractor is fixed.
+It is mixed into `content_hash`, and the ledger re-queues any URL stored at an
+older version. **The worker must also be restarted** - it holds the old module
+in memory. This is not hypothetical: the first attempt at the image-rendition
+fix below reported "60 stored" while writing v1 rows, because the old worker
+was still up.
+
+#### Canonicalisation keys on the publisher's article id, not on the URL
+
+Sky's RSS links `/cricket/news/12040/13574220/...` and their own
+`rel=canonical` says `/cricket/news/12175/13574220/...`. The five-digit segment
+is a section id and varies; the eight-digit article id does not. A
+URL-keyed pipeline files that article twice, so `news_articles` is UNIQUE on
+`(publisher_id, source_article_id)` as well as on `url_fingerprint`, and the
+canonical URL is read from the page rather than trusted from the feed.
+ESPNcricinfo needs the same treatment for a different reason: one story is
+reachable as `/story/<slug>-1550496`, as `/ci/content/story/1550496.html`, and
+on both `espncricinfo.com` and `cricinfo.com`, all three of which appear in
+one `<item>` of their own feed.
+
+#### Syndication is not the same question as coverage
+
+`text_simhash` detects the same body republished elsewhere. It is deliberately
+NOT used to collapse different articles about one event: on the day this was
+built the Guardian, Sky and the ICC each wrote their own piece about Jake
+Weatherald being dropped, and merging those would delete two mastheads' work
+and misreport how widely a story ran.
+
+The threshold was measured, not taken from convention. Over 120 real bodies
+(median 574 words):
+
+    syndication, 2% to 20% of words edited      p90 distance 2 to 7, max 11
+    truncated republication, 90% of body kept   median 6, p90 10
+    DIFFERENT articles, 7,140 pairs             min 12, p1 23, median 32
+    same event, three publishers                min 22
+
+The conventional 3-of-64 cut misses a republication with ordinary house-style
+edits. `SYNDICATION_MAX_DISTANCE = 8` sits in the gap with a 4-bit margin
+below the negative class's observed floor, deliberately nearer the syndication
+side: a false positive suppresses a real article.
+
+#### Images are referenced, never re-hosted, and the asset id is not the URL
+
+Every hero on these four sources is licensed agency photography (Getty, Alamy,
+PA, Reuters). The RSS and API grants cover reading the metadata, not making
+and serving a copy - the same call already made for `players.image_url`, where
+the asset was freely licensed Wikimedia and the argument was therefore weaker.
+
+Each CDN encodes a stable asset id separately from the rendition, and
+`image_identity` recovers it so one photograph is one row across articles and
+sizes:
+
+    imgci       p.imgci.com/db/PICTURES/CMS/<bucket>/<id>[.<variant>].jpg
+                bucket = id // 100 * 100; variants probed live:
+                (none) 1400x933  .1 160x107  .2 310x207  .3 900x600
+                .4 900x506  .5 365x205  .6 1296x729  .9 800x800
+    365dm       e{N}.365dm.com/{yy}/{mm}/{W}x{H}/{slug}_{assetId}.jpg
+                host shard and size both vary for one asset; the id does not
+    cloudinary  images.icc-cricket.com/image/upload/<t_named>/[v<n>/]prd/<publicId>
+    guim        media.guim.co.uk/<mediaId>/<crop>/<width>.jpg
+
+**The ICC's Cloudinary account has strict transformations enabled.** Named
+transforms serve (`t_ratio16_9-size50-webp` is 94 KB against `size20`'s 21 KB
+for the same asset); an arbitrary `w_1600,c_fill` returns **HTTP 401**. So a
+rendition may only ever be requested from `ICC_NAMED_TRANSFORMS`, never
+constructed. Directly analogous to the Wikimedia thumbnail rule above.
+
+Caption, credit and alt text live on `news_article_images`, not on
+`news_images`: the same photograph is reused across articles with a different
+caption each time, and storing them on the asset has the last article
+ingested overwrite every earlier one's caption.
+
+**The upsert keeps the largest rendition, not the latest.** The Guardian ships
+one `mediaId` as both the main element (140/500/1000px) and the thumbnail
+element (500px). A plain last-write-wins stored *every* hero at 500x400 with a
+1000px rendition available. `validate_news` checks for the regression.
+
+#### Scope and robots are different refusals and are recorded differently
+
+`is_discoverable` enforces robots.txt (the ICC names eight integrity-desk
+articles it does not want crawled). `is_in_scope` enforces the source's own
+`article_path`. Both land in the ledger as `skipped` with a reason, never as
+`failed`, because neither is a failure and mixing them in buries real
+extraction breakage.
+
+Both patterns were set from measurement and both were wrong first time:
+
+- Sky's feed `12040` is their **all-sport** news feed, not cricket - 2 of 20
+  items were cricket and the rest football, F1, tennis and racing. `12123`
+  (cricket news) and `12175` (cricket, Australia desk) are the right ones.
+- The ICC's first pattern allowed only `/news/`, which is the smallest of
+  their three article families. Over the current 520 ICC articles it would
+  keep 86 and discard 434: their per-tournament sitemaps publish under
+  `/tournaments/<slug>/news/<article>` (417) and their disciplinary and
+  qualifier announcements under `/media-releases/` (17), both 300-700 word
+  cricket articles.
+- Sky needed the same correction from the other direction. Their feeds only
+  ever emit `/cricket/news/<section>/<id>/<slug>`, so a pattern fitted to the
+  feed looks right and then rejects articles *after* they are stored, because
+  their own `rel=canonical` redirects some into `/cricket/news/<id>/<slug>`
+  (no section segment) and The Hundred into its own top-level section. Fit
+  the pattern to the CANONICAL forms, not to the feed.
+
+#### The ledger is keyed on the URL, so a failed scrape cannot look stored
+
+`news_ingestions` is keyed on `url_fingerprint`, **not** on `article_id`. A URL
+that failed to extract has a row there and no article row anywhere, which is
+what makes "failed and partial scrapes are not marked as successfully
+processed" structural rather than a convention. It is also the retry state
+(`next_attempt_after`, exponential over 0.25h/1h/6h/24h/72h then abandoned),
+the conditional-request cache (`etag`, `last_modified`) and the input to the
+per-source circuit breaker in one place.
+
+`invalid` and `failed` are different statuses on purpose. An `invalid` row was
+served and parsed and simply was not an article, so refetching it in fifteen
+minutes produces the same non-article; it becomes eligible again only when
+`EXTRACTOR_VERSION` changes, which is the one event that could change the
+answer.
+
+**Conditional requests are worth far less than they look, and `content_hash`
+is what actually does the work.** Measured across the four sources: the ICC
+serves an ETag on both its sitemaps and its article pages, and **nobody serves
+`Last-Modified` at all** - not the Guardian's API, not Sky's RSS, not
+ESPNcricinfo's. So `If-None-Match` saves a body only for the ICC, and for
+everyone else a re-run refetches the page and is saved from rewriting by the
+extracted-content hash instead. That is not a shortfall, it is where the
+saving really comes from: a forced re-queue of 32 Sky articles returned **30
+unchanged, 1 stored, 1 invalid**, with 30 full page writes avoided by the hash
+and none by a 304.
+
+#### Entity linking uses the publisher's own tags, never a name in the body
+
+The ICC tags people as `"Matt Renshaw 03/28/1996"` - a name **with a date of
+birth**. `players.date_of_birth` is already populated from Wikidata, so that
+match is effectively exact and needs no disambiguation. Name-only tags go
+through `enrichment.resolve_player`, the same (surname, initial) index the ICC
+rankings use, which refuses when more than one player fits.
+
+Player names are NOT scanned for in body prose. "Root", "Khan" and "Ali"
+appear constantly, the index is built for scorecard-form names, and a wrong
+link attaches an article to the wrong person's profile with nothing on the
+page to reveal it. A tag is the publisher's own assertion about who a piece is
+about, which is a different quality of evidence from a substring match.
+
+Team links carry the gender problem this schema always has: men's and women's
+"Australia" are different `team_id`s and an article declares neither. The
+gender is inferred from explicit markers and the `confidence` column records
+which happened - `body_name` when the text established it, `body_name_men_default`
+when nothing did and the men's side was taken. Recording the default as a
+distinct value rather than folding it into `body_name` is the point.
+
+#### Content policy is enforced on the way out, not on the way in
+
+`news_publishers.content_policy` is `full`, `extract` or `metadata_only`, and
+`backend/app/news.py::_body_for` applies it when serving. The full body is
+stored regardless, because entity linking, search and syndication detection
+all need the whole text and truncating at ingest would degrade them
+permanently - and because a policy can be corrected without a re-scrape if a
+licence is obtained or withdrawn, which is not true of text thrown away on the
+way in. `body_truncated` is returned on every article, not only capped ones,
+so a client can always tell a short article from a trimmed one.
+
+#### Rate limiting is per source and per worker process
+
+`news_activities._SourceLimiter` holds a minimum interval and a concurrency
+cap per source. Two separate controls because they answer different questions:
+the semaphore bounds open sockets, the interval bounds request rate, and a
+semaphore alone lets N requests fire in the same millisecond and then idle.
+
+Its scope is **the worker process**. Two workers on one task queue would each
+hold their own limiter and together exceed the floor, which is why the
+intervals are set an order of magnitude below what each source advertises
+rather than at the line. A cross-worker limiter needs shared state this
+project's single-SQLite-file architecture has no good home for, and pretending
+otherwise would be worse than saying so.
+
+#### Two Temporal schedules, not one
+
+`schedule.py` registers `icc-daily-sync` at 06:00 and `news-sync` every three
+hours. Separate because the cadences genuinely differ - news moves hourly
+where Cricsheet republishes every few days - and because they must fail
+independently: a publisher blocking us should not put a red mark on the
+workflow that ingests match data.
+
+`NewsSyncWorkflow` runs its sources **concurrently**, unlike
+`IccDailySyncWorkflow`'s Cricsheet leg which runs sequentially. The difference
+is what each is bounded by: a bulk archive ingest is bounded by writes to the
+one SQLite file and is worth not overlapping, whereas news fetching is bounded
+by four independent publishers' politeness delays, and serialising them spends
+the whole run waiting on the slowest while the other three idle.

@@ -30,3 +30,24 @@ export function count(value: number | null | undefined, dash = '-'): string {
   if (value === null || value === undefined || Number.isNaN(value)) return dash
   return value.toLocaleString()
 }
+
+/** ISO timestamp -> "2h ago", "3d ago", or a date once it stops being news. */
+export function timeAgo(iso: string | null): string {
+  if (!iso) return '-'
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return '-'
+  const mins = Math.round((Date.now() - then) / 60000)
+  // Publishers schedule features ahead of their own publication time, so a
+  // small negative age is normal and must not render as "-1h ago".
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days <= 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}

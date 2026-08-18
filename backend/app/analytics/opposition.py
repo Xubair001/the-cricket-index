@@ -121,6 +121,8 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import cache
+
 from ..models import Competition, Match, PlayerMatchStat
 from . import config
 from .impact import GLOBAL, ParTable, par_table
@@ -207,6 +209,20 @@ class OppositionTable:
 
 
 _cache: OppositionTable | None = None
+_cache_version: tuple | None = None
+
+
+def _cache_stale(db: Session) -> bool:
+    """True when the ingester has committed since this module last fitted."""
+    global _cache_version
+    # `cache.generation` and not `cache.data_version`: the raw counter also moves
+    # on a WAL checkpoint, which would drop this cache several times a minute
+    # while the ingestion worker is up and nothing had actually changed.
+    current = cache.generation(db)
+    if _cache_version != current:
+        _cache_version = current
+        return True
+    return False
 
 
 def invalidate() -> None:
@@ -248,7 +264,9 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
     The two sides of each match are then paired up in Python to form the share.
     """
     global _cache
-    if _cache is not None and not refresh:
+    if refresh or _cache_stale(db):
+        _cache = None
+    if _cache is not None:
         return _cache
 
     par: ParTable = par_table(db)

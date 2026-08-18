@@ -59,6 +59,8 @@ from dataclasses import dataclass, asdict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import cache
+
 from ..models import Competition, Match, PlayerMatchStat
 from . import config
 
@@ -134,17 +136,36 @@ class ParTable:
 
 
 _cache: ParTable | None = None
+_cache_version: tuple | None = None
+
+
+def _cache_stale(db: Session) -> bool:
+    """True when the ingester has committed since this module last computed."""
+    global _cache_version
+    # `cache.generation` and not `cache.data_version`: the raw counter also moves
+    # on a WAL checkpoint, which would drop this cache several times a minute
+    # while the ingestion worker is up and nothing had actually changed.
+    current = cache.generation(db)
+    if _cache_version != current:
+        _cache_version = current
+        return True
+    return False
 
 
 def par_table(db: Session, *, refresh: bool = False) -> ParTable:
     """Measure (and cache) par figures for the whole dataset.
 
-    One aggregate over player_match_stats, held for the process lifetime. The
-    underlying data only changes when the ingester runs, and §26 is explicit
-    that expensive aggregates must not be recomputed per request.
+    One aggregate over player_match_stats, held until the ingester commits. §26
+    is explicit that expensive aggregates must not be recomputed per request,
+    but "for the process lifetime" was too long: the ingester writes to the same
+    file while the API is up, so a par table built before an ingest was served
+    until someone restarted the server. `app.cache` watches SQLite's
+    `data_version` and drops the entry when that happens.
     """
     global _cache
-    if _cache is not None and not refresh:
+    if refresh or _cache_stale(db):
+        _cache = None
+    if _cache is not None:
         return _cache
 
     stmt = (

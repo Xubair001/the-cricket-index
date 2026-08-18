@@ -201,7 +201,9 @@ def _openers(db: Session, gender: str, competition_key, competition_type) -> dic
     return counts
 
 
-def _career_standing(db: Session, gender, competition_key, competition_type) -> dict[str, float]:
+def _career_standing(
+    db: Session, gender, competition_key, competition_type, summary=None
+) -> dict[str, float]:
     """Percentile of a player's whole record in the scope, within their discipline.
 
     Deliberately the FULL timeline, not the Index's 15-match window: this is the
@@ -210,19 +212,18 @@ def _career_standing(db: Session, gender, competition_key, competition_type) -> 
     bowler's mean impact is 1.08 par units against a batter's 0.64, so a single
     pool would rank discipline rather than merit.
     """
-    timelines = form_mod.all_timelines(
-        db, gender=gender, competition_key=competition_key,
-        competition_type=competition_type,
-    )
-    pools: dict[str, list[tuple[str, float]]] = {}
-    for pid, timeline in timelines.items():
-        if len(timeline) < MIN_MATCHES:
-            continue
-        role = explorer.discipline(
-            sum(m.balls_faced for m in timeline), sum(m.balls_bowled for m in timeline)
+    if summary is None:
+        summary = form_mod.scope_summary(
+            db, gender=gender, competition_key=competition_key,
+            competition_type=competition_type,
         )
-        mean = sum(m.value for m in timeline) / len(timeline)
-        pools.setdefault(role, []).append((pid, mean))
+    pools: dict[str, list[tuple[str, float]]] = {}
+    for pid, n in summary.match_count.items():
+        if n < MIN_MATCHES:
+            continue
+        faced, bowled = summary.balls[pid]
+        role = explorer.discipline(faced, bowled)
+        pools.setdefault(role, []).append((pid, summary.career_mean[pid]))
 
     out: dict[str, float] = {}
     for rows in pools.values():
@@ -242,15 +243,26 @@ def select_side(
     team_id: int | None = None,
 ) -> Selection:
     """Pick a side of `size` within one scope."""
-    rated = pi.compute(
+    # One reduced, cached view of the scope, shared by career standing and every
+    # per-player form verdict below. Calling `assess` per candidate without a
+    # prefetched timeline issued a query each - 3,145 round trips and about nine
+    # seconds on an international XI - and the timeline map it needs is 107 MB,
+    # so `scope_summary` reduces it to per-player facts and caches those.
+    summary = form_mod.scope_summary(
+        db, gender=gender, competition_key=competition_key,
+        competition_type=competition_type,
+    )
+    # `pi.page` is cached per scope; `pi.compute` is not.
+    rated, _total = pi.page(
         db,
         gender=gender,
         competition_key=competition_key,
         competition_type=competition_type,
+        limit=10**9,
+        offset=0,
     )
     index_of = {r.player_identifier: r for r in rated}
-
-    career = _career_standing(db, gender, competition_key, competition_type)
+    career = _career_standing(db, gender, competition_key, competition_type, summary)
     keepers = _keepers(db, gender, competition_key, competition_type)
     sourced = scout._sourced_attributes(db)
     openers = _openers(db, gender, competition_key, competition_type)
@@ -303,9 +315,9 @@ def select_side(
             is_keeper, keeper_source = True, "stumping"
         else:
             is_keeper, keeper_source = False, None
-        verdict = form_mod.assess(
-            db, pid, competition_key=competition_key, competition_type=competition_type
-        )
+        verdict = summary.verdicts.get(pid)
+        if verdict is None:
+            continue
         # Career standing, recent quality and current touch. §18 asks for a best
         # side that accounts for form; all three on a 0-100 scale so the weights
         # in `config` mean what they say.

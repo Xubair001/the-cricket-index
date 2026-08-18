@@ -64,6 +64,7 @@ from dataclasses import dataclass
 from sqlalchemy import Integer, Select, String, func, select
 from sqlalchemy.orm import Session
 
+from .. import cache
 from ..models import Competition, Match, Player, PlayerMatchStat
 from ..venues import canonical_key
 from ..names import preferred_name
@@ -462,7 +463,19 @@ def page(
     whose average is undefined must sort last rather than as zero -- which is
     what `None` would do if the database ordered it.
     """
-    rows = BUILDERS[explorer](db, f)
+    # Cached per (explorer, filter set). `ExplorerFilters` is a frozen dataclass,
+    # so it is hashable and the whole filter object is the key - two identical
+    # briefs share a build, a different one does not.
+    #
+    # Safe to key on caller-supplied filters only because `app.cache` is bounded
+    # and evicts least-recently-used: the filter space is effectively open, so an
+    # unbounded store here would be a memory-exhaustion vector rather than a
+    # cache. The all-round board is the one that needed this - it was 1.6 s on
+    # every request, where the batting and bowling boards ride on the aggregates
+    # cached in `queries`.
+    rows = cache.get_or_compute(
+        db, ("explorer_rows", explorer, f), lambda: BUILDERS[explorer](db, f)
+    )
     ascending = SORTS[explorer].get(sort_by, False)
 
     def key(row: dict):

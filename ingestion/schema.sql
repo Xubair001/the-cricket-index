@@ -384,3 +384,298 @@ CREATE INDEX IF NOT EXISTS idx_fixtures_start ON fixtures(start_date);
 -- Matches the fixtures list query's filter order exactly.
 CREATE INDEX IF NOT EXISTS idx_fixtures_gender_window ON fixtures(gender, is_upcoming, start_date);
 CREATE INDEX IF NOT EXISTS idx_fixtures_live ON fixtures(is_live, start_date);
+
+-- ===========================================================================
+-- Sports news
+-- ===========================================================================
+--
+-- A fourth source family beside Cricsheet, the ICC feeds and Wikidata, and
+-- kept as visibly separate from them as those three are from each other.
+-- Nothing in here ever feeds a derived cricket figure: an article is editorial
+-- copy, and letting a headline influence an average would be the same mistake
+-- as merging ICC's published ratings into the ratings this project computes.
+--
+-- The split across three groups of tables is deliberate and is what the rest
+-- of the pipeline leans on:
+--
+--   content    news_articles and its satellites -- what was published
+--   seo        news_article_metadata           -- the publisher's marketing
+--                                                 surface, which drifts
+--                                                 independently of the body
+--   ingestion  news_ingestions                 -- our record of the attempt,
+--                                                 which must exist even when
+--                                                 no article does
+
+-- One row per publisher. The runtime registry (strategy, rate limits, robots
+-- rules) lives in ingestion/news_sources.py because it is code configuration;
+-- this table is the publisher ENTITY that articles hang off, plus the licence
+-- terms we are obliged to honour when displaying them.
+CREATE TABLE IF NOT EXISTS news_publishers (
+    publisher_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,        -- 'guardian' | 'icc' | 'skysports' | ...
+    name TEXT NOT NULL,
+    home_url TEXT,
+    strategy TEXT NOT NULL,          -- 'api' | 'sitemap' | 'rss' | 'feed_only'
+    -- What we are entitled to keep and show, NOT what we were able to fetch.
+    -- 'full'          body stored and servable
+    -- 'extract'       body stored for entity extraction and search; the API
+    --                 returns a capped snippet and a link out
+    -- 'metadata_only' headline, standfirst and hero image; there is no body
+    content_policy TEXT NOT NULL
+        CHECK (content_policy IN ('full', 'extract', 'metadata_only')),
+    attribution TEXT,                -- credit line the UI must render
+    policy_note TEXT,                -- why this source is read the way it is
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_synced_at TEXT
+);
+
+-- The article itself.
+--
+-- url_fingerprint (SHA-256 of the canonicalised URL) is UNIQUE and is what
+-- stops one article being filed twice after a slug rewrite or a tracking
+-- parameter. (publisher_id, source_article_id) is UNIQUE for the same reason
+-- one level deeper: Sky's RSS links /cricket/news/12040/13574220/... while
+-- their own rel=canonical says /cricket/news/12175/... -- the 5-digit section
+-- id varies, the 8-digit article id does not, so the id catches the duplicate
+-- that even a canonicalised URL would miss.
+--
+-- content_hash is the SHA-256 of everything extracted, mixed with
+-- news_sources.EXTRACTOR_VERSION. Same contract as matches.content_hash: an
+-- unchanged article is a no-op, and bumping the extractor version forces a
+-- genuine re-process instead of a clean skip that reports success.
+--
+-- text_simhash detects SYNDICATION -- the same body republished elsewhere. It
+-- is deliberately NOT used to merge different articles about the same event:
+-- three publishers covering one squad announcement wrote three articles, and
+-- collapsing them would delete two mastheads' work and misreport coverage.
+CREATE TABLE IF NOT EXISTS news_articles (
+    article_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    publisher_id INTEGER NOT NULL REFERENCES news_publishers(publisher_id),
+    source_key TEXT NOT NULL,        -- denormalised, as matches.source is
+    source_article_id TEXT,          -- the publisher's own stable id
+    canonical_url TEXT NOT NULL,
+    url_fingerprint TEXT NOT NULL UNIQUE,
+    discovered_url TEXT,             -- where we found it, when it differs
+
+    title TEXT NOT NULL,
+    standfirst TEXT,                 -- summary / trail text / description
+    body_html TEXT,                  -- null for a metadata_only publisher
+    body_text TEXT,
+    word_count INTEGER NOT NULL DEFAULT 0,
+    -- The publisher's own count where they state one. Kept because it is the
+    -- only independent check that a body arrived whole rather than truncated
+    -- by a consent wall, and a truncated body is the failure this pipeline is
+    -- most likely to record as a success.
+    declared_word_count INTEGER,
+
+    published_at TEXT,               -- ISO-8601 UTC
+    updated_at TEXT,
+    section TEXT,
+    language TEXT,
+    sport TEXT NOT NULL DEFAULT 'cricket',
+
+    content_hash TEXT NOT NULL,
+    text_simhash TEXT,               -- 64-bit SimHash, stored as a hex string
+    -- Set when this body is a near-duplicate of an article already stored.
+    -- The row is still kept: knowing a wire story ran in three places is
+    -- information, and deleting the copy would lose the second publisher.
+    syndication_of_article_id INTEGER REFERENCES news_articles(article_id),
+
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    UNIQUE (publisher_id, source_article_id)
+);
+
+-- SEO and structured metadata, 1:1 with an article and separate from it.
+-- Separate because these are the publisher's distribution surface: og:title
+-- is frequently not the headline, and the raw JSON-LD is worth keeping whole
+-- so that a future extractor can re-derive fields from it without refetching
+-- a page that may by then be behind a wall.
+CREATE TABLE IF NOT EXISTS news_article_metadata (
+    article_id INTEGER PRIMARY KEY REFERENCES news_articles(article_id) ON DELETE CASCADE,
+    meta_title TEXT,
+    meta_description TEXT,
+    og_json TEXT,                    -- all og:* properties, as JSON
+    twitter_json TEXT,               -- all twitter:* properties, as JSON
+    json_ld TEXT,                    -- the selected schema.org article node
+    schema_type TEXT                 -- 'NewsArticle' | 'Article' | ...
+);
+
+CREATE TABLE IF NOT EXISTS news_authors (
+    author_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    publisher_id INTEGER NOT NULL REFERENCES news_publishers(publisher_id),
+    name TEXT NOT NULL,
+    -- A byline is not always a person: "Guardian sport" and "ICC" are desks.
+    -- Recorded as-is rather than dropped, because dropping them would leave
+    -- the article unattributed, and guessed personhood would be a claim no
+    -- source made.
+    UNIQUE (publisher_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS news_article_authors (
+    article_id INTEGER NOT NULL REFERENCES news_articles(article_id) ON DELETE CASCADE,
+    author_id INTEGER NOT NULL REFERENCES news_authors(author_id),
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (article_id, author_id)
+);
+
+-- Tags keep their kind because the kinds mean different things: an 'entity'
+-- tag is a candidate link to a row in `players`, a 'keyword' is free text,
+-- and a 'section' is the publisher's own desk.
+CREATE TABLE IF NOT EXISTS news_tags (
+    tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,              -- 'keyword' | 'entity' | 'section' | 'series' | 'type'
+    value TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    UNIQUE (kind, slug)
+);
+
+CREATE TABLE IF NOT EXISTS news_article_tags (
+    article_id INTEGER NOT NULL REFERENCES news_articles(article_id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES news_tags(tag_id),
+    PRIMARY KEY (article_id, tag_id)
+);
+
+-- Images are REFERENCED, never re-hosted. Every hero on these four sources is
+-- licensed agency photography (Getty, Alamy, PA, Reuters); the RSS and API
+-- grants cover reading the metadata, not redistributing the file. This is the
+-- same call already made for players.image_url, except that one is a freely
+-- licensed Wikimedia asset and these are not, so the reasoning is stronger
+-- here rather than weaker.
+--
+-- fingerprint identifies the ASSET, not a rendition of it, so one photograph
+-- served at 365x205 and at 1400x933 is one row. How that identity is
+-- recovered is per-CDN and lives in news_sources.image_identity: an
+-- ESPNcricinfo numeric id, a Sky 365dm asset id, a Cloudinary public id, a
+-- Guardian mediaId.
+CREATE TABLE IF NOT EXISTS news_images (
+    image_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    provider TEXT,                   -- 'imgci' | '365dm' | 'cloudinary' | 'guim'
+    cdn_url TEXT NOT NULL,           -- the rendition we chose to display
+    origin_url TEXT,                 -- as the source gave it, before upgrade
+    width INTEGER,
+    height INTEGER,
+    mime_type TEXT,
+    byte_size INTEGER,
+    -- Populated only when NEWS_IMAGE_PROBE is on: dimensions read from the
+    -- file's own header for a source that declares none. Never a stored copy
+    -- of the image -- the bytes are read and discarded.
+    probed_at TEXT,
+    probe_status TEXT
+);
+
+CREATE TABLE IF NOT EXISTS news_article_images (
+    article_id INTEGER NOT NULL REFERENCES news_articles(article_id) ON DELETE CASCADE,
+    image_id INTEGER NOT NULL REFERENCES news_images(image_id),
+    role TEXT NOT NULL DEFAULT 'hero'   -- 'hero' | 'inline' | 'thumbnail'
+        CHECK (role IN ('hero', 'inline', 'thumbnail')),
+    position INTEGER NOT NULL DEFAULT 0,
+    -- Caption, credit and alt text hang off the ARTICLE-image pair, not off
+    -- the image: the same photograph is re-used across articles with a
+    -- different caption each time, and storing it on the asset would have the
+    -- last article to run overwrite every earlier one's caption.
+    alt_text TEXT,
+    caption TEXT,
+    credit TEXT,
+    image_type TEXT,                 -- 'Photograph' | 'Illustration' | ...
+    PRIMARY KEY (article_id, image_id, role)
+);
+
+-- Links from an article to the cricket entities this project already models.
+-- Nullable-by-omission rather than nullable-by-column: a row exists only when
+-- something was actually resolved, and an article that mentions a player we
+-- cannot identify confidently simply has no row, exactly as an unmatched ICC
+-- ranking entry stays unlinked rather than being attached to the wrong person.
+--
+-- `confidence` records HOW it was resolved so a reader can weigh it:
+--   'tag_dob'   publisher entity tag carrying a date of birth that matches
+--               players.date_of_birth. Effectively exact.
+--   'tag_name'  publisher entity tag, name resolved through the same
+--               (surname, initial) index the ICC rankings use.
+--   'body_name' a team or competition name found in the title or body, with
+--               the article's gender established from explicit markers.
+--   'body_name_men_default'
+--               the same, but nothing in the text established a gender, so
+--               the men's side was taken. Recorded distinctly rather than
+--               merged into 'body_name' because it IS a default, and a reader
+--               weighing a women's-cricket query needs to see that.
+CREATE TABLE IF NOT EXISTS news_article_entities (
+    article_id INTEGER NOT NULL REFERENCES news_articles(article_id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('player', 'team', 'competition')),
+    player_identifier TEXT REFERENCES players(identifier),
+    team_id INTEGER REFERENCES teams(team_id),
+    competition_id INTEGER REFERENCES competitions(competition_id),
+    mention TEXT NOT NULL,           -- the text that produced the link
+    confidence TEXT NOT NULL,
+    PRIMARY KEY (article_id, entity_type, mention)
+);
+
+-- The ingestion ledger. Keyed on url_fingerprint and NOT on article_id, which
+-- is the point: a URL that failed to extract has a row here and no article
+-- row anywhere, so a partial or failed scrape can never be mistaken for a
+-- stored article. It is also the retry state, the circuit-breaker input and
+-- the conditional-request cache in one place.
+CREATE TABLE IF NOT EXISTS news_ingestions (
+    url_fingerprint TEXT PRIMARY KEY,
+    source_key TEXT NOT NULL,
+    url TEXT NOT NULL,
+    article_id INTEGER REFERENCES news_articles(article_id),
+    -- 'pending'   discovered, not yet fetched
+    -- 'stored'    fetched, extracted, validated, written
+    -- 'unchanged' content_hash matched; nothing rewritten
+    -- 'invalid'   fetched and parsed, but validate() objected. NOT an error:
+    --             the page was served, it just wasn't an article.
+    -- 'failed'    transport or parse failure; eligible for retry
+    -- 'skipped'   deliberately not fetched (robots, policy, unsupported)
+    status TEXT NOT NULL
+        CHECK (status IN ('pending', 'stored', 'unchanged', 'invalid', 'failed', 'skipped')),
+    extractor_version INTEGER NOT NULL DEFAULT 0,
+    http_status INTEGER,
+    etag TEXT,                       -- for the next conditional request
+    last_modified TEXT,
+    content_hash TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    problems TEXT,                   -- validate()'s reasons, JSON array
+    first_attempt_at TEXT,
+    last_attempt_at TEXT,
+    next_attempt_after TEXT          -- exponential backoff, honoured on retry
+);
+
+-- Per-feed conditional-request state, so a discovery pass that finds nothing
+-- new costs one 304 and no body. The same trick download_archive already uses
+-- against Cricsheet's Last-Modified, applied per feed URL rather than per
+-- competition.
+CREATE TABLE IF NOT EXISTS news_feed_state (
+    feed_url TEXT PRIMARY KEY,
+    source_key TEXT NOT NULL,
+    etag TEXT,
+    last_modified TEXT,
+    last_fetched_at TEXT,
+    last_status INTEGER,
+    -- Consecutive failures. The circuit breaker in news_activities opens on
+    -- this rather than on a per-run counter, so a source that is down stays
+    -- skipped across runs instead of being retried from scratch every time.
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    items_last_seen INTEGER NOT NULL DEFAULT 0
+);
+
+-- news ---------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_news_articles_published ON news_articles(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_articles_source_published
+    ON news_articles(source_key, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_articles_simhash ON news_articles(text_simhash);
+CREATE INDEX IF NOT EXISTS idx_news_articles_syndication
+    ON news_articles(syndication_of_article_id);
+CREATE INDEX IF NOT EXISTS idx_news_article_tags_tag ON news_article_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_news_article_images_image ON news_article_images(image_id);
+CREATE INDEX IF NOT EXISTS idx_news_article_entities_player
+    ON news_article_entities(player_identifier);
+CREATE INDEX IF NOT EXISTS idx_news_article_entities_team ON news_article_entities(team_id);
+CREATE INDEX IF NOT EXISTS idx_news_article_authors_author
+    ON news_article_authors(author_id);
+-- The retry sweep's exact filter: what is due, oldest first.
+CREATE INDEX IF NOT EXISTS idx_news_ingestions_retry
+    ON news_ingestions(status, next_attempt_after);
+CREATE INDEX IF NOT EXISTS idx_news_ingestions_source ON news_ingestions(source_key, status);

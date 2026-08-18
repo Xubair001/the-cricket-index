@@ -88,6 +88,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import cache
+
 from ..models import Competition, Delivery, Match, Player
 from ..names import preferred_name
 from . import config, explorer, form, impact as impact_mod
@@ -183,6 +185,20 @@ def _downside_deviation(values: list[float], target: float = 1.0) -> float:
 
 
 _cache: dict[tuple, list["PlayerIndex"]] = {}
+_cache_version: tuple | None = None
+
+
+def _cache_stale(db: Session) -> bool:
+    """True when the ingester has committed since this module last computed."""
+    global _cache_version
+    # `cache.generation` and not `cache.data_version`: the raw counter also moves
+    # on a WAL checkpoint, which would drop this cache several times a minute
+    # while the ingestion worker is up and nothing had actually changed.
+    current = cache.generation(db)
+    if _cache_version != current:
+        _cache_version = current
+        return True
+    return False
 
 
 def invalidate() -> None:
@@ -207,6 +223,11 @@ def page(
     the same reason the form boards are cached.
     """
     key = (gender, competition_key, competition_type)
+    # Drop every scope when the ingester commits: an Index built from the old
+    # snapshot would otherwise be served until the process restarts.
+    if _cache_stale(db):
+        _cache.clear()
+        _chasing_cache.clear()
     if key not in _cache:
         _cache[key] = compute(
             db,
@@ -228,14 +249,22 @@ def compute(
     competition_type: str | None = None,
     window: int = config.INDEX_WINDOW_MATCHES,
     min_matches: int = config.INDEX_MIN_MATCHES,
+    timelines: dict | None = None,
 ) -> list[PlayerIndex]:
-    """Rate every qualified player in one scope, best first."""
-    timelines = form.all_timelines(
-        db,
-        gender=gender,
-        competition_key=competition_key,
-        competition_type=competition_type,
-    )
+    """Rate every qualified player in one scope, best first.
+
+    `timelines` lets a caller that has already scanned the scope hand the map
+    over instead of paying for it twice. Building it means turning ~220k rows
+    into MatchImpact objects, which is the single most expensive thing on this
+    path, and Best XI needs the same map for career standing and form.
+    """
+    if timelines is None:
+        timelines = form.all_timelines(
+            db,
+            gender=gender,
+            competition_key=competition_key,
+            competition_type=competition_type,
+        )
     team_totals = impact_mod.team_match_totals(db)
     winners = {
         m_id: w

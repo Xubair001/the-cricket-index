@@ -268,3 +268,219 @@ class IngestionProgress(Base):
     processed_matches: Mapped[int]
     skipped_matches: Mapped[int]
     failed_matches: Mapped[int]
+
+
+# ---------------------------------------------------------------------------
+# News
+# ---------------------------------------------------------------------------
+# Written by ingestion/news_activities.py. Read-only on this side, as every
+# other table here is. See ingestion/schema.sql for why content, SEO metadata
+# and the ingestion ledger are three separate tables rather than one wide row.
+
+
+class NewsPublisher(Base):
+    __tablename__ = "news_publishers"
+
+    publisher_id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str]
+    name: Mapped[str]
+    home_url: Mapped[str | None]
+    strategy: Mapped[str]
+    # 'full' | 'extract' | 'metadata_only'. Enforced when serving, not just
+    # recorded: news.article_body() caps what an 'extract' publisher returns.
+    content_policy: Mapped[str]
+    attribution: Mapped[str | None]
+    policy_note: Mapped[str | None]
+    enabled: Mapped[int]
+    last_synced_at: Mapped[str | None]
+
+
+class NewsArticle(Base):
+    __tablename__ = "news_articles"
+
+    article_id: Mapped[int] = mapped_column(primary_key=True)
+    publisher_id: Mapped[int] = mapped_column(ForeignKey("news_publishers.publisher_id"))
+    source_key: Mapped[str]
+    source_article_id: Mapped[str | None]
+    canonical_url: Mapped[str]
+    url_fingerprint: Mapped[str]
+    discovered_url: Mapped[str | None]
+    title: Mapped[str]
+    standfirst: Mapped[str | None]
+    body_html: Mapped[str | None]
+    body_text: Mapped[str | None]
+    word_count: Mapped[int]
+    declared_word_count: Mapped[int | None]
+    published_at: Mapped[str | None]
+    updated_at: Mapped[str | None]
+    section: Mapped[str | None]
+    language: Mapped[str | None]
+    sport: Mapped[str]
+    content_hash: Mapped[str]
+    text_simhash: Mapped[str | None]
+    # Points at the article whose body this one duplicates. Not a delete: a
+    # wire story running in three places is a fact worth keeping.
+    syndication_of_article_id: Mapped[int | None] = mapped_column(
+        ForeignKey("news_articles.article_id")
+    )
+    first_seen_at: Mapped[str]
+    last_seen_at: Mapped[str]
+
+
+class NewsArticleMetadata(Base):
+    __tablename__ = "news_article_metadata"
+
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("news_articles.article_id"), primary_key=True
+    )
+    meta_title: Mapped[str | None]
+    meta_description: Mapped[str | None]
+    og_json: Mapped[str | None]
+    twitter_json: Mapped[str | None]
+    json_ld: Mapped[str | None]
+    schema_type: Mapped[str | None]
+
+
+class NewsAuthor(Base):
+    __tablename__ = "news_authors"
+
+    author_id: Mapped[int] = mapped_column(primary_key=True)
+    publisher_id: Mapped[int] = mapped_column(ForeignKey("news_publishers.publisher_id"))
+    name: Mapped[str]
+
+
+class NewsArticleAuthor(Base):
+    __tablename__ = "news_article_authors"
+
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("news_articles.article_id"), primary_key=True
+    )
+    author_id: Mapped[int] = mapped_column(
+        ForeignKey("news_authors.author_id"), primary_key=True
+    )
+    position: Mapped[int]
+
+
+class NewsTag(Base):
+    __tablename__ = "news_tags"
+
+    tag_id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str]
+    value: Mapped[str]
+    slug: Mapped[str]
+
+
+class NewsArticleTag(Base):
+    __tablename__ = "news_article_tags"
+
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("news_articles.article_id"), primary_key=True
+    )
+    tag_id: Mapped[int] = mapped_column(ForeignKey("news_tags.tag_id"), primary_key=True)
+
+
+class NewsImage(Base):
+    """A referenced image, never a stored one. See schema.sql for why."""
+
+    __tablename__ = "news_images"
+
+    image_id: Mapped[int] = mapped_column(primary_key=True)
+    fingerprint: Mapped[str]
+    provider: Mapped[str | None]
+    cdn_url: Mapped[str]
+    origin_url: Mapped[str | None]
+    width: Mapped[int | None]
+    height: Mapped[int | None]
+    mime_type: Mapped[str | None]
+    byte_size: Mapped[int | None]
+    probed_at: Mapped[str | None]
+    probe_status: Mapped[str | None]
+
+
+class NewsArticleImage(Base):
+    """Caption, credit and alt live HERE, not on the image.
+
+    The same photograph is reused across articles with a different caption
+    each time, so storing them on the asset would have the last article
+    ingested overwrite every earlier one's caption.
+    """
+
+    __tablename__ = "news_article_images"
+
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("news_articles.article_id"), primary_key=True
+    )
+    image_id: Mapped[int] = mapped_column(
+        ForeignKey("news_images.image_id"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(primary_key=True)
+    position: Mapped[int]
+    alt_text: Mapped[str | None]
+    caption: Mapped[str | None]
+    credit: Mapped[str | None]
+    image_type: Mapped[str | None]
+
+
+class NewsArticleEntity(Base):
+    """A resolved link to a player, team or competition.
+
+    A row exists only when something actually resolved. An article mentioning
+    a player who cannot be identified confidently has no row here, the same
+    rule icc_player_rankings.player_identifier follows.
+    """
+
+    __tablename__ = "news_article_entities"
+
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("news_articles.article_id"), primary_key=True
+    )
+    entity_type: Mapped[str] = mapped_column(primary_key=True)
+    mention: Mapped[str] = mapped_column(primary_key=True)
+    player_identifier: Mapped[str | None] = mapped_column(
+        ForeignKey("players.identifier")
+    )
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.team_id"))
+    competition_id: Mapped[int | None] = mapped_column(
+        ForeignKey("competitions.competition_id")
+    )
+    confidence: Mapped[str]
+
+
+class NewsIngestion(Base):
+    """The work ledger, keyed on the URL rather than on an article.
+
+    A URL that failed to extract has a row here and NO article row anywhere,
+    which is what stops a partial scrape being mistaken for a stored article.
+    """
+
+    __tablename__ = "news_ingestions"
+
+    url_fingerprint: Mapped[str] = mapped_column(primary_key=True)
+    source_key: Mapped[str]
+    url: Mapped[str]
+    article_id: Mapped[int | None] = mapped_column(ForeignKey("news_articles.article_id"))
+    status: Mapped[str]
+    extractor_version: Mapped[int]
+    http_status: Mapped[int | None]
+    etag: Mapped[str | None]
+    last_modified: Mapped[str | None]
+    content_hash: Mapped[str | None]
+    attempts: Mapped[int]
+    last_error: Mapped[str | None]
+    problems: Mapped[str | None]
+    first_attempt_at: Mapped[str | None]
+    last_attempt_at: Mapped[str | None]
+    next_attempt_after: Mapped[str | None]
+
+
+class NewsFeedState(Base):
+    __tablename__ = "news_feed_state"
+
+    feed_url: Mapped[str] = mapped_column(primary_key=True)
+    source_key: Mapped[str]
+    etag: Mapped[str | None]
+    last_modified: Mapped[str | None]
+    last_fetched_at: Mapped[str | None]
+    last_status: Mapped[int | None]
+    consecutive_failures: Mapped[int]
+    items_last_seen: Mapped[int]

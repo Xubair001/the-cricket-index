@@ -216,15 +216,19 @@ def search(
     applied: dict[str, str] = {}
     ignored: dict[str, str] = dict(CANNOT_APPLY)
 
-    rated = {
-        r.player_identifier: r
-        for r in pi.compute(
-            db,
-            gender=gender,
-            competition_key=competition_key,
-            competition_type=competition_type,
-        )
-    }
+    # One reduced, cached view of the scope for every candidate's form. Called
+    # without it, `assess` issues a query per candidate - 1,808 round trips on
+    # an international brief.
+    summary = form_mod.scope_summary(
+        db, gender=gender, competition_key=competition_key,
+        competition_type=competition_type,
+    )
+    # `pi.page` is cached per scope; `pi.compute` is not.
+    _rated, _n = pi.page(
+        db, gender=gender, competition_key=competition_key,
+        competition_type=competition_type, limit=10**9, offset=0,
+    )
+    rated = {r.player_identifier: r for r in _rated}
     sourced = _sourced_attributes(db)
     committed = _committed(db, date_from, date_to)
 
@@ -306,9 +310,9 @@ def search(
         if max_age is not None and age is not None and age > max_age:
             continue
 
-        verdict = form_mod.assess(
-            db, pid, competition_key=competition_key, competition_type=competition_type
-        )
+        verdict = summary.verdicts.get(pid)
+        if verdict is None:
+            continue
         if form_state and verdict.state != form_state:
             continue
 

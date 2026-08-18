@@ -25,6 +25,10 @@ import type {
   TeamDetail,
   TeamStrengthTable,
   MatchIntelligence,
+  NewsArticleDetail,
+  NewsHealth,
+  NewsSourceInfo,
+  PaginatedNews,
   SelectedSide,
   AvailabilityWindow,
   ScoutResult,
@@ -275,4 +279,32 @@ export const api = {
 
   fixtureMatchTypes: (gender?: string) =>
     getJson<{ match_types: string[] }>('/api/fixtures/match-types', { gender }),
+
+  /**
+   * Sports news from four publishers.
+   *
+   * `gender` is asymmetric and optional: 'female' means the article links to a
+   * women's side, 'male' means it links to no women's side. See the backend's
+   * list_articles for why the two are not mirror images.
+   */
+  news: (
+    params: {
+      gender?: string
+      source?: string
+      player?: string
+      team_id?: number
+      tag?: string
+      q?: string
+      include_syndicated?: boolean
+      limit?: number
+      offset?: number
+    } = {}
+  ) => getJson<PaginatedNews>('/api/news', params),
+
+  newsArticle: (articleId: number) => getJson<NewsArticleDetail>(`/api/news/${articleId}`),
+
+  /** Every registered publisher, disabled ones included with the reason. */
+  newsSources: () => getJson<NewsSourceInfo[]>('/api/news/sources'),
+
+  newsHealth: () => getJson<NewsHealth>('/api/news/health'),
 }

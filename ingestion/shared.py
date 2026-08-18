@@ -104,3 +104,69 @@ class IngestionProgress:
     skipped: int
     failed: int
     current_generation_started_at: str = ""
+
+
+# --------------------------------------------------------------------------
+# News ingestion
+# --------------------------------------------------------------------------
+#
+# The same continue-as-new shape CricsheetIngestionWorkflow uses, for the same
+# reason: a discovery pass over four sources returns a few hundred URLs and a
+# backfill returns thousands, and folding them all into one workflow history
+# is what makes a long run unreplayable.
+#
+# The batch is smaller than the Cricsheet one (100) because each item here is
+# a network fetch against a third party under a politeness delay, not a read
+# out of a local zip. At Sky's 2s floor, 40 articles is about 80 seconds of
+# deliberate waiting per generation, which is a sensible amount of work to
+# checkpoint at.
+NEWS_BATCH_SIZE_PER_GENERATION = 40
+
+
+@dataclass
+class NewsJobInput:
+    """One source's ingestion run, carried across continue-as-new generations.
+
+    `pending` holds url_fingerprints rather than URLs: the fingerprint is the
+    primary key of news_ingestions, so a resumed generation looks up the URL
+    and every piece of retry state from the row rather than trusting a value
+    carried through workflow history that may since have been superseded.
+    """
+
+    source_key: str
+    pending: list[str] = field(default_factory=list)
+    discovered: bool = False
+    total: int = 0
+    stored: int = 0
+    unchanged: int = 0
+    invalid: int = 0
+    failed: int = 0
+    skipped: int = 0
+    # Set when discovery was refused because the source's circuit breaker is
+    # open. Carried so the final summary can say so rather than reporting a
+    # successful run that happened to find nothing.
+    breaker_open: bool = False
+    # Only look at articles published on or after this date (YYYY-MM-DD).
+    # Empty means the source's own natural window, which for an RSS feed is
+    # whatever it currently lists.
+    since: str = ""
+
+
+@dataclass
+class NewsJobProgress:
+    source_key: str
+    total: int
+    stored: int
+    unchanged: int
+    invalid: int
+    failed: int
+    remaining: int
+
+
+@dataclass
+class NewsBatchResult:
+    stored: int = 0
+    unchanged: int = 0
+    invalid: int = 0
+    failed: int = 0
+    skipped: int = 0

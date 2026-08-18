@@ -12,9 +12,9 @@ router = APIRouter(prefix="/api/matches", tags=["matches"])
 def list_matches(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
-    team_id: int | None = Query(default=None),
+    team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     season: str | None = Query(default=None),
-    search: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=validation.MAX_SEARCH_LENGTH),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -49,7 +49,7 @@ def match_intelligence(match_id: str, db: Session = Depends(get_db)) -> schemas.
         # and a real limit of the data.
         match = queries.get_match_detail(db, match_id)
         if match is None:
-            raise HTTPException(status_code=404, detail=f"match '{match_id}' not found")
+            raise HTTPException(status_code=404, detail=f"match '{validation.echo(match_id)}' not found")
         raise HTTPException(
             status_code=422 if match.source != "cricsheet" else 404,
             detail=(
@@ -87,5 +87,5 @@ def match_detail(match_id: str, db: Session = Depends(get_db)) -> schemas.MatchD
     # No gender param needed: match_id is already globally unique.
     detail = queries.get_match_detail(db, match_id)
     if detail is None:
-        raise HTTPException(status_code=404, detail=f"match '{match_id}' not found")
+        raise HTTPException(status_code=404, detail=f"match '{validation.echo(match_id)}' not found")
     return detail

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from sqlalchemy import select
@@ -29,7 +29,10 @@ def list_teams(
 
 
 @router.get("/{team_id}", response_model=schemas.TeamDetail)
-def team_detail(team_id: int, db: Session = Depends(get_db)) -> schemas.TeamDetail:
+def team_detail(
+    team_id: int = Path(ge=1, le=validation.MAX_DB_INT),
+    db: Session = Depends(get_db),
+) -> schemas.TeamDetail:
     detail = queries.get_team_detail(db, team_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"team '{team_id}' not found")
@@ -38,7 +41,7 @@ def team_detail(team_id: int, db: Session = Depends(get_db)) -> schemas.TeamDeta
 
 @router.get("/{team_id}/squad", response_model=schemas.SquadAnalysis)
 def team_squad(
-    team_id: int,
+    team_id: int = Path(ge=1, le=validation.MAX_DB_INT),
     window_matches: int = Query(
         default=squad_mod.DEFAULT_WINDOW_MATCHES,
         ge=5,
@@ -98,7 +101,11 @@ def team_squad(
 
 
 @router.get("/{team_a_id}/head-to-head/{team_b_id}", response_model=schemas.HeadToHead)
-def head_to_head(team_a_id: int, team_b_id: int, db: Session = Depends(get_db)) -> schemas.HeadToHead:
+def head_to_head(
+    team_a_id: int = Path(ge=1, le=validation.MAX_DB_INT),
+    team_b_id: int = Path(ge=1, le=validation.MAX_DB_INT),
+    db: Session = Depends(get_db),
+) -> schemas.HeadToHead:
     result = queries.get_head_to_head(db, team_a_id, team_b_id)
     if result is None:
         raise HTTPException(status_code=404, detail="one or both teams not found")

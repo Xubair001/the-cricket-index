@@ -106,7 +106,7 @@ def venue_profile(
         competition_key=validation.check_competition_key(db, competition),
     )
     if result is None:
-        raise HTTPException(status_code=404, detail=f"no ground matching '{venue_name}'")
+        raise HTTPException(status_code=404, detail=f"no ground matching '{validation.echo(venue_name)}'")
     return schemas.VenueProfile(
         venue=result.venue,
         city=result.city,
@@ -212,8 +212,8 @@ def explore(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
-    team_id: int | None = Query(default=None),
-    opposition_team_id: int | None = Query(default=None),
+    team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
+    opposition_team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     date_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     min_innings: int = Query(default=explorer_mod.DEFAULT_MIN_INNINGS, ge=1, le=500),
@@ -233,7 +233,7 @@ def explore(
     if explorer not in explorer_mod.BUILDERS:
         raise HTTPException(
             status_code=404,
-            detail=f"unknown explorer '{explorer}'; available: {sorted(explorer_mod.BUILDERS)}",
+            detail=f"unknown explorer '{validation.echo(explorer)}'; available: {sorted(explorer_mod.BUILDERS)}",
         )
 
     sorts = explorer_mod.SORTS[explorer]
@@ -242,7 +242,7 @@ def explore(
     if sort_by not in sorts:
         raise HTTPException(
             status_code=422,
-            detail=f"cannot sort '{explorer}' by '{sort_by}'; available: {sorted(sorts)}",
+            detail=f"cannot sort '{validation.echo(explorer)}' by '{validation.echo(sort_by)}'; available: {sorted(sorts)}",
         )
 
     # The qualification that makes a rate leaderboard mean anything differs by

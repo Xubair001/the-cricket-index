@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
-from . import schemas, flags
+from . import cache, schemas, flags
 from .names import preferred_name
 from .models import (
     Competition,
@@ -112,7 +112,7 @@ def _last_played_map(db: Session, gender: str | None = None) -> dict[str, str]:
     return {ident: last for ident, last in db.execute(stmt).all() if last}
 
 
-def _player_country_map(
+def _build_player_country_map(
     db: Session, gender: str | None = None
 ) -> dict[str, tuple[str, str | None]]:
     """player_identifier -> (national side represented, ISO code or None).
@@ -139,19 +139,24 @@ def _player_country_map(
       for - rather than a guess at allegiance, and the side's name travels with
       the code so the UI can say which on hover.
     """
-    # Memoised for the life of one request. Building this scans every
-    # international appearance and groups ~5,400 players, and the batting and
-    # bowling aggregate helpers each call it on every invocation -- so a player
-    # profile rebuilt it once per competition, and a two-player comparison
-    # twice that again. Measured cost of not caching: 6.9s for /players/compare
-    # and 2.8s for a profile, against 0.06s and 0.04s before flags were added.
+    # Request-scoped memo, INSIDE the process-scoped one in `_player_country_map`.
+    # Both earn their place: building this scans every international appearance
+    # and groups ~5,400 players, and the batting and bowling aggregate helpers
+    # each call it on every invocation - so a player profile rebuilt it once per
+    # competition, and a two-player comparison twice that again. Measured cost of
+    # not caching: 6.9s for /players/compare and 2.8s for a profile, against
+    # 0.06s and 0.04s before flags were added.
     #
     # Session.info is exactly request-scoped (get_db opens and closes a Session
-    # per request), so the map cannot go stale within a response, and nothing
-    # is shared between requests.
-    cache = db.info.setdefault("_player_country_map", {})
-    if gender in cache:
-        return cache[gender]
+    # per request), so this tier cannot go stale within a response. It is kept
+    # because a caller reaching the builder directly still wants it.
+    #
+    # Named `request_memo`, not `cache`: the module-level `cache` import is what
+    # the outer tier uses, and shadowing it here would be a trap for the next
+    # edit rather than a bug today.
+    request_memo = db.info.setdefault("_player_country_map", {})
+    if gender in request_memo:
+        return request_memo[gender]
 
     stmt = (
         select(
@@ -179,8 +184,28 @@ def _player_country_map(
         if current is None or candidate[:2] > current[:2]:
             best[identifier] = candidate
     resolved = {ident: (name, code) for ident, (_, _, name, code) in best.items()}
-    cache[gender] = resolved
+    request_memo[gender] = resolved
     return resolved
+
+
+def _player_country_map(
+    db: Session, gender: str | None = None
+) -> dict[str, tuple[str, str | None]]:
+    """Cached view of the appearance-derived flag map.
+
+    Every board that shows a player name needs this, and it is a GROUP BY over
+    all 220k appearance rows regardless of how many rows the page returns - a
+    25-row rankings page was paying roughly 200 ms for it. It changes only when
+    matches are ingested, which `app.cache` detects.
+    """
+    return cache.get_or_compute(
+        db, ("player_country_map", gender), lambda: _build_player_country_map(db, gender)
+    )
+
+
+def _team_record_map(db: Session) -> dict[int, tuple[int, int, int]]:
+    """Cached view of every team's played/won/decided counts."""
+    return cache.get_or_compute(db, ("team_record_map",), lambda: _build_team_record_map(db))
 
 
 def _attach_country(
@@ -254,7 +279,7 @@ def _competition_scoped(stmt, competition_key: str | None, competition_type: str
     return stmt
 
 
-def _batting_aggregate_rows(
+def _build_batting_aggregate_rows(
     db: Session,
     gender: str,
     competition_key: str | None = None,
@@ -326,7 +351,7 @@ def _batting_aggregate_rows(
     return _attach_country(results, _player_country_map(db, gender))
 
 
-def _bowling_aggregate_rows(
+def _build_bowling_aggregate_rows(
     db: Session,
     gender: str,
     competition_key: str | None = None,
@@ -377,6 +402,56 @@ def _bowling_aggregate_rows(
             }
         )
     return _attach_country(results, _player_country_map(db, gender))
+
+
+def _cached_aggregate_rows(build, db, key_prefix, *args) -> list[dict]:
+    """Cache a scope-wide aggregate, pass a single-player one straight through.
+
+    These two GROUP BYs are the hot spot of the whole read path: a rankings page,
+    an explorer board, the player directory, a team page and the dashboard all
+    start here, and each one paid the full 220k-row aggregate to return 25 rows.
+
+    Only the scope-wide form is cached. `player_identifier` is the last argument
+    and, when set, the query is an indexed lookup of one player's rows - already
+    fast, and caching it would key the store by 9,500 identifiers per scope for
+    no gain.
+    """
+    gender, competition_key, competition_type, player_identifier, team_id = args
+    if player_identifier is not None:
+        return build(db, gender, competition_key, competition_type, player_identifier, team_id)
+    return cache.get_or_compute(
+        db,
+        (key_prefix, gender, competition_key, competition_type, team_id),
+        lambda: build(db, gender, competition_key, competition_type, None, team_id),
+    )
+
+
+def _batting_aggregate_rows(
+    db: Session,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    player_identifier: str | None = None,
+    team_id: int | None = None,
+) -> list[dict]:
+    return _cached_aggregate_rows(
+        _build_batting_aggregate_rows, db, "batting_rows",
+        gender, competition_key, competition_type, player_identifier, team_id,
+    )
+
+
+def _bowling_aggregate_rows(
+    db: Session,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    player_identifier: str | None = None,
+    team_id: int | None = None,
+) -> list[dict]:
+    return _cached_aggregate_rows(
+        _build_bowling_aggregate_rows, db, "bowling_rows",
+        gender, competition_key, competition_type, player_identifier, team_id,
+    )
 
 
 def _ranking_scope(competition_key: str | None, competition_type: str | None) -> str | None:
@@ -606,7 +681,7 @@ def _team_summary(db: Session, team: Team) -> schemas.TeamSummary:
     )
 
 
-def _team_record_map(db: Session) -> dict[int, tuple[int, int, int]]:
+def _build_team_record_map(db: Session) -> dict[int, tuple[int, int, int]]:
     """team_id -> (played, wins, decided), for every team in one query.
 
     Each match contributes a row per side, so a team's appearances are just the
@@ -714,7 +789,7 @@ def get_team_detail(db: Session, team_id: int) -> schemas.TeamDetail | None:
         .order_by(Match.match_date_start.desc())
         .limit(RECENT_MATCHES_LIMIT)
     ).scalars().all()
-    recent_matches = [_hydrate_match_summary(db, m) for m in recent]
+    recent_matches = _hydrate_match_summaries(db, list(recent))
 
     return schemas.TeamDetail(
         **summary.model_dump(),
@@ -873,7 +948,7 @@ def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | No
         .order_by(Match.match_date_start.desc())
         .limit(RECENT_MATCHES_LIMIT)
     ).scalars().all()
-    recent_matches = [_hydrate_match_summary(db, m) for m in recent]
+    recent_matches = _hydrate_match_summaries(db, list(recent))
 
     country, country_code = _player_country_map(db, player.gender).get(
         player.identifier, (None, None)
@@ -1354,22 +1429,50 @@ def get_player_comparison(
     )
 
 
-def _hydrate_match_summary(db: Session, m: Match) -> schemas.MatchSummary:
-    comp = db.execute(
-        select(Competition).where(Competition.competition_id == m.competition_id)
-    ).scalar_one()
-    team_ids = [tid for tid in (m.team1_id, m.team2_id, m.winner_team_id) if tid is not None]
-    teams_by_id = {
+def _hydrate_match_summaries(db: Session, matches: list[Match]) -> list[schemas.MatchSummary]:
+    """Hydrate a whole page of matches in two queries, not two per match.
+
+    The per-match version issued one query for the competition and one for the
+    sides, so a 25-row match list was 51 round trips and a 100-row one was 201.
+    Each was individually cheap - both tables are small and SQLAlchemy's identity
+    map absorbs the repeats within a session - which is exactly why it survived:
+    the cost is per row, so it only becomes visible at the page sizes the API
+    already allows.
+    """
+    if not matches:
+        return []
+    comp_ids = {m.competition_id for m in matches}
+    comps = {
+        c.competition_id: c
+        for c in db.execute(
+            select(Competition).where(Competition.competition_id.in_(comp_ids))
+        ).scalars().all()
+    }
+    team_ids = {
+        tid
+        for m in matches
+        for tid in (m.team1_id, m.team2_id, m.winner_team_id)
+        if tid is not None
+    }
+    teams = {
         t.team_id: t
         for t in db.execute(select(Team).where(Team.team_id.in_(team_ids))).scalars().all()
     } if team_ids else {}
-    return _match_summary(
-        m,
-        comp,
-        teams_by_id.get(m.team1_id),
-        teams_by_id.get(m.team2_id),
-        teams_by_id.get(m.winner_team_id),
-    )
+    return [
+        _match_summary(
+            m,
+            comps[m.competition_id],
+            teams.get(m.team1_id),
+            teams.get(m.team2_id),
+            teams.get(m.winner_team_id),
+        )
+        for m in matches
+    ]
+
+
+def _hydrate_match_summary(db: Session, m: Match) -> schemas.MatchSummary:
+    """One match. Prefer `_hydrate_match_summaries` for a list."""
+    return _hydrate_match_summaries(db, [m])[0]
 
 
 def list_matches(
@@ -1400,7 +1503,7 @@ def list_matches(
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = stmt.order_by(Match.match_date_start.desc()).limit(limit).offset(offset)
     items = db.execute(stmt).scalars().all()
-    return [_hydrate_match_summary(db, m) for m in items], total
+    return _hydrate_match_summaries(db, list(items)), total
 
 
 def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:

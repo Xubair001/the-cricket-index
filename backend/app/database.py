@@ -34,12 +34,32 @@ def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
     synchronous=NORMAL is the one genuine trade: under WAL it risks losing the
     last transactions on an OS crash, which is acceptable for a read replica of
     data that is re-derivable from Cricsheet.
+
+    The rest ARE tuning knobs, and they are set because this is an analytical
+    read workload over a 645 MB file, not an OLTP one:
+
+    * cache_size defaults to 2 MB, which cannot hold any useful fraction of a
+      scan over the 4.8M-row `deliveries` table - the page cache thrashes and
+      every query re-reads from the OS. 128 MB (negative value = KiB, not
+      pages) is the single largest win available here.
+    * mmap_size defaults to 0, so every page read is a `read()` syscall plus a
+      copy into SQLite's cache. Memory-mapping the file lets the kernel page
+      cache serve reads directly.
+    * temp_store defaults to writing sort and GROUP BY spill files to disk.
+      Nearly every board this API serves is a GROUP BY over a large scan, so
+      those spills are on the hot path.
+
+    Sizes are ceilings, not allocations: SQLite maps and caches lazily, so a
+    process serving only small queries does not pay for them.
     """
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=5000")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-131072")
+    cursor.execute("PRAGMA mmap_size=268435456")
+    cursor.execute("PRAGMA temp_store=MEMORY")
     cursor.close()
 
 

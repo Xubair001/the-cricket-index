@@ -8,7 +8,7 @@ number this app derived as an official one, or vice versa.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import queries, schemas
+from .. import queries, schemas, validation
 from ..database import get_db
 
 router = APIRouter(prefix="/api/icc", tags=["icc"])
@@ -34,7 +34,7 @@ def player_ranking(
     if table is None:
         raise HTTPException(
             status_code=404,
-            detail=f"no ICC player ranking stored for '{rank_type}'; "
+            detail=f"no ICC player ranking stored for '{validation.echo(rank_type)}'; "
                    f"available: {queries.icc_player_rank_types(db)}",
         )
     return table
@@ -51,7 +51,7 @@ def team_ranking(
     if table is None:
         raise HTTPException(
             status_code=404,
-            detail=f"no ICC team ranking stored for '{rank_type}'; "
+            detail=f"no ICC team ranking stored for '{validation.echo(rank_type)}'; "
                    f"available: {queries.icc_team_rank_types(db)}",
         )
     return table

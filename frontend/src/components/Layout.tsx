@@ -80,6 +80,13 @@ const NAV: NavGroup[] = [
     ],
   },
   {
+    // A group of its own rather than an item under Discover: news is the one
+    // section here that is not derived from ball-by-ball data, and filing it
+    // beside the computed boards would imply it is the same kind of thing.
+    label: 'News',
+    items: [{ label: 'Cricket News', to: 'news' }],
+  },
+  {
     label: 'Analytics',
     items: [
       { label: 'Batting Explorer', to: 'analytics/batting' },
