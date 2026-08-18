@@ -37,6 +37,17 @@ const POLICY_NOTE: Record<string, string> = {
     'This publisher serves article pages only to browsers, so there is no body to show. The headline, standfirst and lead image come from the feed they publish for the purpose.',
 }
 
+/** True when the body's opening is the standfirst restated. */
+function bodyOpensWith(body: string | null, standfirst: string): boolean {
+  if (!body) return false
+  const norm = (t: string) =>
+    t.replace(/[\u2018\u2019\u201c\u201d]/g, "'").replace(/\s+/g, ' ').trim().toLowerCase()
+  const lead = norm(standfirst).slice(0, 80)
+  // 80 characters is long enough that a shared stock phrase cannot trip it and
+  // short enough to survive the publisher truncating the standfirst mid-word.
+  return lead.length >= 40 && norm(body).startsWith(lead)
+}
+
 function EntityLink({ entity, slug }: { entity: NewsEntity; slug: string }) {
   const note = CONFIDENCE_NOTE[entity.confidence] ?? entity.confidence
   const chip =
@@ -101,6 +112,14 @@ export function NewsArticle() {
   const hero = article.images.find((i) => i.role === 'hero') ?? article.images[0]
   const keywords = article.tags.filter((t) => t.kind === 'keyword' || t.kind === 'entity')
 
+  // The ICC's og:description and JSON-LD description are the article's own
+  // opening paragraphs, cut to length. Rendering both puts the same sentence
+  // on screen twice, the first copy ending mid-clause. Suppress the standfirst
+  // when the body already starts with it. Compared on a normalised prefix
+  // because the two differ in whitespace and curly quotes.
+  const showStandfirst =
+    !!article.standfirst && !bodyOpensWith(article.body_text, article.standfirst)
+
   return (
     <div className="space-y-6">
       <div>
@@ -118,7 +137,7 @@ export function NewsArticle() {
 
         <h1 className="u-display mt-3 max-w-3xl text-title text-ink">{article.title}</h1>
 
-        {article.standfirst && (
+        {showStandfirst && (
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-muted">
             {article.standfirst}
           </p>

@@ -1176,6 +1176,24 @@ Caption, credit and alt text live on `news_article_images`, not on
 caption each time, and storing them on the asset has the last article
 ingested overwrite every earlier one's caption.
 
+**Two renditions are stored, and the list must use the smaller one.** Storing
+only the largest was right for "what is the best available" and wrong for a
+64px row: measured on the stored assets, one dashboard row was pulling a
+**461 KB** original from ESPNcricinfo and **308 KB** from Sky.
+`news_images.thumb_url` holds a list-sized rendition
+(`news_sources.thumb_rendition`) and the API returns it as `image.thumb_url`,
+with `cdn_url` kept for the article hero. Per CDN: imgci `.2` (48 KB), 365dm
+`384x216` (24 KB), Cloudinary `t_ratio16_9-size20-webp` (16 KB), guim
+`/500.jpg` (25 KB).
+
+**A second CDN whitelists its widths, and it is the Guardian's.**
+`media.guim.co.uk` serves `/140.jpg` and `/500.jpg` and returns **HTTP 403**
+for `/300.jpg`. So the thumbnail width is a verified constant, not arithmetic
+on the stored width - the same rule the ICC's Cloudinary account and Wikimedia
+already impose. `thumb_rendition` returns **None** for an unrecognised CDN
+rather than the original, so a caller knows to fall back rather than silently
+reintroducing the weight.
+
 **The upsert keeps the largest rendition, not the latest.** The Guardian ships
 one `mediaId` as both the main element (140/500/1000px) and the thumbnail
 element (500px). A plain last-write-wins stored *every* hero at 500x400 with a
@@ -1255,6 +1273,54 @@ which happened - `body_name` when the text established it, `body_name_men_defaul
 when nothing did and the men's side was taken. Recording the default as a
 distinct value rather than folding it into `body_name` is the point.
 
+**The inference reads the TITLE first, and that ordering is load-bearing.** A
+body-only scan filed two men's Hundred finals as women's cricket, because a
+report of the men's final mentions the women's final in the same sentence
+("Rockets miss out on a clean sweep of men's and women's titles"). The headline
+is what an article is *about*; the body is what it *mentions*. Within either
+scope a marker counts only when the opposite marker is absent, so a piece
+naming both returns None rather than picking.
+
+Measured over 1,082 articles, title-first took women's classifications from 283
+to 238 (removing the false positives) and positively identified 254 as men's
+that had previously only defaulted - `body_name` rose from 1,006 to 1,901 and
+`body_name_men_default` fell from 1,788 to 898.
+
+`\bmen` cannot match inside "women" because the 'o' before 'm' is a word
+character and the boundary fails, which is the only reason the two patterns are
+safe to test independently.
+
+#### The news gender filter is asymmetric, because the inference is
+
+`/api/news?gender=` does not mirror the browse endpoints. Publishers never tag
+an article with a gender; `link_news_entities` reads one from explicit markers
+("women's", "WBBL", "Women's T20 World Cup") and returns nothing when there are
+none. So the filter means:
+
+* `female` - the article links to a women's side. A positive fact.
+* `male` - the article links to **no** women's side. An absence.
+
+Filtering men's news the way women's is filtered would be wrong twice over: it
+would drop every article that could not be linked to any side at all (about
+40% of the ESPNcricinfo headlines, which carry no tags and no body), and it
+would present a default as a finding. Both the News page and the dashboard
+strip state which rule applied. This is the same distinction
+`body_name_men_default` already records on the entity row.
+
+#### News sits at the FOOT of the dashboard, and the "no news feed" rule was reversed deliberately
+
+`Home.tsx` used to carry "Every section is a computed entry point into the
+product. Deliberately not a news feed (section 6)." It now carries a four-story strip,
+and the reasoning was rewritten rather than left contradicting the code.
+
+What that rule was protecting against is still real: a feed at the top would
+make the landing page read as a scores-and-headlines site, which is the one
+thing it exists to say it is not. So the strip sits **below** the form boards
+and the dataset counts, is capped at four stories, uses thumbnail-sized images,
+and every headline is an external link. It is a way out to the sources, not the
+product. It is also fetched in its own `useEffect` rather than in the
+`Promise.all` that loads the boards, so a publisher outage cannot blank them.
+
 #### Content policy is enforced on the way out, not on the way in
 
 `news_publishers.content_policy` is `full`, `extract` or `metadata_only`, and
@@ -1280,13 +1346,27 @@ rather than at the line. A cross-worker limiter needs shared state this
 project's single-SQLite-file architecture has no good home for, and pretending
 otherwise would be worse than saying so.
 
-#### Two Temporal schedules, not one
+#### Two Temporal schedules, both daily
 
-`schedule.py` registers `icc-daily-sync` at 06:00 and `news-sync` every three
-hours. Separate because the cadences genuinely differ - news moves hourly
-where Cricsheet republishes every few days - and because they must fail
+`schedule.py` registers `icc-daily-sync` at 06:00 and `news-sync` at 06:30.
+Separate schedules rather than one job with two legs, because they must fail
 independently: a publisher blocking us should not put a red mark on the
 workflow that ingests match data.
+
+The half-hour offset is not cosmetic. Both write to the one SQLite file and the
+ICC job includes a Cricsheet archive ingest, which is the heaviest write in
+this project; starting news on the same minute would have it queue behind that
+for no reason.
+
+**The daily cadence has a real cost, and it is worth knowing before someone
+"fixes" a gap.** RSS feeds are windows, not archives: Sky's two cricket feeds
+hold 20 items each and ESPNcricinfo's hold 100. On a day when a publisher files
+more than its window holds, a once-daily pass never sees the overflow, and
+those articles are missed permanently rather than late. The ICC is unaffected,
+since its sitemap plus the per-tournament ones reach far beyond a day. If gaps
+start appearing, the fix is more runs per day, not a bigger fetch - and the
+ledger makes it visible, because a run that returns a full feed of unseen
+articles is a sign the window was full when we looked.
 
 `NewsSyncWorkflow` runs its sources **concurrently**, unlike
 `IccDailySyncWorkflow`'s Cricsheet leg which runs sequentially. The difference

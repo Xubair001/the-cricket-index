@@ -54,6 +54,11 @@ def main() -> int:
     parser.add_argument("--stale-hours", type=int, default=48,
                         help="how old the newest article may be before a source "
                              "counts as stale")
+    parser.add_argument("--backfill-thumbs", action="store_true",
+                        help="recompute news_images.thumb_url from cdn_url for "
+                             "any row missing one, and delete image rows no "
+                             "article references any more. thumb_url is a pure "
+                             "function of the URL, so this needs no re-scrape.")
     parser.add_argument("--prune-out-of-scope", action="store_true",
                         help="delete stored articles whose path is no longer in "
                              "scope for their source, and mark their ledger rows "
@@ -70,6 +75,32 @@ def main() -> int:
     if total == 0:
         print("nothing ingested; run `cd ingestion && python starter.py news` first")
         return 1
+
+    # -- Maintenance -------------------------------------------------------
+    # Both of these exist because news_images is shared across articles and so
+    # cannot cascade: deleting an article leaves its assets behind, and a
+    # thumbnail rule that improves later cannot reach rows already written
+    # without a full re-ingest it does not need.
+    if args.backfill_thumbs:
+        orphans = db.execute(text(
+            """DELETE FROM news_images WHERE image_id NOT IN
+               (SELECT image_id FROM news_article_images)"""
+        )).rowcount
+        rows = db.execute(text(
+            "SELECT image_id, cdn_url FROM news_images WHERE thumb_url IS NULL"
+        )).all()
+        filled = 0
+        for r in rows:
+            thumb = news_sources.thumb_rendition(r.cdn_url)
+            if thumb:
+                db.execute(
+                    text("UPDATE news_images SET thumb_url = :t WHERE image_id = :i"),
+                    {"t": thumb, "i": r.image_id},
+                )
+                filled += 1
+        db.commit()
+        print(f"  deleted {orphans} unreferenced image rows")
+        print(f"  backfilled {filled} thumbnails of {len(rows)} missing\n")
 
     # -- Scope -------------------------------------------------------------
     # An article outside its source's article_path is residue from a feed or
@@ -206,6 +237,43 @@ def main() -> int:
                                  WHERE role = 'hero' GROUP BY 1 HAVING COUNT(*) > 1)"""
     )
     report("at most one hero per article", two_heroes == 0, f"{two_heroes} have more")
+
+    # A list row must not pull the article-sized original. Before thumb_url
+    # existed, one dashboard row fetched a 461 KB ESPNcricinfo original for a
+    # 64px thumbnail.
+    # Only images an article still references. An unreferenced row is a
+    # leftover from a pruned article, not a rendering problem, and counting it
+    # here would make routine housekeeping look like a regression.
+    referenced = """
+        FROM news_images i WHERE i.provider IS NOT NULL
+          AND EXISTS (SELECT 1 FROM news_article_images ai
+                      WHERE ai.image_id = i.image_id)
+    """
+    known_cdn = scalar(f"SELECT COUNT(*) {referenced}")
+    thumbed = scalar(f"SELECT COUNT(*) {referenced} AND i.thumb_url IS NOT NULL")
+    # Not an equality: the Guardian's LEGACY host (static.guim.co.uk, a
+    # different scheme from media.guim.co.uk) has no resize rule here, and
+    # inventing one would be a guess. thumb_url stays null and the client
+    # falls back to the full image, which is the designed behaviour.
+    report("in-use images have a list rendition", thumbed >= known_cdn - 5,
+           f"{thumbed}/{known_cdn} have one", warn_only=thumbed > known_cdn * 0.95)
+    orphaned = scalar(
+        """SELECT COUNT(*) FROM news_images i WHERE NOT EXISTS
+           (SELECT 1 FROM news_article_images ai WHERE ai.image_id = i.image_id)"""
+    )
+    report("no orphaned image rows", orphaned == 0,
+           f"{orphaned} reference no article; re-run with --backfill-thumbs to clear",
+           warn_only=True)
+    # The two whitelisting CDNs are the ones that fail loudly if a width is
+    # computed rather than chosen: guim 403s an unlisted width, ICC's
+    # Cloudinary 401s an unlisted transform.
+    bad_guim = scalar(
+        r"""SELECT COUNT(*) FROM news_images
+            WHERE provider = 'guim' AND thumb_url IS NOT NULL
+              AND thumb_url NOT LIKE '%/500.jpg'"""
+    )
+    report("guim thumbnails use a whitelisted width", bad_guim == 0,
+           f"{bad_guim} use an unlisted width, which media.guim.co.uk 403s")
 
     non_https_img = scalar("SELECT COUNT(*) FROM news_images WHERE cdn_url NOT LIKE 'https://%'")
     report("all image urls are https", non_https_img == 0, f"{non_https_img} are not")

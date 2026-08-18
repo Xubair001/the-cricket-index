@@ -52,7 +52,7 @@ SELECT a.article_id, a.title, a.standfirst, a.canonical_url, a.published_at,
        a.updated_at, a.section, a.word_count, a.source_key, a.body_text,
        a.body_html, a.syndication_of_article_id,
        p.name AS publisher_name, p.content_policy, p.attribution,
-       i.cdn_url, i.width, i.height, ai.alt_text, ai.caption, ai.credit
+       i.cdn_url, i.thumb_url, i.width, i.height, ai.alt_text, ai.caption, ai.credit
 FROM news_articles a
 JOIN news_publishers p ON p.publisher_id = a.publisher_id
 LEFT JOIN news_article_images ai
@@ -83,6 +83,9 @@ def _row_to_article(row: Any, include_body: bool) -> dict:
         "image": (
             {
                 "url": row.cdn_url,
+                # Null when the CDN is not one ingestion knows how to resize;
+                # the client falls back to `url` rather than showing nothing.
+                "thumb_url": row.thumb_url,
                 "width": row.width,
                 "height": row.height,
                 "alt_text": row.alt_text,
@@ -270,14 +273,15 @@ def get_article(db: Session, article_id: int) -> dict | None:
     ]
     article["images"] = [
         {
-            "url": r.cdn_url, "role": r.role, "width": r.width, "height": r.height,
+            "url": r.cdn_url, "thumb_url": r.thumb_url, "role": r.role,
+            "width": r.width, "height": r.height,
             "alt_text": r.alt_text, "caption": r.caption, "credit": r.credit,
             "image_type": r.image_type,
         }
         for r in db.execute(
             text(
-                """SELECT i.cdn_url, ai.role, i.width, i.height, ai.alt_text,
-                          ai.caption, ai.credit, ai.image_type
+                """SELECT i.cdn_url, i.thumb_url, ai.role, i.width, i.height,
+                          ai.alt_text, ai.caption, ai.credit, ai.image_type
                    FROM news_article_images ai
                    JOIN news_images i ON i.image_id = ai.image_id
                    WHERE ai.article_id = :id ORDER BY ai.position"""

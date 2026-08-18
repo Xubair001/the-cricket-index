@@ -263,6 +263,27 @@ def test_images() -> None:
     up5, w5, h5 = ns.best_rendition(unknown)
     eq("unknown cdn untouched", (up5, w5, h5), (unknown, None, None))
 
+    # Thumbnails: a list row must not pull the original. Every width below was
+    # requested against the live origin, because two of these CDNs whitelist
+    # their sizes and a computed one is an error page.
+    eq("imgci thumbnail variant",
+       ns.thumb_rendition(f"{base}.jpg"), f"{base}.2.jpg")
+    check("365dm thumbnail",
+          ns.thumb_rendition("https://e0.365dm.com/26/08/1920x1080/skysports-a_7322178.jpg")
+          == "https://e0.365dm.com/26/08/384x216/skysports-a_7322178.jpg")
+    check("cloudinary thumbnail uses a named transform",
+          (ns.thumb_rendition(icc_small) or "").split("/upload/")[1].split("/")[0]
+          in ns.ICC_NAMED_TRANSFORMS)
+    # media.guim.co.uk serves /140 and /500 and returns HTTP 403 for /300, so
+    # the width comes from the verified constant rather than from arithmetic.
+    eq("guim thumbnail uses a whitelisted width",
+       ns.thumb_rendition(
+           "https://media.guim.co.uk/4e1086f9a88ae3633f087e705b8fa310b6086de7/688_0_6880_5504/1000.jpg"),
+       "https://media.guim.co.uk/4e1086f9a88ae3633f087e705b8fa310b6086de7/688_0_6880_5504/500.jpg")
+    # None, not the original: a caller that gets None knows to fall back,
+    # whereas returning the full image would silently reintroduce the weight.
+    eq("unknown cdn has no thumbnail", ns.thumb_rendition(unknown), None)
+
 
 def test_hero_selection() -> None:
     print("hero image selection")
@@ -539,6 +560,46 @@ def test_registry() -> None:
           ns.is_in_scope("guardian", "https://www.theguardian.com/anything/at/all"))
 
 
+def test_gender_inference() -> None:
+    """Lives here rather than in a second file: one test entry point is worth
+    more than keeping the module names aligned. Imported lazily so a missing
+    temporalio never stops the pure-extraction tests above from running."""
+    print("gender inference")
+    from news_activities import _infer_gender
+
+    # THE case this rule exists for. A body-only scan filed both of these as
+    # women's cricket, because a report of the MEN'S Hundred final mentions the
+    # women's final in the same breath.
+    eq("men's final by its headline",
+       _infer_gender(
+           "Seifert demolition job sets up Manchester Super Giants for maiden men's Hundred title",
+           "Manchester Super Giants beat Trent Rockets in the men's final"),
+       "male")
+    eq("a headline naming neither, body naming both, stays undetermined",
+       _infer_gender(
+           "The Hundred: Tim Seifert propels Manchester Super Giants to title",
+           "Rockets miss out on a clean sweep of men's and women's titles"),
+       None)
+
+    eq("women's from the headline",
+       _infer_gender("Charlie Dean to captain England Women against Ireland", "..."),
+       "female")
+    eq("women's from the body when the headline is silent",
+       _infer_gender("'Another step forward' as Perry hails T20 World Cup success",
+                     "Ellyse Perry has hailed the ICC Women's T20 World Cup"),
+       "female")
+    eq("nothing established gives None, never a guess",
+       _infer_gender("Australia reveal squad for second Test", "Weatherald dropped"),
+       None)
+
+    # "men" cannot match inside "women": the 'o' before 'm' is a word
+    # character, so the word boundary fails. The two patterns are only safe to
+    # test independently because of that.
+    eq("'women' does not read as 'men'",
+       _infer_gender("Women's Ashes squad named", "The squad for the Women's Ashes"),
+       "female")
+
+
 def test_extractor_version_in_hash() -> None:
     print("extractor version")
     payload = {"title": "x", "body_text": "y"}
@@ -559,7 +620,7 @@ def main() -> int:
         test_canonicalisation, test_article_ids, test_dates, test_rss,
         test_sitemap, test_images, test_hero_selection, test_html_extraction,
         test_validation, test_syndication, test_registry,
-        test_extractor_version_in_hash,
+        test_gender_inference, test_extractor_version_in_hash,
     ):
         test()
     print()

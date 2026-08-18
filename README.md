@@ -110,7 +110,7 @@ python starter.py icc     # ICC's official rankings
 python starter.py enrich  # player bios from Wikidata
 python starter.py news    # sports news from every enabled publisher
 python starter.py news:guardian   # one publisher (guardian|icc|skysports|espncricinfo)
-python schedule.py        # register the daily ICC refresh and the 3-hourly news sync
+python schedule.py        # register both daily schedules: ICC at 06:00, news at 06:30
 ```
 
 Re-running is cheap: each match is content-hashed, so unchanged matches are
@@ -128,6 +128,11 @@ recorded and served from `/api/news/sources`.
 
 Set `GUARDIAN_API_KEY` for your own key; it falls back to their open `test`
 key, which is rate limited to 720/min and 50,000/day.
+
+Articles are de-duplicated on the publisher's own article id and on a SHA-256
+of everything extracted, so a re-run rewrites only what genuinely changed. News
+appears in the app at `/:gender/news`, with a four-story strip at the foot of
+the dashboard.
 
 Check the archive against what should be true of it:
 

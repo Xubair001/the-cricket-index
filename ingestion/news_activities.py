@@ -920,8 +920,9 @@ def _persist(
         fingerprint_i = image.fingerprint or ns.image_fingerprint(image.url)
         conn.execute(
             """INSERT INTO news_images
-                   (fingerprint, provider, cdn_url, origin_url, width, height, mime_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+                   (fingerprint, provider, cdn_url, thumb_url, origin_url,
+                    width, height, mime_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(fingerprint) DO UPDATE SET
                    -- Keep the LARGEST rendition seen, never merely the latest.
                    -- One asset arrives more than once per article: the
@@ -935,6 +936,9 @@ def _persist(
                        WHEN news_images.width IS NULL
                             OR COALESCE(excluded.width, 0) > news_images.width
                        THEN excluded.cdn_url ELSE news_images.cdn_url END,
+                   -- Derived from the same asset id, so it does not depend on
+                   -- which rendition won above; take any non-null.
+                   thumb_url = COALESCE(excluded.thumb_url, news_images.thumb_url),
                    origin_url = CASE
                        WHEN news_images.width IS NULL
                             OR COALESCE(excluded.width, 0) > news_images.width
@@ -954,8 +958,8 @@ def _persist(
                        THEN COALESCE(excluded.width, news_images.width)
                        ELSE news_images.width END,
                    mime_type = COALESCE(excluded.mime_type, news_images.mime_type)""",
-            (fingerprint_i, image.provider, image.url, image.origin_url,
-             image.width, image.height, image.mime_type),
+            (fingerprint_i, image.provider, image.url, image.thumb_url,
+             image.origin_url, image.width, image.height, image.mime_type),
         )
         image_id = conn.execute(
             "SELECT image_id FROM news_images WHERE fingerprint = ?", (fingerprint_i,)
@@ -1339,7 +1343,7 @@ async def link_news_entities(limit: int = 500) -> dict:
             # which of the two happened. Linking to a gendered row without
             # saying the gender was defaulted would be a silent guess; adding
             # a fourth confidence value makes it a visible one.
-            article_gender = _infer_gender(haystack)
+            article_gender = _infer_gender(title or "", body_text or "")
             confidence = "body_name" if article_gender else "body_name_men_default"
             wanted_gender = article_gender or "male"
             matched_teams = 0
@@ -1394,21 +1398,50 @@ async def link_news_entities(limit: int = 500) -> dict:
 # thirty sides.
 MAX_TEAMS_PER_ARTICLE = 4
 
-# Markers that a piece is about women's cricket. Deliberately explicit rather
-# than statistical: the cost of getting this wrong is filing a women's match
-# report under the men's side, which is precisely the conflation this schema's
-# gender separation exists to prevent.
+# Markers that a piece is about women's or men's cricket. Deliberately explicit
+# rather than statistical: the cost of getting this wrong is filing a women's
+# match report under the men's side, which is precisely the conflation this
+# schema's gender separation exists to prevent.
+#
+# Note `\bmen` cannot match inside "women" - the 'o' before 'm' is a word
+# character, so the word boundary fails - which is what lets the two patterns
+# be tested independently.
 _WOMEN_MARKERS = re.compile(
-    r"\b(women'?s?|"
-    r"WBBL|WPL|The Hundred Women|"
-    r"Women'?s? (?:World Cup|Ashes|T20|ODI|Test|Big Bash|Premier League))\b",
+    r"\b(women'?s?|WBBL|WPL|"
+    r"Women'?s? (?:World Cup|Ashes|T20|ODI|Test|Big Bash|Premier League|Hundred))\b",
+    re.I,
+)
+_MEN_MARKERS = re.compile(
+    r"\b(men'?s?|"
+    r"Men'?s? (?:World Cup|Ashes|T20|ODI|Test|Big Bash|Premier League|Hundred))\b",
     re.I,
 )
 
 
-def _infer_gender(text: str) -> str | None:
-    """'female' when the text says so, else None. Never guesses 'male'."""
-    return "female" if _WOMEN_MARKERS.search(text or "") else None
+def _infer_gender(title: str, body: str) -> str | None:
+    """'female', 'male', or None when nothing in the text establishes one.
+
+    TITLE FIRST, and that ordering is the whole point. A body-only scan filed
+    two men's Hundred finals as women's cricket, because a report of the men's
+    final mentions the women's final in the same sentence ("Rockets miss out on
+    a clean sweep of men's and women's titles"). The headline is what an
+    article is *about*; the body is what it *mentions*.
+
+    Within either scope a marker only counts when the opposite marker is
+    absent. An article naming both is genuinely about both, and this returns
+    None rather than picking - which sends it to the men's default and, more
+    importantly, keeps it out of the women's filter, where a false positive is
+    the expensive error: women's cricket coverage is thin enough that padding
+    it with men's results is worse than missing one piece.
+    """
+    for scope in (title or "", body or ""):
+        female = bool(_WOMEN_MARKERS.search(scope))
+        male = bool(_MEN_MARKERS.search(scope))
+        if female and not male:
+            return "female"
+        if male and not female:
+            return "male"
+    return None
 
 
 def _resolve_any_gender(index: dict, name: str) -> str | None:

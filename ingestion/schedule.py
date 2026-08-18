@@ -11,15 +11,12 @@ lost. Run once (re-running is safe -- it updates the existing schedule):
 import asyncio
 import sys
 
-from datetime import timedelta
-
 from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
-    ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleRange,
@@ -43,11 +40,25 @@ SCHEDULE_ID = "icc-daily-sync"
 #    red mark on the workflow that ingests match data, and a Cricsheet
 #    archive taking twenty minutes should not delay the news window.
 NEWS_SCHEDULE_ID = "news-sync"
-# Every three hours. The RSS windows hold 20 to 100 items and the busiest
-# (ESPNcricinfo) turns over roughly daily, so three hours cannot miss an
-# article, while eight daily passes across four publishers is a trivial load
-# for any of them - and most of those passes cost one 304 per feed.
-NEWS_INTERVAL_HOURS = 3
+# Daily, on the same cadence as the ICC job, at 06:30.
+#
+# Half an hour after the ICC sync rather than at the same minute: both write to
+# the one SQLite file, and the ICC leg includes a Cricsheet archive ingest that
+# is the heaviest write in this project. Offsetting keeps a news run from
+# queueing behind it rather than overlapping for no reason.
+#
+# The trade this makes, stated because it is real: the RSS feeds are windows,
+# not archives. Sky's two cricket feeds hold 20 items each and ESPNcricinfo's
+# hold 100. On a day when a publisher files more than its window holds, a
+# once-daily pass will not see the overflow, and those articles are missed
+# permanently rather than late. The ICC is unaffected - its sitemap plus the
+# per-tournament ones cover far more than a day.
+#
+# Raise NEWS_RUNS_PER_DAY to 2 or 4 if that starts happening; the ledger makes
+# it visible, since a run that finds a full feed of unseen articles is a sign
+# the window was full when we looked.
+NEWS_RUN_HOUR = 6
+NEWS_RUN_MINUTE = 30
 # 06:00 local. ICC publishes new ratings roughly weekly and at no fixed hour, so
 # the exact time matters little -- what matters is checking every day so a new
 # publication is picked up within 24h.
@@ -112,17 +123,21 @@ async def main() -> None:
             task_queue=TASK_QUEUE,
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(hours=NEWS_INTERVAL_HOURS))]
+            calendars=[
+                ScheduleCalendarSpec(
+                    hour=[ScheduleRange(NEWS_RUN_HOUR)],
+                    minute=[ScheduleRange(NEWS_RUN_MINUTE)],
+                )
+            ]
         ),
-        # SKIP rather than BUFFER_ONE: if a run is still going when the next
-        # is due, the publishers have not produced three hours of new articles
-        # in the meantime, and stacking runs would only mean two workflows
-        # racing for the same pending ledger rows.
+        # SKIP rather than BUFFER_ONE: if yesterday's run is somehow still
+        # going, stacking would only mean two workflows racing for the same
+        # pending ledger rows. Same policy the ICC schedule uses.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     await _upsert(
         client, NEWS_SCHEDULE_ID, news_schedule,
-        f"runs every {NEWS_INTERVAL_HOURS}h",
+        f"runs daily at {NEWS_RUN_HOUR:02d}:{NEWS_RUN_MINUTE:02d}",
     )
 
 

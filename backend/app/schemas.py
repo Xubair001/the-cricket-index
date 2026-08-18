@@ -894,6 +894,8 @@ class PlayerDirectory(BaseModel):
 
 class NewsImage(BaseModel):
     url: str
+    """A list-sized rendition. Null when the CDN is unknown; fall back to `url`."""
+    thumb_url: str | None = None
     width: int | None = None
     height: int | None = None
     alt_text: str | None = None

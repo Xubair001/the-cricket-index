@@ -30,6 +30,13 @@ _MATCH_COLUMN_MIGRATIONS = {
     "natural_key": "TEXT",
 }
 
+# Columns added to `news_images` after the news schema first shipped. Same
+# reason as the two dicts around it: schema.sql uses CREATE TABLE IF NOT
+# EXISTS, so an existing cricket.db never picks up a new column from it.
+_NEWS_IMAGE_COLUMN_MIGRATIONS = {
+    "thumb_url": "TEXT",
+}
+
 _PLAYER_COLUMN_MIGRATIONS = {
     "date_of_death": "TEXT",
     "retirement_date": "TEXT",
@@ -84,6 +91,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for column, coltype in _MATCH_COLUMN_MIGRATIONS.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE matches ADD COLUMN {column} {coltype}")
+    # news_images only exists once schema.sql has run, which init_db does
+    # first, so this is safe on a fresh database as well as an upgraded one.
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(news_images)")}
+    if existing:
+        for column, coltype in _NEWS_IMAGE_COLUMN_MIGRATIONS.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE news_images ADD COLUMN {column} {coltype}")
+
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_matches_natural_key ON matches(natural_key)"
     )

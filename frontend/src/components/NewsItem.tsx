@@ -66,7 +66,11 @@ function Hero({
   if (!article.image) return null
   return (
     <img
-      src={article.image.url}
+      // The list rendition, not the largest. Measured before this existed, a
+      // 64px row was pulling a 461 KB original from ESPNcricinfo and 308 KB
+      // from Sky. Falls back to the full image when the CDN is one ingestion
+      // does not know how to resize.
+      src={article.image.thumb_url ?? article.image.url}
       alt={article.image.alt_text ?? ''}
       width={article.image.width ?? undefined}
       height={article.image.height ?? undefined}

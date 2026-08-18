@@ -824,6 +824,8 @@ export interface AvailabilityWindow {
 
 export interface NewsImage {
   url: string
+  /** A list-sized rendition. Null when the CDN is unknown - fall back to `url`. */
+  thumb_url: string | null
   width: number | null
   height: number | null
   alt_text: string | null

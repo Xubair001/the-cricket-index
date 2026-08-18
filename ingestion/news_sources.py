@@ -71,6 +71,8 @@ from xml.etree import ElementTree
 #       assumed. syndication_of_article_id is derived at persist time, so
 #       existing rows carry the old decision until they are re-persisted -
 #       which is exactly what bumping this forces.
+#   v6  a list-sized thumbnail rendition is stored beside the full one. A 64px
+#       row was pulling a 461 KB original.
 #   v5  Sky's other two canonical URL shapes (section-less /cricket/news/,
 #       and /the-hundred/news/) admitted by scope and by the id pattern.
 #   v4  per-source article_path scope, and Sky read from its cricket feeds
@@ -78,7 +80,7 @@ from xml.etree import ElementTree
 #       was 2/20 cricket. Scope bounds DISCOVERY rather than extraction, so
 #       it does not by itself require a re-parse; it rides along with v4
 #       because the same change corrected the Sky feed set.
-EXTRACTOR_VERSION = 5
+EXTRACTOR_VERSION = 6
 
 
 # --------------------------------------------------------------------------
@@ -884,6 +886,9 @@ class ArticleImage:
     mime_type: str | None = None
     fingerprint: str | None = None
     provider: str | None = None     # the CDN, e.g. 'imgci', 'cloudinary'
+    # A list-sized rendition of the same asset. None when the CDN is not one
+    # this module knows how to resize, in which case callers show the full one.
+    thumb_url: str | None = None
 
 
 @dataclass
@@ -1157,6 +1162,65 @@ def best_rendition(url: str) -> tuple[str, int | None, int | None]:
     return _https(url) or url, None, None
 
 
+# Widths each CDN is VERIFIED to serve for a list thumbnail. Every one of
+# these was requested against the live origin; none is inferred from a pattern.
+#
+# This matters because the biggest rendition is the wrong one to put in a 64px
+# row. Measured on the stored assets, a thumbnail row was pulling:
+#
+#     imgci       461 KB  ->   48 KB  (.2, 310x207)
+#     365dm       308 KB  ->   24 KB  (384x216)
+#     cloudinary   76 KB  ->   16 KB  (t_ratio16_9-size20-webp)
+#     guim         63 KB  ->   25 KB  (500.jpg)
+#
+# The Guardian's CDN is the trap here and behaves exactly like the ICC's
+# Cloudinary account: media.guim.co.uk serves /140.jpg and /500.jpg and
+# returns **HTTP 403** for /300.jpg. Widths are whitelisted, so a thumbnail
+# width may be requested from this list and never computed.
+GUIM_THUMB_WIDTH = 500
+IMGCI_THUMB_VARIANT = "2"        # 310x207, from ESPNCRICINFO_VARIANTS
+_365DM_THUMB = (384, 216)
+ICC_THUMB_TRANSFORM = "t_ratio16_9-size20-webp"
+
+
+def thumb_rendition(url: str) -> str | None:
+    """A list-sized rendition of the same asset, or None if the CDN is unknown.
+
+    None rather than the original on purpose: a caller that gets None knows to
+    fall back to the full image, whereas silently returning the original would
+    hide the fact that no thumbnail exists and quietly reintroduce the weight
+    this function was written to remove.
+    """
+    if not url:
+        return None
+
+    m = _IMGCI_RE.search(url)
+    if m:
+        _bucket, asset, _variant, ext = m.groups()
+        bucket = int(asset) // 100 * 100
+        return (f"https://p.imgci.com/db/PICTURES/CMS/{bucket}/"
+                f"{asset}.{IMGCI_THUMB_VARIANT}.{ext.lower()}")
+
+    m = _365DM_RE.search(url)
+    if m:
+        shard, yy, mm, _w, _h, slug, asset, ext = m.groups()
+        width, height = _365DM_THUMB
+        return (f"https://{shard}.365dm.com/{yy}/{mm}/{width}x{height}/"
+                f"{slug}_{asset}.{ext.lower()}")
+
+    m = _CLOUDINARY_RE.search(url)
+    if m:
+        _transform, public_id = m.groups()
+        return (f"https://images.icc-cricket.com/image/upload/"
+                f"{ICC_THUMB_TRANSFORM}/{public_id}")
+
+    if _GUIM_RE.search(url):
+        # .../<mediaId>/<crop>/<width>.jpg -> the whitelisted thumbnail width.
+        return re.sub(r"/\d+(\.[a-z]+)$", rf"/{GUIM_THUMB_WIDTH}\1", url)
+
+    return None
+
+
 def hero_image_from_meta(
     meta: dict[str, list[str]], ld: dict, fallback: str | None = None
 ) -> ArticleImage | None:
@@ -1206,6 +1270,7 @@ def hero_image_from_meta(
         caption=ld_caption,
         provider=provider,
         fingerprint=image_fingerprint(upgraded),
+        thumb_url=thumb_rendition(upgraded),
     )
 
 
@@ -1503,6 +1568,7 @@ def extract_from_guardian(result: dict) -> ExtractedArticle:
                 image_type=data.get("imageType"),
                 mime_type=widest.get("mimeType"),
                 provider="guim",
+                thumb_url=thumb_rendition(_https(widest.get("file") or "") or ""),
                 # mediaId is the Guardian's own asset identity, so this needs
                 # no URL parsing and survives a re-crop.
                 fingerprint=hashlib.sha256(
@@ -1547,6 +1613,7 @@ def extract_from_feed_item(candidate: Candidate) -> ExtractedArticle:
             height=candidate.image_height or height,
             provider=provider,
             fingerprint=image_fingerprint(url),
+            thumb_url=thumb_rendition(url),
         )
 
     return ExtractedArticle(

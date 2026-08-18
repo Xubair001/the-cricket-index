@@ -388,6 +388,7 @@ class NewsImage(Base):
     fingerprint: Mapped[str]
     provider: Mapped[str | None]
     cdn_url: Mapped[str]
+    thumb_url: Mapped[str | None]
     origin_url: Mapped[str | None]
     width: Mapped[int | None]
     height: Mapped[int | None]

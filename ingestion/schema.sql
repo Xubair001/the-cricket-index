@@ -552,7 +552,14 @@ CREATE TABLE IF NOT EXISTS news_images (
     image_id INTEGER PRIMARY KEY AUTOINCREMENT,
     fingerprint TEXT NOT NULL UNIQUE,
     provider TEXT,                   -- 'imgci' | '365dm' | 'cloudinary' | 'guim'
-    cdn_url TEXT NOT NULL,           -- the rendition we chose to display
+    cdn_url TEXT NOT NULL,           -- the largest rendition we know of
+    -- A list-sized rendition of the same asset, for rows and cards. Stored
+    -- rather than derived at render time because the per-CDN rules for it are
+    -- ingestion's knowledge, and because two of the four CDNs whitelist their
+    -- sizes: media.guim.co.uk serves /140 and /500 and returns 403 for /300,
+    -- and the ICC's Cloudinary account returns 401 for any transform outside
+    -- its named list. Null means the CDN is unknown and callers show cdn_url.
+    thumb_url TEXT,
     origin_url TEXT,                 -- as the source gave it, before upgrade
     width INTEGER,
     height INTEGER,
