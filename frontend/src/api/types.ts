@@ -740,6 +740,15 @@ export interface SelectedSide {
   unavailable: Record<string, string>
   /** What the selector could not guarantee about this particular side. */
   notes: string[]
+  /** Which pool the side was picked from: 'all_time' or 'current'. */
+  pool: string
+  pool_size: number
+  pool_considered: number
+  /** The scope's most recent match, and the cutoff derived from it. Null for all-time. */
+  reference_date: string | null
+  cutoff_date: string | null
+  /** The weights actually applied, so the blend is checkable on the page. */
+  weights: Record<string, number>
 }
 
 // --- Player availability (§16) ---------------------------------------------
@@ -961,4 +970,83 @@ export interface NewsHealth {
   degraded_feeds: NewsDegradedFeed[]
   syndicated: number
   entity_links: Record<string, number>
+}
+
+/**
+ * One competition, as the API describes it.
+ *
+ * `type` is 'international' | 'domestic_league' and is the query value itself,
+ * not a label, so a client passes it straight back as `competition_type`.
+ */
+export interface CompetitionInfo {
+  key: string
+  display_name: string
+  type: string
+  matches: number
+}
+
+/* ── Tournaments ───────────────────────────────────────────────
+ * Named multi-team events (World Cups, Champions Trophy, Asia Cup) as opposed
+ * to bilateral tours, which are the great majority of `event_name` values and
+ * are deliberately not listed here. */
+
+export interface TournamentEdition {
+  season: string | null
+  matches: number
+  sides: number
+  first_date: string | null
+  last_date: string | null
+  winner_team_id: number | null
+  winner_name: string | null
+  runner_up_name: string | null
+  /** False when this dataset does not hold the deciding match. Distinguishes
+   *  "we do not have the final" from "nobody won it". */
+  has_final: boolean
+  /** The final was tied and settled on a super over or boundary count, so the
+   *  champion comes from the eliminator rather than from a winner. */
+  decided_by_tiebreak: boolean
+  venues: string[]
+}
+
+export interface TournamentSummary {
+  name: string
+  slug: string
+  gender: string
+  competition_key: string
+  competition_name: string
+  competition_type: string
+  is_icc: boolean
+  is_flagship: boolean
+  matches: number
+  sides: number
+  editions: number
+  first_date: string | null
+  last_date: string | null
+  latest_season: string | null
+  latest_winner: string | null
+}
+
+export interface TournamentLeader {
+  player_identifier: string
+  player_name: string
+  matches: number
+  runs?: number | null
+  average?: number | null
+  wickets?: number | null
+}
+
+export interface TournamentTitles {
+  team: string
+  titles: number
+}
+
+export interface TournamentDetail extends TournamentSummary {
+  editions_detail: TournamentEdition[]
+  top_run_scorers: TournamentLeader[]
+  top_wicket_takers: TournamentLeader[]
+  most_titles: TournamentTitles[]
+  /** Raw Cricsheet spellings merged into this tournament, so a reader who
+   *  disagrees with an alias can see exactly what was folded together. */
+  source_names: string[]
+  notes: string[]
 }

@@ -308,6 +308,36 @@ SELECTION_WEIGHTS = {
     "form": 0.15,     # change against their own baseline
 }
 
+# Weights for the CURRENT-players pool, where the question is "who should we
+# pick next", not "who was the best there has ever been".
+#
+# Career standing is still the largest single component, because one poor
+# series does not stop someone being the best player available and a selector
+# who dropped them for it would be wrong. But it falls from 0.55 to 0.40 and
+# the two recent-evidence terms rise, because within a pool ALREADY restricted
+# to players in the current picture, career record is the part that
+# discriminates least: everyone left has been picked recently.
+#
+# Deliberately not "form only". Form is self-relative - it measures a player
+# against their own baseline - so leaning on it would prefer a journeyman
+# having a good month over a great player having an ordinary one, which is the
+# trap `FormLeader.rank_score` already documents for the boards.
+SELECTION_WEIGHTS_CURRENT = {
+    "career": 0.40,
+    "index": 0.35,
+    "form": 0.25,
+}
+
+# How far back a player may have last appeared IN THE SCOPE and still count as
+# current. Deliberately `queries.ACTIVE_WINDOW_DAYS` rather than a new number:
+# "current" here has to mean the same thing as the active/inactive badge on a
+# player's profile, or a side would list someone the rest of the product calls
+# inactive.
+#
+# Measured pools at 365 days: 132 Test players, 121 PSL, 1,532 across all
+# men's internationals - about the size of the real current pool in each case.
+SELECTION_CURRENT_WINDOW_DAYS = 365
+
 # --------------------------------------------------------------------------
 # Form leaderboards
 # --------------------------------------------------------------------------

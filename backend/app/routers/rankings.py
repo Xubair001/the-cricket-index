@@ -174,6 +174,10 @@ def best_side(
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
     team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
+    # 'all_time' stays the default so an existing link returns the side it
+    # always did. 'current' answers a different question and says so in the
+    # response rather than quietly changing what the same heading means.
+    pool: str = Query(default="all_time", pattern="^(all_time|current)$"),
     db: Session = Depends(get_db),
 ) -> schemas.SelectedSide:
     """Best XI or XV for a scope (§18).
@@ -184,6 +188,14 @@ def best_side(
 
     `size` runs 11 to 15: a XV is a XI plus cover, so the same role shape is
     scaled rather than a different side being picked.
+
+    `pool` chooses the question. 'all_time' picks from everyone who has played
+    enough in the scope, including players who retired years ago. 'current'
+    restricts it to players still in the picture - last appearance in this
+    scope within a year of the scope's most recent match, and no sourced
+    retirement or date of death - and leans the weighting towards recent
+    evidence. The response reports the pool size, the anchor date and the
+    weights, so which question was answered is visible on the page.
     """
     key = validation.check_competition_key(db, competition)
     ctype = validation.check_competition_type(db, competition_type)
@@ -197,6 +209,7 @@ def best_side(
         competition_key=key,
         competition_type=ctype,
         team_id=team_id,
+        pool=pool,
     )
     team_name = None
     if team_id is not None:
@@ -213,4 +226,10 @@ def best_side(
         shape=result.shape,
         unavailable=result.unavailable,
         notes=result.notes,
+        pool=result.pool,
+        pool_size=result.pool_size,
+        pool_considered=result.pool_considered,
+        reference_date=result.reference_date,
+        cutoff_date=result.cutoff_date,
+        weights=result.weights,
     )

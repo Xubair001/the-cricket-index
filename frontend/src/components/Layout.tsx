@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useGender, type GenderSlug } from '../gender/useGender'
 import { ThemeToggle } from './ThemeToggle'
+import { FAMILY_LABEL, useScope, type ScopeFamily } from '../scope/scope'
 
 /**
  * The application shell.
@@ -71,6 +72,14 @@ const NAV: NavGroup[] = [
       { label: 'Performance Index', to: 'performance-index' },
       { label: 'ICC Rankings', to: 'icc-rankings' },
     ],
+  },
+  {
+    // Its own group rather than an item under Fixtures: a tournament is a
+    // named event with a history and a champion, where a fixture is a single
+    // calendar entry, and filing one under the other would suggest they are
+    // the same kind of thing.
+    label: 'Tournaments',
+    items: [{ label: 'World Cups & Events', to: 'tournaments' }],
   },
   {
     label: 'Fixtures',
@@ -406,6 +415,14 @@ export function Layout() {
               ))}
             </div>
 
+            {/* Competition type is the second hard split. `teams` are keyed by
+                (name, gender, team_type) and no ranking may sum across the
+                two, so it belongs in the chrome beside gender rather than as
+                one more option inside a per-page dropdown - which is what it
+                used to be, in five separate copies whose blank default
+                silently meant "internationals". */}
+            <ScopeSwitch />
+
             <ThemeToggle />
           </div>
         </header>
@@ -414,6 +431,54 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+    </div>
+  )
+}
+
+/**
+ * International / Leagues.
+ *
+ * Renders nothing until the competition list has loaded and only if BOTH
+ * families exist in the data. A switch offering "Leagues" against a database
+ * with no league in it would be a control that does nothing, and a switch that
+ * appeared a beat after the header settled would shift the layout - so it is
+ * absent rather than empty, and the pages fall back to internationals, which is
+ * what the API already defaults to.
+ */
+function ScopeSwitch() {
+  const { family, setFamily, allCompetitions } = useScope()
+  const families: ScopeFamily[] = ['international', 'league']
+  const present = new Set(
+    allCompetitions.map((c) => (c.type === 'domestic_league' ? 'league' : 'international'))
+  )
+  if (families.some((f) => !present.has(f))) return null
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Competition type"
+      className="flex rounded-lg border border-border-default bg-surface p-0.5"
+    >
+      {families.map((f) => (
+        <button
+          key={f}
+          role="radio"
+          aria-checked={family === f}
+          onClick={() => setFamily(f)}
+          title={
+            f === 'international'
+              ? 'Tests, ODIs and T20Is'
+              : 'Franchise leagues. Never blended with international figures.'
+          }
+          className={`rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors ${
+            family === f
+              ? 'bg-elevated text-ink shadow-card ring-1 ring-border-default'
+              : 'text-dim hover:text-ink'
+          }`}
+        >
+          {FAMILY_LABEL[f]}
+        </button>
+      ))}
     </div>
   )
 }

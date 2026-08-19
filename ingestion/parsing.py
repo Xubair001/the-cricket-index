@@ -89,6 +89,13 @@ class ParsedMatch:
     season: str | None
     event_name: str | None
     match_number: int | None
+    # Cricsheet's event.stage / event.group. Sparse - stage on ~5% of matches,
+    # group on ~11% - but stage is what names a Final, and a tournament's
+    # winner cannot be sourced without it. Inferring "the last match of the
+    # event was the final" would be wrong wherever a third-place play-off
+    # follows the final, or where coverage of the event is partial.
+    event_stage: str | None
+    event_group: str | None
     venue: str | None
     city: str | None
     match_date_start: str | None
@@ -99,6 +106,13 @@ class ParsedMatch:
     toss_winner: str | None
     toss_decision: str | None
     winner: str | None
+    # The side that took a tied match on a tiebreak (super over, boundary
+    # count, bowl-out). Cricsheet reports it as `outcome.eliminator` and NOT
+    # as `outcome.winner`, so a match like the 2019 World Cup final parses as
+    # {"result": "tie"} with no winner at all. England won that World Cup; a
+    # tournament page reading only `winner` would show its final as having
+    # nobody win it. 60 matches here carry one.
+    eliminator: str | None
     win_by_runs: int | None
     win_by_wickets: int | None
     outcome_result: str | None
@@ -131,6 +145,10 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
         season=str(info.get("season")) if info.get("season") is not None else None,
         event_name=event.get("name"),
         match_number=event.get("match_number"),
+        event_stage=event.get("stage"),
+        # Cricsheet types this inconsistently: "A" for a letter group, 2 (an
+        # int) for a numbered one. Stored as text so both survive.
+        event_group=str(event["group"]) if event.get("group") is not None else None,
         venue=info.get("venue"),
         city=info.get("city"),
         match_date_start=dates[0] if dates else None,
@@ -141,6 +159,7 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
         toss_winner=(info.get("toss") or {}).get("winner"),
         toss_decision=(info.get("toss") or {}).get("decision"),
         winner=winner,
+        eliminator=outcome.get("eliminator"),
         win_by_runs=by.get("runs"),
         win_by_wickets=by.get("wickets"),
         outcome_result=outcome_result,

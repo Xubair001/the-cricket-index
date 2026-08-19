@@ -28,6 +28,11 @@ def get_connection() -> sqlite3.Connection:
 _MATCH_COLUMN_MIGRATIONS = {
     "source": "TEXT NOT NULL DEFAULT 'cricsheet'",
     "natural_key": "TEXT",
+    # Tournament structure and tiebreak winners. See schema.sql for why the
+    # eliminator is a separate column from winner_team_id.
+    "event_stage": "TEXT",
+    "event_group": "TEXT",
+    "eliminator_team_id": "INTEGER REFERENCES teams(team_id)",
 }
 
 # Columns added to `news_images` after the news schema first shipped. Same
@@ -103,6 +108,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_matches_natural_key ON matches(natural_key)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_source ON matches(source)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_matches_event "
+        "ON matches(event_name, gender, season_label)"
+    )
 
 
 def init_db() -> None:

@@ -5,6 +5,7 @@ import type { DirectoryPlayer, FormState } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import { tableClass, tdNumClass, theadRowClass, trClass } from '../components/ui'
@@ -32,14 +33,6 @@ const SORTS = [
   { key: 'bowling_average', label: 'Bowling average' },
   { key: 'economy', label: 'Economy' },
   { key: 'form', label: 'Current form' },
-]
-
-const COMPETITIONS = [
-  { key: '', label: 'Internationals' },
-  { key: 'tests', label: 'Tests' },
-  { key: 'odis', label: 'ODIs' },
-  { key: 't20is', label: 'T20Is' },
-  { key: 'psl', label: 'PSL' },
 ]
 
 const STATUSES = [
@@ -110,7 +103,12 @@ export function Players() {
   const { slug, apiGender } = useGender()
   const [params, setParams] = useSearchParams()
 
-  const competition = params.get('competition') ?? ''
+  const requestedCompetition = params.get('competition') ?? ''
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const status = params.get('status') ?? ''
   const formState = params.get('form') ?? ''
   const sortBy = params.get('sort') ?? 'matches'
@@ -153,6 +151,7 @@ export function Players() {
       .playerDirectory(apiGender, {
         search: search || undefined,
         competition: competition || undefined,
+        competition_type: competitionType,
         status: status || undefined,
         form_state: formState || undefined,
         sort_by: sortBy,
@@ -175,7 +174,7 @@ export function Players() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, search, competition, status, formState, sortBy, minMatches, offset])
+  }, [apiGender, search, competition, competitionType, status, formState, sortBy, minMatches, offset])
 
   const qualification = useMemo(() => QUALIFIED[sortBy], [sortBy])
 
@@ -206,7 +205,7 @@ export function Players() {
             className="w-64 rounded-md border border-border-default bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-dim"
           />
         </label>
-        <Select label="Competition" value={competition} options={COMPETITIONS} onChange={(v) => update({ competition: v })} />
+        <Select label="Competition" value={competition} options={competitionOptions.map((c) => ({ key: c.value, label: c.label }))} onChange={(v) => update({ competition: v })} />
         <Select label="Sort by" value={sortBy} options={SORTS.map((s) => ({ key: s.key, label: s.label }))} onChange={(v) => update({ sort: v })} />
         <Select label="Status" value={status} options={STATUSES} onChange={(v) => update({ status: v })} />
         <Select label="Form" value={formState} options={FORM_STATES} onChange={(v) => update({ form: v })} />

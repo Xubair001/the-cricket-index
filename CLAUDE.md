@@ -1025,6 +1025,239 @@ anything is bound to a public interface**, and the cold-path costs documented ab
 protect. `/docs`, `/redoc` and `/openapi.json` are open for the same reason and
 should be reconsidered together with the above, not separately.
 
+### International and Leagues is a switch, and the client used to leak across it
+
+Competition type is a hard partition in this schema, exactly as gender is, and
+the backend has enforced it from the start (`queries._ranking_scope`). The
+client did not. Five pages each carried their own copy of
+
+    All Internationals | Tests | ODIs | T20Is | PSL
+
+which crosses the partition inside one dropdown, and whose blank default
+silently meant internationals - so a reader who picked PSL had changed family
+without being told, and a reader who picked nothing did not know which family
+they were in.
+
+`frontend/src/scope/scope.ts` now owns it: a family switch in the chrome beside
+Men's/Women's, and `useScopedCompetition` which gives a page the options for the
+current family and the `competition_type` to send when no specific competition
+is chosen.
+
+Three things worth keeping:
+
+- **The list comes from `GET /api/competitions`, not from the client.**
+  `app/validation.py` already refuses to hardcode competition keys, precisely so
+  that ingesting a new league stays a data change. Five hardcoded copies in the
+  client put that code change straight back, and were the reason the families
+  got mixed in the first place.
+- **A URL naming a competition WINS over the stored preference**, and moves the
+  switch to match. The only way to hold an out-of-family competition is for a
+  URL to name one, since a page's dropdown offers only the current family - and
+  a shared link to a PSL board should show the PSL board with the switch visibly
+  on Leagues, not a notice explaining why it will not. An earlier version
+  dropped the competition and explained itself instead; the notice component was
+  removed once the adoption rule made it unreachable.
+- **Not a path prefix, unlike gender.** Gender is in the URL because a player
+  identifier is meaningless without it. A competition family is a lens over the
+  same rows, every scope-sensitive page already carries its competition in its
+  own query string, and a prefix would have meant editing 48 link sites across
+  24 files to gain nothing a reader can see.
+
+`Teams.tsx` seeds its `team_type` tabs from the switch, because `team_type` and
+competition type are the same partition from two sides - the ingestion side maps
+one to the other in `shared.TEAM_TYPE_BY_COMPETITION_TYPE`.
+
+### Best XI answers two different questions, and says which one it answered
+
+`pool='all_time'` (the default, so existing links are unchanged) picks from
+everyone who has played enough in the scope. For Tests that returns Kumar
+Sangakkara, Shane Warne and Ryan Harris - correct for "the best there has been",
+useless for "who do we pick next".
+
+`pool='current'` restricts the candidates to players still in the picture:
+
+- last appearance **in this scope** within `config.SELECTION_CURRENT_WINDOW_DAYS`;
+- and no sourced retirement date or date of death. That excludes almost nobody
+  (43 in the whole register) because this project never infers retirement from a
+  gap, but where a source does say so it is the strongest signal there is.
+
+Two details that are easy to get wrong:
+
+- **The window is anchored to the newest match IN THE SCOPE**, not to today and
+  not to the newest match in the database. Anchoring to today would empty the
+  pool the moment the Cricsheet archive went stale - the trap `player_status`
+  already documents - and anchoring to the whole database would be worse for a
+  league, since the PSL season ends in May while the newest match overall is an
+  August Test, so a PSL pool would silently lose three and a half months of its
+  own season.
+- **The window is `queries.ACTIVE_WINDOW_DAYS` (365), reused rather than
+  reinvented.** "Current" here has to mean what the active/inactive badge on a
+  player's profile means, or a side would list someone the rest of the product
+  calls inactive. Measured pools: 132 Test players, 121 PSL, 1,532 across all
+  men's internationals.
+
+The weighting also changes, to `SELECTION_WEIGHTS_CURRENT` (career 0.40, index
+0.35, form 0.25 against 0.55/0.30/0.15). Career is still the largest single
+term, because one poor series does not stop someone being the best available -
+but inside a pool already restricted to current players it is the component that
+discriminates least, since everyone left has been picked recently. Deliberately
+not "form only": form is self-relative, so leaning on it would prefer a
+journeyman having a good month over a great player having an ordinary one, which
+is the trap `FormLeader.rank_score` documents for the boards.
+
+Both the pool size and the applied weights are returned and rendered, because
+the same heading means two different things depending on them. The page's
+provenance footnote deliberately does **not** repeat the percentages: it used to
+hardcode 55/30/15 and sat directly under a line stating 40/35/25, contradicting
+it.
+
+### Tournaments are a normalisation problem before they are a feature
+
+`matches.event_name` is free text from Cricsheet and names 1,276 distinct
+events. Two things have to be true before a tournaments page means anything.
+
+**1. Most of those are not tournaments.** 1,013 of them are bilateral tours -
+"Pakistan tour of England" is two sides playing a series. A tournament here is
+an event at least `tournaments.MIN_SIDES` (3) different sides played in, which
+is read off the data. A name-based rule would both admit tours called Trophy
+and miss tournaments not called anything of the kind. 266 events qualify,
+holding 5,424 matches.
+
+**2. One tournament appears under several names, and the editions confirm it.**
+The men's 50-over World Cup is "ICC World Cup" (2003, 2007), "ICC Cricket World
+Cup" (2011, 2015, 2023) and "World Cup" (2019). Grouping the raw column files
+it as three tournaments with a third of its history each.
+
+Worse, Cricsheet is inconsistent *within* an edition, not only between them:
+the 2014 men's T20 World Cup is 31 matches under "World T20" and 1 under "ICC
+Men's T20 World Cup", and 2016 is 26 under "World T20" and 1 under "ICC World
+Twenty20". So aliasing is not tidying that could be skipped - without it an
+edition page is short by whatever landed under the other spelling.
+
+`backend/app/events.py` follows `venues.py` exactly: **curated aliases only,
+never a substring rule.** The tempting rule is catastrophic here, because all
+of these are different tournaments:
+
+    ICC Cricket World Cup
+    ICC Cricket World Cup Qualifier
+    ICC Men's Cricket World Cup League 2          (234 matches on its own)
+    ICC Men's T20 World Cup Africa Region Qualifier
+
+Similarity is used only to REPORT pairs for review (`merge_candidates`), and
+the report earns its keep: it flagged "Asia Cup" against "Afro-Asia Cup" and
+"East Asia Cup", and "Pakistan tour of England" against "Pakistan tour of
+England and Scotland" - all genuinely different, all correctly left alone.
+Alias keys are (gender, competition, name), because two bilateral series in
+this data already carry one name across both genders.
+
+**Containment alone was not enough, and the miss was expensive.** A first pass
+only reported pairs where one name is a substring of the other, which cannot
+see a REORDERING: "Women's World T20" against "ICC Women's T20 World Cup".
+That is a fourth spelling of the women's T20 World Cup carrying its **2014 and
+2016 editions, 46 matches**, and the tournament page simply had no 2014 or 2016
+until it was found. `merge_candidates` now also compares order-independent
+token sets.
+
+That second rule needs its own guard, or it drowns the report: "England tour of
+India" and "India tour of England" have the same token set and are opposite
+tours. `_DIRECTIONAL` excludes them, which took the report from 261 pairs back
+to 11.
+
+**Typographic variants are normalised automatically, not curated.** Two names
+here differ from a twin only by a curly apostrophe (`Men\u2019s` against
+`Men's`), 8 matches. Merging those is not a judgement that two tournaments are
+one - it is the same string - so `_TYPOGRAPHIC` handles it in
+`canonical_event` rather than in the alias table.
+
+#### A champion needs `event.stage`, and a tied final needs `outcome.eliminator`
+
+Both were added to the parser (v5) for this, and both are load-bearing:
+
+- **`event_stage`** names the Final. A winner is never inferred from "the last
+  match of the event", which is wrong wherever a third-place play-off follows
+  the final or coverage of an edition is partial - and partial coverage is
+  normal here, the 2019 men's World Cup being 48 matches of which this database
+  holds 36. Where the final is absent the page says "final not held here"
+  rather than leaving an empty cell that reads as "nobody won".
+- **`eliminator_team_id`** is who took a TIED match on a super over, boundary
+  count or bowl-out. Cricsheet records it as `outcome.eliminator` and **not**
+  as `outcome.winner`, so the 2019 World Cup final parses as
+  `{"result": "tie", "eliminator": "England"}` with `winner_team_id` NULL.
+  England won that World Cup. Reading only `winner_team_id` shows the most
+  famous final of the decade as won by nobody. It is kept as a separate column
+  rather than folded into `winner_team_id`, because every aggregate that counts
+  match wins is right to keep excluding a tie.
+
+Validated against the honours lists: the men's World Cup returns Australia 4,
+England 1 (2019, marked as a tiebreak), India 1; the men's T20 World Cup all
+ten editions with the right finalists; the Champions Trophy all six; the
+women's T20 World Cup Australia 6, New Zealand 1.
+
+#### What this dataset actually holds of the global events
+
+Verified rather than assumed: Cricsheet publishes a **dedicated** archive per
+ICC tournament, and `icc_mens_cricket_world_cup_json.zip` contains exactly 265
+matches across exactly the six editions we hold, with identical per-edition
+counts. So the ingestion is complete against the source; the gaps below are
+Cricsheet's, not ours.
+
+* **Nothing before ~2002.** Earliest data is 2001-12-19 (Tests), 2002-06-27
+  (men's ODIs), 2005 (men's T20Is), 2007 (women's ODIs), 2009 (women's T20Is).
+  So World Cups 1975-1999, Champions Trophies 1998-2002 and every women's World
+  Cup to 2005 are absent entirely, and always will be from this source.
+* **Afghanistan is withdrawn in full.** Zero Afghanistan matches come from
+  Cricsheet - the four in the database arrive through the ICC scorecard
+  fallback. Not just recent matches: the whole record, retroactively. This is
+  why the 2019 and 2023 World Cups show **nine** sides rather than ten, and it
+  is the single largest systematic gap. `tournaments._notes` says so on any
+  flagship tournament missing them.
+* **Editions are usually short by a few matches.** Only 2011 (CWC), 2009 (men's
+  T20 WC), 2006/2009/2013/2017 (Champions Trophy), 2022 (women's CWC) and
+  2016/2023/2024 (women's T20 WC) are complete. The rest run 1 to 12 matches
+  under the real tournament.
+* **No Under-19 World Cups.** Cricsheet publishes no U19 archive at all, so
+  that is not an ingestion decision either.
+
+The product states this rather than implying completeness: an edition reports
+the matches held, `has_final` distinguishes "we do not hold the final" from
+"nobody won", and the coverage notes name the causes.
+
+#### Cross-source duplicates were real, and the key was the reason
+
+`ingest_match` drops an ICC stand-in when the Cricsheet version of the same
+match is written, keyed on `natural_key`. Two things defeated it and 33
+fixtures were stored twice:
+
+- **The cleanup only fires when a Cricsheet match is parsed.** An ICC row that
+  arrives after the Cricsheet match is already stored is never revisited,
+  because that match then hash-skips.
+- **The key used raw team names.** ICC writes "Turkiye", "France Cricket" and
+  "Hong Kong, China" where Cricsheet writes "Turkey", "France" and "Hong Kong",
+  so the keys differed and both rows survived.
+
+`icc_scorecard.natural_key` now lower-cases and maps through a small curated
+`_TEAM_SPELLINGS`, which fixes new inserts. Existing rows keep the key computed
+at insert time, so `backend/scripts/dedupe_matches.py` recomputes and repairs
+them (`--apply`). It deliberately touches only cricsheet/icc pairs: two
+Cricsheet rows sharing a key are a **double-header**, two real T20Is between
+the same sides on one day, and deleting one would delete real cricket.
+
+#### The deliveries reconciliation is 99.999%, not 100%, and here is the case
+
+Re-checked after the v5 re-parse, Cricsheet-only: **0 of 169,111 batting rows
+disagree**, and **1 of 120,217 bowling rows** does. The one is real and
+pre-existing. A single delivery can dismiss two batters - match 1534056 has a
+ball that is both a "retired out" and a "stumped" off DJ Hall - and
+`deliveries.wicket_kind` is one column, so only one of the two survives.
+`player_match_stats` is the correct side of that disagreement. Fixing it means
+changing the key of a 4.9M-row table for one known instance, which is why it is
+documented rather than done.
+
+The 252 batting and 118 bowling rows that disagree across ALL sources are
+ICC-sourced matches, which carry per-player figures and no ball-by-ball at all
+by design. Scope the check to `source='cricsheet'` or it reports a false
+failure.
+
 ### The frontend is light-first with dark as a peer, and semantic colour has two tiers
 
 `frontend/src/index.css` defines both palettes as `--color-*` tokens, so every

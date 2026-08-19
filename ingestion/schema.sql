@@ -82,6 +82,13 @@ CREATE TABLE IF NOT EXISTS matches (
     season_label TEXT,                 -- denormalized display copy of seasons.label
     event_name TEXT,
     match_number INTEGER,
+    -- Cricsheet's event.stage and event.group. Both sparse (stage on ~5% of
+    -- matches, group on ~11%), and both worth having anyway: stage is what
+    -- names a Final, and without it a tournament's winner would have to be
+    -- inferred from "the last match of the event", which is wrong wherever a
+    -- third-place play-off follows the final or coverage is partial.
+    event_stage TEXT,                 -- 'Final' | 'Semi Final' | 'Quarter Final' | ...
+    event_group TEXT,                 -- 'A' | 'B' | '1' | ...; text, as Cricsheet types it both ways
     venue TEXT,
     city TEXT,
     match_date_start TEXT,
@@ -95,6 +102,17 @@ CREATE TABLE IF NOT EXISTS matches (
     win_by_runs INTEGER,
     win_by_wickets INTEGER,
     outcome_result TEXT,              -- e.g. 'tie', 'no result', 'draw'; null if decisive
+    -- Who took a TIED match on a tiebreak: super over, boundary count, bowl-out.
+    -- Cricsheet reports this as outcome.eliminator and NOT as outcome.winner,
+    -- so a tied match has winner_team_id NULL however it was actually settled.
+    -- The 2019 World Cup final is exactly this: {"result": "tie",
+    -- "eliminator": "England"}. England won that World Cup, and a tournament
+    -- page reading only winner_team_id would show its final as won by nobody.
+    -- Kept SEPARATE from winner_team_id rather than folded into it, because
+    -- the two are different facts: one side did not win the match, they won
+    -- the tiebreak, and every existing aggregate that counts wins is right to
+    -- keep excluding it.
+    eliminator_team_id INTEGER REFERENCES teams(team_id),
     player_of_match TEXT,
     -- Which feed this match's figures came from.
     --
@@ -360,6 +378,10 @@ CREATE INDEX IF NOT EXISTS idx_matches_team2 ON matches(team2_id);
 -- Without this, counting a team's wins is a full scan of matches -- and the
 -- teams list asked for that once per team (110 scans of 10k rows per request).
 CREATE INDEX IF NOT EXISTS idx_matches_winner ON matches(winner_team_id);
+-- The tournaments list groups by exactly this, and the detail page filters on
+-- the first two columns.
+CREATE INDEX IF NOT EXISTS idx_matches_event
+    ON matches(event_name, gender, season_label);
 
 -- player_match_stats -------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_name ON player_match_stats(player_name);

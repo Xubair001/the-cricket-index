@@ -1484,11 +1484,26 @@ def list_matches(
     search: str | None,
     limit: int,
     offset: int,
+    competition_type: str | None = None,
 ) -> tuple[list[schemas.MatchSummary], int]:
+    """A match list, optionally confined to one competition or one type.
+
+    Unlike the aggregate queries, an unscoped call here really does mean every
+    competition: a match list is a list of events, not a summed figure, so
+    mixing internationals and franchise cricket corrupts nothing. The type
+    filter exists so a client that has put itself into one family can keep the
+    list consistent with the rest of what it is showing, not because the
+    figures would otherwise be wrong.
+    """
     stmt = select(Match).where(Match.gender == gender)
+    # A specific key is already narrower than any type, so it wins.
     if competition_key:
         stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id).where(
             Competition.key == competition_key
+        )
+    elif competition_type:
+        stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id).where(
+            Competition.type == competition_type
         )
     if team_id:
         stmt = stmt.where((Match.team1_id == team_id) | (Match.team2_id == team_id))

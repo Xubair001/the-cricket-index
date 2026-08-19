@@ -5,6 +5,7 @@ import type { SelectedSide, SelectionPick, TeamSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
 import { useGender } from '../gender/useGender'
+import { useScope, useScopedCompetition } from '../scope/scope'
 import { rate } from '../format'
 import {
   Card,
@@ -31,16 +32,23 @@ import {
  * before showing the side.
  */
 
-const COMPETITIONS = [
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
-
 const SIZES = [
   { value: 11, label: 'XI' },
   { value: 15, label: 'XV' },
+]
+
+/**
+ * Which question the side answers.
+ *
+ * These are genuinely different questions, not a filter on one answer, which
+ * is why they are named rather than offered as a checkbox. An all-time side
+ * picks from everyone who ever played enough in the scope - so it returns
+ * Sangakkara, Warne and Ryan Harris for Tests, which is right for "the best
+ * there has been" and useless for "who do we pick next".
+ */
+const POOLS = [
+  { value: 'all_time', label: 'All time', hint: 'Everyone who has played enough in this competition, retired players included.' },
+  { value: 'current', label: 'Current squad', hint: 'Only players still in the picture, weighted towards recent evidence. This is the one to pick a next squad from.' },
 ]
 
 /** Conventional reading order for a team sheet, not the order picked. */
@@ -78,14 +86,32 @@ export function BestXI() {
   const { apiGender, slug } = useGender()
   const [params, setParams] = useSearchParams()
 
-  const competition = params.get('competition') ?? 't20is'
+  const requestedCompetition = params.get('competition') ?? ''
   const size = Number(params.get('size') ?? 11)
   const teamId = params.get('team') ?? ''
+  const pool = params.get('pool') === 'current' ? 'current' : 'all_time'
+
+  const { competitions } = useScope()
+  const {
+    competition: scopedCompetition,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
+  // A side has to be picked within ONE competition - blending Tests and T20Is
+  // would field a side for a format nobody plays - so unlike the boards there
+  // is no "all" option here. Falling back to the family's first competition
+  // keeps the page working the moment the switch changes family.
+  const competition = scopedCompetition || competitions[0]?.key || ''
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
   const [side, setSide] = useState<SelectedSide | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // `side.scope` is the API's own key ('psl'), which is a query value and not
+  // a name. Resolve it against the competition list rather than title-casing
+  // it, so "T20I" and "ODI" keep the capitalisation the data gives them.
+  const scopeLabel =
+    competitions.find((c) => c.key === side?.scope)?.display_name ?? side?.scope ?? ''
 
   function update(next: Record<string, string>) {
     const merged = new URLSearchParams(params)
@@ -107,6 +133,7 @@ export function BestXI() {
   }, [apiGender, teamType])
 
   useEffect(() => {
+    if (!competition) return
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -114,6 +141,7 @@ export function BestXI() {
       .bestSide(apiGender, {
         competition,
         size,
+        pool,
         team_id: teamId ? Number(teamId) : undefined,
       })
       .then((res) => !cancelled && setSide(res))
@@ -122,7 +150,7 @@ export function BestXI() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, size, teamId])
+  }, [apiGender, competition, size, teamId, pool])
 
   return (
     <div className="space-y-5">
@@ -132,7 +160,23 @@ export function BestXI() {
         blurb="A side picked to a role shape - not the top eleven on rating, which returns six openers and no keeper. Every place shows what it was picked on."
       />
 
+
       <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabelClass}>Pick from</span>
+          <select
+            value={pool}
+            onChange={(e) => update({ pool: e.target.value === 'current' ? 'current' : '' })}
+            className={fieldClass}
+            title={POOLS.find((p) => p.value === pool)?.hint}
+          >
+            {POOLS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabelClass}>Competition</span>
           <select
@@ -140,11 +184,13 @@ export function BestXI() {
             onChange={(e) => update({ competition: e.target.value, team: '' })}
             className={fieldClass}
           >
-            {COMPETITIONS.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
+            {competitionOptions
+              .filter((c) => c.value !== '')
+              .map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -212,7 +258,27 @@ export function BestXI() {
               title={side.team_name ? `${side.team_name} - best ${size === 15 ? 'XV' : 'XI'}` : `Best ${size === 15 ? 'XV' : 'XI'}`}
               blurb={
                 <>
-                  Picked from {side.scope} cricket. Shape:{' '}
+                  Picked from {scopeLabel} cricket
+                  {/* The pool is stated in the panel header, not left to the
+                      dropdown, because the same heading means two different
+                      things depending on it. */}
+                  {side.pool === 'current' ? (
+                    <>
+                      {' '}
+                      from{' '}
+                      <span className="font-semibold text-ink">
+                        {side.pool_size} current players
+                      </span>{' '}
+                      of {side.pool_considered} who have played enough
+                    </>
+                  ) : (
+                    <>
+                      {' '}
+                      from all {side.pool_considered} who have played enough, retired players
+                      included
+                    </>
+                  )}
+                  . Shape:{' '}
                   {Object.entries(side.shape)
                     .map(([role, n]) => `${n} ${SLOT_LABEL[role]?.toLowerCase() ?? role}`)
                     .join(', ')}
@@ -299,6 +365,30 @@ export function BestXI() {
                 })}
               </ol>
 
+              {/* The blend is different for a current squad - career standing
+                  drops from 55% to 40% and the two recent-evidence terms rise,
+                  because inside a pool already restricted to current players
+                  the career record is what discriminates least. Shown rather
+                  than described, so the change is checkable. */}
+              {Object.keys(side.weights).length > 0 && (
+                <div className="border-t border-border-subtle px-4 py-2.5">
+                  <p className="text-xs text-dim">
+                    Scored on{' '}
+                    {Object.entries(side.weights)
+                      .map(([k, v]) => `${Math.round(v * 100)}% ${k === 'index' ? 'Performance Index' : k === 'career' ? 'career standing' : 'current form'}`)
+                      .join(', ')}
+                    {side.cutoff_date && (
+                      <>
+                        {' '}· current means an appearance since{' '}
+                        <span className="tnum">{side.cutoff_date}</span>, measured from the most
+                        recent match here ({side.reference_date}) rather than from today
+                      </>
+                    )}
+                    .
+                  </p>
+                </div>
+              )}
+
               {side.notes.length > 0 && (
                 <div className="border-t border-border-subtle px-4 py-3">
                   {side.notes.map((n) => (
@@ -310,13 +400,20 @@ export function BestXI() {
               )}
 
               <Provenance>
-                Each place is scored on career standing in this scope (55%), the Performance Index
-                over the last 15 matches (30%) and current form against the player's own baseline
-                (15%). Career dominates because a best side is not the same as the side in the best
-                touch - but form still moves a player who is badly out of nick. Roles are
-                <em> inferred</em>: batter, bowler and all-rounder from balls faced versus bowled,
-                openers from who faces the first ball, and the keeper from stumpings, because only a
-                keeper can take one.
+                {/* The percentages are NOT repeated here. They differ between
+                    the two pools, and a footnote that hardcoded the all-time
+                    blend sat directly under a line stating the current one and
+                    contradicted it. The line above is the single place they
+                    are written, and it reads them from the response. */}
+                Each place is scored on career standing in this scope, the Performance Index over
+                the last 15 matches, and current form against the player's own baseline - in the
+                proportions given above, which differ between the two pools. Career carries the
+                most weight in both, because a best side is not the same as the side in the best
+                touch, but it carries less for a current squad: inside a pool already restricted to
+                players still in the picture, the career record is what separates them least. Roles
+                are<em> inferred</em>: batter, bowler and all-rounder from balls faced versus
+                bowled, openers from who faces the first ball, and the keeper from stumpings,
+                because only a keeper can take one.
               </Provenance>
             </Panel>
           )}

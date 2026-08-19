@@ -235,6 +235,7 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
         team2_id = team_ids.get(match.team2) if match.team2 else None
         toss_winner_team_id = team_ids.get(match.toss_winner) if match.toss_winner else None
         winner_team_id = team_ids.get(match.winner) if match.winner else None
+        eliminator_team_id = team_ids.get(match.eliminator) if match.eliminator else None
 
         for name, identifier in match.players.items():
             conn.execute(
@@ -247,22 +248,27 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
             """INSERT INTO matches (
                 match_id, competition_id, season_id, gender, data_granularity,
                 content_hash, match_type, team_type, season_label, event_name,
-                match_number, venue, city, match_date_start, match_date_end,
+                match_number, event_stage, event_group, venue, city,
+                match_date_start, match_date_end,
                 overs_limit, team1_id, team2_id, toss_winner_team_id,
-                toss_decision, winner_team_id, win_by_runs, win_by_wickets,
+                toss_decision, winner_team_id, eliminator_team_id,
+                win_by_runs, win_by_wickets,
                 outcome_result, player_of_match, source, natural_key
-            ) VALUES (?, ?, ?, ?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cricsheet', ?)
+            ) VALUES (?, ?, ?, ?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cricsheet', ?)
             ON CONFLICT(match_id) DO UPDATE SET
                 competition_id=excluded.competition_id, season_id=excluded.season_id,
                 gender=excluded.gender, content_hash=excluded.content_hash,
                 match_type=excluded.match_type, team_type=excluded.team_type,
                 season_label=excluded.season_label, event_name=excluded.event_name,
-                match_number=excluded.match_number, venue=excluded.venue, city=excluded.city,
+                match_number=excluded.match_number, event_stage=excluded.event_stage,
+                event_group=excluded.event_group,
+                venue=excluded.venue, city=excluded.city,
                 match_date_start=excluded.match_date_start,
                 match_date_end=excluded.match_date_end,
                 overs_limit=excluded.overs_limit, team1_id=excluded.team1_id,
                 team2_id=excluded.team2_id, toss_winner_team_id=excluded.toss_winner_team_id,
                 toss_decision=excluded.toss_decision, winner_team_id=excluded.winner_team_id,
+                eliminator_team_id=excluded.eliminator_team_id,
                 win_by_runs=excluded.win_by_runs, win_by_wickets=excluded.win_by_wickets,
                 outcome_result=excluded.outcome_result, player_of_match=excluded.player_of_match,
                 source='cricsheet', natural_key=excluded.natural_key
@@ -270,9 +276,11 @@ async def ingest_match(input: MatchIngestionInput) -> MatchIngestionResult:
             (
                 match.match_id, competition_id, season_id, match.gender, content_hash,
                 match.match_type, match.team_type, match.season, match.event_name,
-                match.match_number, match.venue, match.city, match.match_date_start,
+                match.match_number, match.event_stage, match.event_group,
+                match.venue, match.city, match.match_date_start,
                 match.match_date_end, match.overs_limit, team1_id, team2_id,
                 toss_winner_team_id, match.toss_decision, winner_team_id,
+                eliminator_team_id,
                 match.win_by_runs, match.win_by_wickets, match.outcome_result,
                 match.player_of_match,
                 natural_key(match.gender, input.competition, match.match_date_start,

@@ -6,6 +6,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useScope } from '../scope/scope'
 import { percent } from '../format'
 import {
   tableClass,
@@ -27,7 +28,17 @@ const TEAM_TYPES: { value: TeamType; label: string }[] = [
 
 export function Teams() {
   const { slug, apiGender } = useGender()
-  const [teamType, setTeamType] = useState<TeamType>('international')
+  // Seeded from the global family switch rather than hardcoded to
+  // 'international'. team_type and competition type are the same partition
+  // seen from two sides - `shared.TEAM_TYPE_BY_COMPETITION_TYPE` maps one to
+  // the other on the ingestion side - so a reader who has put the app into
+  // Leagues should land on franchises. Still local state afterwards, because
+  // this page's tabs are a legitimate way to look at the other set without
+  // changing the whole app's mode.
+  const { family } = useScope()
+  const [teamType, setTeamType] = useState<TeamType>(
+    family === 'league' ? 'franchise' : 'international'
+  )
   const [teams, setTeams] = useState<TeamSummary[] | null>(null)
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -51,6 +62,10 @@ export function Teams() {
       cancelled = true
     }
   }, [apiGender, teamType, offset])
+
+  useEffect(() => {
+    setTeamType(family === 'league' ? 'franchise' : 'international')
+  }, [family])
 
   if (error) return <ErrorMessage message={error} />
 

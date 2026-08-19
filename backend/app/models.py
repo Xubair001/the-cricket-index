@@ -65,6 +65,10 @@ class Match(Base):
     season_label: Mapped[str | None]
     event_name: Mapped[str | None]
     match_number: Mapped[int | None]
+    # Cricsheet's event.stage / event.group. Sparse, and stage is what names a
+    # Final - the only sourced route to a tournament's champion.
+    event_stage: Mapped[str | None]
+    event_group: Mapped[str | None]
     venue: Mapped[str | None]
     city: Mapped[str | None]
     match_date_start: Mapped[str | None]
@@ -75,6 +79,12 @@ class Match(Base):
     toss_winner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.team_id"))
     toss_decision: Mapped[str | None]
     winner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.team_id"))
+    # Who took a TIED match on a tiebreak. Cricsheet reports it as
+    # outcome.eliminator and not as outcome.winner, so a tied match has
+    # winner_team_id NULL however it was actually settled - the 2019 World Cup
+    # final among them. Kept separate rather than folded in, because every
+    # aggregate that counts wins is right to keep excluding it.
+    eliminator_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.team_id"))
     win_by_runs: Mapped[int | None]
     win_by_wickets: Mapped[int | None]
     outcome_result: Mapped[str | None]

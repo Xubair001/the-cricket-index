@@ -10,6 +10,7 @@ from app import cache, queries
 from app.database import SessionLocal
 from app.routers import (
     analytics,
+    competitions,
     dashboard,
     fixtures,
     icc,
@@ -18,6 +19,7 @@ from app.routers import (
     players,
     rankings,
     teams,
+    tournaments,
 )
 
 # Warming the default scopes at boot costs the process a few seconds of
@@ -159,6 +161,7 @@ async def security_headers(request: Request, call_next):
 
 
 app.include_router(dashboard.router)
+app.include_router(competitions.router)
 app.include_router(analytics.router)
 app.include_router(rankings.router)
 app.include_router(teams.router)
@@ -167,6 +170,7 @@ app.include_router(matches.router)
 app.include_router(icc.router)
 app.include_router(fixtures.router)
 app.include_router(news.router)
+app.include_router(tournaments.router)
 
 
 @app.exception_handler(Exception)

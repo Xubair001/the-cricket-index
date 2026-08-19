@@ -7,21 +7,22 @@ import { Pagination } from '../components/Pagination'
 import { ParMeter } from '../components/ParMeter'
 import { PlayerName } from '../components/PlayerName'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
 import {
   EmptyState,
+  fieldClass,
+  fieldLabelClass,
   PageHeader,
   Panel,
   Provenance,
-  Uncertain,
-  fieldClass,
-  fieldLabelClass,
   tableClass,
   tdClass,
   tdNumClass,
   thClass,
-  thNumClass,
   theadRowClass,
+  thNumClass,
   trClass,
+  Uncertain,
 } from '../components/ui'
 
 /**
@@ -93,14 +94,6 @@ const BOARDS: Board[] = [
   },
 ]
 
-const COMPETITIONS = [
-  { value: '', label: 'All Internationals' },
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
-
 const TREND_GLYPH: Record<FormLeaderRow['trend'], { glyph: string; tone: string; note: string }> = {
   rising: { glyph: '↗', tone: 'text-positive-ink', note: 'Improving within the recent window' },
   flat: { glyph: '→', tone: 'text-dim', note: 'Level within the recent window' },
@@ -117,7 +110,15 @@ export function FormBoards() {
   const board = BOARDS.find((b) => b.slug === boardSlug) ?? BOARDS[0]
   const [params, setParams] = useSearchParams()
 
-  const competition = params.get('competition') ?? ''
+  const requestedCompetition = params.get('competition') ?? ''
+  // The scope switch owns which family is in play. A competition from the other
+  // family is dropped rather than sent, so the figures on screen always match
+  // the heading above them.
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const offset = Number(params.get('offset') ?? 0)
 
   const [data, setData] = useState<FormLeaderboard | null>(null)
@@ -142,6 +143,7 @@ export function FormBoards() {
       .formLeaderboard(apiGender, {
         ...board.query,
         competition: competition || undefined,
+        competition_type: competitionType,
         limit: LIMIT,
         offset,
       })
@@ -154,7 +156,7 @@ export function FormBoards() {
     // `board` is a stable module-level object - `find` returns the same
     // identity for a given slug - so depending on it is both correct and what
     // the effect actually reads.
-  }, [apiGender, board, competition, offset])
+  }, [apiGender, board, competition, competitionType, offset])
 
   return (
     <div className="space-y-5">
@@ -171,6 +173,7 @@ export function FormBoards() {
           </Link>
         }
       />
+
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="inline-flex flex-wrap rounded-xl border border-border-subtle bg-surface p-0.5 shadow-card">
@@ -194,7 +197,7 @@ export function FormBoards() {
             onChange={(e) => update({ competition: e.target.value })}
             className={fieldClass}
           >
-            {COMPETITIONS.map((c) => (
+            {competitionOptions.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>

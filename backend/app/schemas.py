@@ -79,6 +79,81 @@ class DashboardStats(BaseModel):
     top_wicket_takers: list[BowlingRankingRow]
 
 
+class CompetitionInfo(BaseModel):
+    """One competition, in the API's own vocabulary.
+
+    `type` is 'international' or 'domestic_league' and can be passed straight
+    back as `competition_type`, so a client never has to map a UI label onto a
+    query value.
+    """
+
+    key: str
+    display_name: str
+    type: str
+    matches: int
+
+
+class TournamentEdition(BaseModel):
+    season: str | None
+    matches: int
+    sides: int
+    first_date: str | None
+    last_date: str | None
+    winner_team_id: int | None = None
+    winner_name: str | None = None
+    runner_up_name: str | None = None
+    """False when the deciding match is not in this dataset. Distinguishes
+    "we do not hold the final" from "nobody won it"."""
+    has_final: bool = False
+    """The final was tied and settled on a super over, boundary count or
+    bowl-out, so the champion comes from the eliminator rather than a winner."""
+    decided_by_tiebreak: bool = False
+    venues: list[str] = []
+
+
+class TournamentSummary(BaseModel):
+    name: str
+    slug: str
+    gender: str
+    competition_key: str
+    competition_name: str
+    competition_type: str
+    is_icc: bool
+    is_flagship: bool
+    matches: int
+    sides: int
+    editions: int
+    first_date: str | None
+    last_date: str | None
+    latest_season: str | None
+    latest_winner: str | None
+
+
+class TournamentLeader(BaseModel):
+    player_identifier: str
+    player_name: str
+    matches: int
+    runs: int | None = None
+    average: float | None = None
+    wickets: int | None = None
+
+
+class TournamentTitles(BaseModel):
+    team: str
+    titles: int
+
+
+class TournamentDetail(TournamentSummary):
+    editions_detail: list[TournamentEdition] = []
+    top_run_scorers: list[TournamentLeader] = []
+    top_wicket_takers: list[TournamentLeader] = []
+    most_titles: list[TournamentTitles] = []
+    """Raw Cricsheet spellings folded into this tournament, so a reader who
+    disagrees with an alias can see exactly what was merged."""
+    source_names: list[str] = []
+    notes: list[str] = []
+
+
 class TeamSummary(BaseModel):
     team_id: int
     name: str
@@ -596,6 +671,16 @@ class SelectedSide(BaseModel):
     unavailable: dict
     # What the selector could not guarantee about THIS side.
     notes: list[str]
+    # Which pool the side was picked from, and what that came to. Present for
+    # both pools so a client never has to infer which question was answered.
+    pool: str = "all_time"
+    pool_size: int = 0
+    pool_considered: int = 0
+    """The scope's most recent match, and the cutoff derived from it. Null for
+    an all-time pool, where no window applies."""
+    reference_date: str | None = None
+    cutoff_date: str | None = None
+    weights: dict[str, float] = {}
 
 
 class CommitmentRow(BaseModel):

@@ -7,6 +7,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
 import {
   tableClass,
   tdClass,
@@ -17,20 +18,21 @@ const LIMIT = 25
 
 // A match list isn't an aggregate, so "All" here really is everything --
 // unlike Rankings, showing a Test and a PSL fixture side by side sums nothing.
-const COMPETITIONS = [
-  { value: '', label: 'All Competitions' },
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
-
 const field = 'rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
 const fieldLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 export function Matches() {
   const { slug, apiGender } = useGender()
-  const [competition, setCompetition] = useState('')
+  const [requestedCompetition, setCompetition] = useState('')
+  // A match list is not a summed figure, so mixing families here would not
+  // corrupt a number - but a reader who has put the app into Leagues is asking
+  // for league cricket, and a list that quietly included Tests would make the
+  // switch mean nothing on this page.
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const [teamId, setTeamId] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -67,6 +69,7 @@ export function Matches() {
     api
       .matches(apiGender, {
         competition: competition || undefined,
+        competition_type: competitionType,
         team_id: teamId ? Number(teamId) : undefined,
         search: debouncedSearch || undefined,
         limit: LIMIT,
@@ -86,7 +89,7 @@ export function Matches() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, teamId, debouncedSearch, offset])
+  }, [apiGender, competition, competitionType, teamId, debouncedSearch, offset])
 
   return (
     <div className="space-y-5">
@@ -108,7 +111,7 @@ export function Matches() {
             }}
             className={field}
           >
-            {COMPETITIONS.map((c) => (
+            {competitionOptions.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>

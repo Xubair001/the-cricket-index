@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/matches", tags=["matches"])
 def list_matches(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
+    competition_type: str | None = Query(default=None),
     team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     season: str | None = Query(default=None),
     search: str | None = Query(default=None, max_length=validation.MAX_SEARCH_LENGTH),
@@ -28,6 +29,7 @@ def list_matches(
         search,
         limit,
         offset,
+        competition_type=validation.check_competition_type(db, competition_type),
     )
     return schemas.PaginatedMatches(total=total, limit=limit, offset=offset, items=items)
 

@@ -21,6 +21,7 @@ Three shapes in the feed that will silently corrupt figures if mishandled:
   has two rows, so figures must be summed across innings and `dismissals` is a
   count (0-2), exactly as Cricsheet's parser treats it.
 """
+import re
 from dataclasses import dataclass, field
 
 from enrichment import match_key, normalize
@@ -189,6 +190,29 @@ def resolve_register_player(index: dict, name_full: str) -> str | None:
     return None
 
 
+# Sides the two feeds spell differently. Curated, not fuzzy-matched, for the
+# reason `venues.py` and `events.py` both give: a name is not evidence, and an
+# automatic rule would eventually merge two real sides.
+#
+# Measured: after the cross-source cleanup ran over every match, 9 duplicate
+# fixtures remained and every one of them was a spelling difference in this
+# list. ICC writes the country's current official name where Cricsheet uses
+# the older English one, and appends "Cricket" to some association names.
+_TEAM_SPELLINGS = {
+    "turkiye": "turkey",
+    "france cricket": "france",
+    "czechia": "czech republic",
+    "hong kong, china": "hong kong",
+    "usa": "united states of america",
+}
+
+
+def _match_side(name: str | None) -> str:
+    """One side's name, reduced to a form both feeds agree on."""
+    cleaned = re.sub(r"\s+", " ", (name or "")).strip().lower()
+    return _TEAM_SPELLINGS.get(cleaned, cleaned)
+
+
 def natural_key(gender: str | None, competition: str | None, date: str | None,
                 team_a: str | None, team_b: str | None) -> str:
     """Identity of a real-world match, independent of which source described it.
@@ -196,8 +220,18 @@ def natural_key(gender: str | None, competition: str | None, date: str | None,
     Team names are sorted because the two feeds disagree about which side is
     listed first, and a key that flipped with the listing order would fail to
     match the very rows it exists to deduplicate.
+
+    They are also lower-cased and run through `_TEAM_SPELLINGS`, because
+    sorting alone was not enough: 9 fixtures survived deduplication as
+    Cricsheet/ICC pairs purely because one feed said "Turkiye" or "France
+    Cricket" where the other said "Turkey" or "France". Those pairs counted
+    twice in every aggregate that reads `matches`.
+
+    Note this changes the key for EVERY match, so an existing database keeps
+    its old keys until each match is next parsed. That is why the cleanup also
+    runs from the Cricsheet side on every ingest rather than only at insert.
     """
-    sides = sorted(filter(None, [(team_a or "").strip(), (team_b or "").strip()]))
+    sides = sorted(filter(None, [_match_side(team_a), _match_side(team_b)]))
     return "|".join([gender or "", competition or "", date or "", *sides])
 
 

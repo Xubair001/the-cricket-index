@@ -141,6 +141,46 @@ cd backend && python -m scripts.validate_news          # add --strict to gate a 
 cd ingestion && python test_news_sources.py            # extraction unit tests
 ```
 
+### Scope
+
+Two switches sit in the app chrome, and both are hard partitions rather than
+filters: **Men's / Women's**, and **International / Leagues**. No figure is ever
+summed across either - a player's Test runs and their PSL runs are different
+numbers and are never added together.
+
+**Best XI** takes a third choice, *Pick from*: `All time` picks from everyone
+who has played enough in the competition, retired players included; `Current
+squad` picks only from players still in the picture and leans the weighting
+towards recent evidence. The page states which pool it used, how large it was,
+and the weights applied.
+
+### Tournaments
+
+`/:gender/tournaments` lists every multi-team event - World Cups, the Champions
+Trophy, the Asia Cup, qualifiers and regional competitions - with each one's
+editions, champions and leading players. Bilateral tours are excluded: they are
+1,013 of the 1,276 values in `matches.event_name` and would bury the rest.
+
+Cricsheet spells some tournaments several ways across their editions, and those
+are merged from a curated list in `backend/app/events.py`, checked against each
+edition's finalists. To review what else might be mergeable:
+
+```bash
+cd backend && python -c "
+import sqlite3, sys; sys.path.insert(0,'.')
+from app import events
+print(events.merge_candidates([r[0] for r in
+  sqlite3.connect('../cricket.db').execute(
+    'SELECT DISTINCT event_name FROM matches WHERE event_name IS NOT NULL')]))"
+```
+
+Check for matches described twice by two sources:
+
+```bash
+cd backend && python -m scripts.dedupe_matches          # report
+cd backend && python -m scripts.dedupe_matches --apply  # remove the ICC copies
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branching model and

@@ -5,6 +5,7 @@ import type { IndexRow, PerformanceIndexPage } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
 import { PlayerName } from '../components/PlayerName'
 import {
   tableClass,
@@ -26,14 +27,6 @@ import {
  */
 
 const LIMIT = 25
-
-const COMPETITIONS = [
-  { value: '', label: 'All Internationals' },
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
 
 const ROLES = [
   { value: '', label: 'All disciplines' },
@@ -106,7 +99,15 @@ function Decomposition({ row, page }: { row: IndexRow; page: PerformanceIndexPag
 export function PerformanceIndex() {
   const { slug, apiGender } = useGender()
   const [params, setParams] = useSearchParams()
-  const competition = params.get('competition') ?? ''
+  const requestedCompetition = params.get('competition') ?? ''
+  // The scope switch owns which family is in play. A competition from the other
+  // family is dropped rather than sent, so the figures on screen always match
+  // the heading above them.
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const role = params.get('role') ?? ''
   const offset = Number(params.get('offset') ?? 0)
 
@@ -134,6 +135,7 @@ export function PerformanceIndex() {
     api
       .performanceIndex(apiGender, {
         competition: competition || undefined,
+        competition_type: competitionType,
         role: role || undefined,
         limit: LIMIT,
         offset,
@@ -144,7 +146,7 @@ export function PerformanceIndex() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, role, offset])
+  }, [apiGender, competition, competitionType, role, offset])
 
   const inactive = data?.components.filter((c) => !c.active) ?? []
   const missingWeight = inactive.reduce((sum, c) => sum + c.specified_weight, 0)
@@ -166,6 +168,7 @@ export function PerformanceIndex() {
         </p>
       </div>
 
+
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Scope</span>
@@ -174,7 +177,7 @@ export function PerformanceIndex() {
             onChange={(e) => update({ competition: e.target.value })}
             className={field}
           >
-            {COMPETITIONS.map((c) => (
+            {competitionOptions.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>

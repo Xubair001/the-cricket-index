@@ -5,6 +5,7 @@ import type { BattingRankingRow, BowlingRankingRow } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import {
@@ -44,14 +45,6 @@ const BOWLING_SORTS = [
 // "All Internationals", not "All Formats": the API deliberately refuses to sum
 // international and franchise cricket into one career figure, so the unscoped
 // option means every international format -- PSL has to be picked explicitly.
-const COMPETITIONS = [
-  { value: '', label: 'All Internationals' },
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
-
 function SelectControl({
   label,
   value,
@@ -84,11 +77,19 @@ function SelectControl({
 export function Rankings() {
   const { slug, apiGender } = useGender()
   const [tab, setTab] = useState<'batting' | 'bowling'>('batting')
-  const [competition, setCompetition] = useState('')
+  const [requestedCompetition, setCompetition] = useState('')
   const [minMatches, setMinMatches] = useState(10)
   const [sortBy, setSortBy] = useState('runs')
   const [offset, setOffset] = useState(0)
 
+  // The scope switch owns which family is in play; a competition from the
+  // other family is dropped rather than sent, so the board never shows
+  // franchise figures under an international heading.
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const [rows, setRows] = useState<(BattingRankingRow | BowlingRankingRow)[]>([])
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -115,7 +116,14 @@ export function Rankings() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    const params = { competition: competition || undefined, min_matches: minMatches, sort_by: sortBy, limit: LIMIT, offset }
+    const params = {
+      competition: competition || undefined,
+      competition_type: competitionType,
+      min_matches: minMatches,
+      sort_by: sortBy,
+      limit: LIMIT,
+      offset,
+    }
     const request =
       tab === 'batting' ? api.battingRankings(apiGender, params) : api.bowlingRankings(apiGender, params)
     request
@@ -133,7 +141,7 @@ export function Rankings() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, tab, competition, minMatches, sortBy, offset])
+  }, [apiGender, tab, competition, competitionType, minMatches, sortBy, offset])
 
   const sortOptions = tab === 'batting' ? BATTING_SORTS : BOWLING_SORTS
 
@@ -167,11 +175,12 @@ export function Rankings() {
         </button>
       </div>
 
+
       <div className="flex flex-wrap items-end gap-3">
         <SelectControl
           label="Format"
           value={competition}
-          options={COMPETITIONS}
+          options={competitionOptions}
           onChange={(v) => {
             setCompetition(v)
             setOffset(0)

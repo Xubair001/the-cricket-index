@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { ScopeProvider } from './scope/ScopeProvider'
 import { Compare } from './pages/Compare'
 import { Explorer } from './pages/Explorer'
 import { VenueAnalytics } from './pages/VenueAnalytics'
@@ -23,6 +24,8 @@ import { Scout } from './pages/Scout'
 import { SquadAnalysis } from './pages/SquadAnalysis'
 import { TeamDetail } from './pages/TeamDetail'
 import { Teams } from './pages/Teams'
+import { Tournaments } from './pages/Tournaments'
+import { TournamentDetail } from './pages/TournamentDetail'
 import { GENDER_STORAGE_KEY } from './components/Layout'
 
 function RootRedirect() {
@@ -40,6 +43,7 @@ function RootRedirect() {
 function App() {
   return (
     <BrowserRouter>
+      <ScopeProvider>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route path="/:gender" element={<Layout />}>
@@ -56,6 +60,8 @@ function App() {
           <Route path="icc-rankings" element={<IccRankings />} />
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />
+          <Route path="tournaments" element={<Tournaments />} />
+          <Route path="tournaments/:tournament" element={<TournamentDetail />} />
           <Route path="news" element={<News />} />
           <Route path="news/:articleId" element={<NewsArticle />} />
           <Route path="availability" element={<Availability />} />
@@ -71,6 +77,7 @@ function App() {
           <Route path="matches/:matchId/intelligence" element={<MatchIntelligence />} />
         </Route>
       </Routes>
+      </ScopeProvider>
     </BrowserRouter>
   )
 }

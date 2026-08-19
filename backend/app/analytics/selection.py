@@ -48,6 +48,7 @@ a league draft, which is §3's scout use case.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -136,6 +137,17 @@ class Selection:
     shape: dict = field(default_factory=dict)
     unavailable: dict = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    # Which pool was picked from, and what that came to. Reported rather than
+    # implied: a side is only readable if you know who could have been in it.
+    pool: str = "all_time"
+    pool_size: int = 0
+    pool_considered: int = 0
+    # The scope's most recent match, and the cutoff derived from it. Both null
+    # for an all-time pool, where no window applies.
+    reference_date: str | None = None
+    cutoff_date: str | None = None
+    # The weights actually applied, so the blend is checkable on the page.
+    weights: dict = field(default_factory=dict)
 
 
 def _keepers(db: Session, gender: str, competition_key, competition_type) -> dict[str, int]:
@@ -233,6 +245,81 @@ def _career_standing(
     return out
 
 
+# What `pool` may be. 'all_time' is the original behaviour and stays the
+# default, so an existing link keeps returning the side it used to.
+POOLS = ("all_time", "current")
+
+
+def _current_pool(
+    db: Session, gender: str, competition_key, competition_type
+) -> tuple[set[str], str | None, str | None]:
+    """Players still in the picture for this scope: (identifiers, anchor, cutoff).
+
+    Two rules, and the second is the one that matters:
+
+    * A **sourced** retirement date or date of death excludes a player
+      outright. That is almost nobody - 43 in the whole register - because
+      this project never infers retirement from a gap in appearances. It is
+      applied anyway, since where a source does say so it is the strongest
+      signal available.
+    * Otherwise, last appearance IN THIS SCOPE within
+      `config.SELECTION_CURRENT_WINDOW_DAYS`.
+
+    The window is anchored to the newest match in the SCOPE, not to today and
+    not to the newest match in the database. Anchoring to today would empty
+    the pool the moment the Cricsheet archive went stale, which is the trap
+    `player_status` already documents. Anchoring to the whole database would
+    be worse for a league: the PSL season ends in May and the newest match
+    overall is an August Test, so a PSL pool measured against the database
+    would silently lose three and a half months of its own season.
+
+    Returns the anchor and cutoff so the caller can state what "current"
+    meant rather than leaving the reader to assume it means "today".
+    """
+    stmt = (
+        select(
+            PlayerMatchStat.player_identifier,
+            func.max(Match.match_date_start),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(PlayerMatchStat.player_identifier.is_not(None), Match.gender == gender)
+        .group_by(PlayerMatchStat.player_identifier)
+    )
+    if competition_key:
+        stmt = stmt.where(Competition.key == competition_key)
+    if competition_type:
+        stmt = stmt.where(Competition.type == competition_type)
+
+    last_played = {pid: last for pid, last in db.execute(stmt).all() if last}
+    if not last_played:
+        return set(), None, None
+
+    anchor = max(last_played.values())
+    try:
+        cutoff = (
+            date.fromisoformat(anchor[:10])
+            - timedelta(days=config.SELECTION_CURRENT_WINDOW_DAYS)
+        ).isoformat()
+    except ValueError:
+        return set(last_played), anchor, None
+
+    gone = {
+        pid
+        for pid, in db.execute(
+            select(Player.identifier).where(
+                (Player.retirement_date.is_not(None))
+                | (Player.date_of_death.is_not(None))
+            )
+        ).all()
+    }
+    return (
+        {pid for pid, last in last_played.items() if last >= cutoff and pid not in gone},
+        anchor,
+        cutoff,
+    )
+
+
 def select_side(
     db: Session,
     *,
@@ -241,8 +328,17 @@ def select_side(
     competition_key: str | None = None,
     competition_type: str | None = None,
     team_id: int | None = None,
+    pool: str = "all_time",
 ) -> Selection:
-    """Pick a side of `size` within one scope."""
+    """Pick a side of `size` within one scope.
+
+    `pool='current'` restricts the candidates to players still in the picture
+    for this scope and shifts the weighting towards recent evidence. It answers
+    a different question from the default: "who should we pick next", rather
+    than "who was the best there has ever been".
+    """
+    if pool not in POOLS:
+        pool = "all_time"
     # One reduced, cached view of the scope, shared by career standing and every
     # per-player form verdict below. Calling `assess` per candidate without a
     # prefetched timeline issued a query each - 3,145 round trips and about nine
@@ -266,6 +362,13 @@ def select_side(
     keepers = _keepers(db, gender, competition_key, competition_type)
     sourced = scout._sourced_attributes(db)
     openers = _openers(db, gender, competition_key, competition_type)
+
+    eligible_now: set[str] | None = None
+    anchor = cutoff = None
+    if pool == "current":
+        eligible_now, anchor, cutoff = _current_pool(
+            db, gender, competition_key, competition_type
+        )
 
     # Who is eligible, and their volume in this scope.
     stmt = (
@@ -296,8 +399,12 @@ def select_side(
     countries = _queries._player_country_map(db, gender)
 
     candidates: list[Pick] = []
+    considered = 0
     for pid, matches, bf, bb in db.execute(stmt).all():
         if matches < MIN_MATCHES:
+            continue
+        considered += 1
+        if eligible_now is not None and pid not in eligible_now:
             continue
         rating = index_of.get(pid)
         if rating is None:
@@ -327,7 +434,10 @@ def select_side(
             # much cricket the verdict rests on.
             moved = max(-1.0, min(1.0, verdict.delta_ratio)) * verdict.confidence
             form_pct = 50.0 + moved * 50.0
-        w = config.SELECTION_WEIGHTS
+        w = (
+            config.SELECTION_WEIGHTS_CURRENT if pool == "current"
+            else config.SELECTION_WEIGHTS
+        )
         score = (
             w["career"] * career.get(pid, 50.0)
             + w["index"] * rating.index
@@ -369,7 +479,17 @@ def select_side(
         shape=dict(XI_SHAPE),
         unavailable=UNAVAILABLE,
         notes=_notes(picks, size),
+        pool=pool,
+        pool_size=len(candidates),
+        pool_considered=considered,
+        reference_date=anchor,
+        cutoff_date=cutoff,
+        weights=dict(
+            config.SELECTION_WEIGHTS_CURRENT if pool == "current"
+            else config.SELECTION_WEIGHTS
+        ),
     )
+
 
 
 def _fill_shape(candidates: list[Pick], size: int) -> list[Pick]:

@@ -22,7 +22,12 @@ TASK_QUEUE = "cricket-ingestion-queue"
 #       skipping every match and reporting success.
 #   v4  the fielder credited with each dismissal is stored, which is what makes
 #       a wicketkeeper identifiable -- only a keeper stumps.
-PARSER_VERSION = 4
+#   v5  event.stage, event.group and outcome.eliminator. stage is what names a
+#       Final, so a tournament's winner is sourced rather than inferred from
+#       "the last match played"; eliminator is who took a tied knockout, which
+#       Cricsheet reports separately from `winner` -- the 2019 World Cup final
+#       is {"result": "tie", "eliminator": "England"} and has no winner at all.
+PARSER_VERSION = 5
 
 CRICSHEET_URLS = {
     "tests": "https://cricsheet.org/downloads/tests_json.zip",

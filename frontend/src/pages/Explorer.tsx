@@ -5,6 +5,7 @@ import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary, VenueOption 
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import {
@@ -81,14 +82,6 @@ const COLUMNS: Record<ExplorerKind, Column[]> = {
   ],
 }
 
-const COMPETITIONS = [
-  { value: '', label: 'All Internationals' },
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
-
 const ROLES = [
   { value: '', label: 'All eligible' },
   { value: 'batter', label: 'Batters' },
@@ -121,7 +114,15 @@ export function Explorer() {
   const kind = (EXPLORERS.some((e) => e.key === explorer) ? explorer : 'batting') as ExplorerKind
   const [params, setParams] = useSearchParams()
 
-  const competition = params.get('competition') ?? ''
+  const requestedCompetition = params.get('competition') ?? ''
+  // The scope switch owns which family is in play. A competition from the other
+  // family is dropped rather than sent, so the figures on screen always match
+  // the heading above them.
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const opposition = params.get('opposition') ?? ''
   const dateFrom = params.get('from') ?? ''
   const dateTo = params.get('to') ?? ''
@@ -166,6 +167,7 @@ export function Explorer() {
     api
       .explorer(kind, apiGender, {
         competition: competition || undefined,
+        competition_type: competitionType,
         opposition_team_id: opposition ? Number(opposition) : undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
@@ -183,7 +185,7 @@ export function Explorer() {
     return () => {
       cancelled = true
     }
-  }, [kind, apiGender, competition, opposition, dateFrom, dateTo, minInnings, minBalls, role, venue, sortBy, offset])
+  }, [kind, apiGender, competition, competitionType, opposition, dateFrom, dateTo, minInnings, minBalls, role, venue, sortBy, offset])
 
   const columns = COLUMNS[kind]
   const active = EXPLORERS.find((e) => e.key === kind)!
@@ -211,6 +213,7 @@ export function Explorer() {
         ))}
       </div>
 
+
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Competition</span>
@@ -219,7 +222,7 @@ export function Explorer() {
             onChange={(e) => update({ competition: e.target.value })}
             className={field}
           >
-            {COMPETITIONS.map((c) => (
+            {competitionOptions.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>

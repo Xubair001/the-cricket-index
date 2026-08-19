@@ -24,6 +24,9 @@ import type {
   SquadAnalysis,
   TeamDetail,
   TeamStrengthTable,
+  CompetitionInfo,
+  TournamentDetail,
+  TournamentSummary,
   MatchIntelligence,
   NewsArticleDetail,
   NewsHealth,
@@ -151,6 +154,7 @@ export const api = {
     gender: ApiGender,
     params: {
       competition?: string
+      competition_type?: string
       team_id?: number
       season?: string
       search?: string
@@ -195,7 +199,13 @@ export const api = {
   // the decision it informs (§30).
   performanceIndex: (
     gender: ApiGender,
-    params: { competition?: string; role?: string; limit?: number; offset?: number } = {}
+    params: {
+      competition?: string
+      competition_type?: string
+      role?: string
+      limit?: number
+      offset?: number
+    } = {}
   ) => getJson<PerformanceIndexPage>('/api/rankings/performance', { gender, ...params }),
 
   // Canonical grounds - Cricsheet files one ground under several
@@ -228,7 +238,14 @@ export const api = {
   // for a franchise, which is what makes it usable for a league draft.
   bestSide: (
     gender: ApiGender,
-    params: { competition?: string; size?: number; team_id?: number } = {}
+    params: {
+      competition?: string
+      competition_type?: string
+      size?: number
+      team_id?: number
+      /** 'all_time' (default) or 'current'. Two different questions - see the API. */
+      pool?: string
+    } = {}
   ) => getJson<SelectedSide>('/api/rankings/best-xi', { gender, ...params }),
 
   // A scouting brief (§17). Returns candidates with `applied` and `ignored`
@@ -307,4 +324,21 @@ export const api = {
   newsSources: () => getJson<NewsSourceInfo[]>('/api/news/sources'),
 
   newsHealth: () => getJson<NewsHealth>('/api/news/health'),
+
+  /** Every competition this dataset holds. Read once by the scope provider. */
+  competitions: (gender?: string) =>
+    getJson<CompetitionInfo[]>('/api/competitions', { gender }),
+
+  /**
+   * Named multi-team events. Bilateral tours are excluded server-side - they
+   * are 1,013 of the 1,276 values in `event_name` and would bury the rest.
+   */
+  tournaments: (gender: ApiGender, params: { competition_type?: string } = {}) =>
+    getJson<TournamentSummary[]>('/api/tournaments', { gender, ...params }),
+
+  tournament: (slug: string, gender: ApiGender, params: { competition_type?: string } = {}) =>
+    getJson<TournamentDetail>(`/api/tournaments/${encodeURIComponent(slug)}`, {
+      gender,
+      ...params,
+    }),
 }
