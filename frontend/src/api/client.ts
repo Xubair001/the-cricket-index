@@ -25,6 +25,7 @@ import type {
   TeamDetail,
   TeamStrengthTable,
   CompetitionInfo,
+  UnderratedTable,
   TournamentDetail,
   TournamentSummary,
   MatchIntelligence,
@@ -277,6 +278,13 @@ export const api = {
     player?: string
     limit?: number
   }) => getJson<AvailabilityWindow>('/api/players/availability', params),
+
+  /**
+   * Where the computed Index and ICC's published position disagree (§15).
+   * `rank_type` is an ICC type such as 'test-batting'.
+   */
+  underrated: (rankType: string, params: { limit?: number } = {}) =>
+    getJson<UnderratedTable>('/api/rankings/underrated', { rank_type: rankType, ...params }),
 
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 

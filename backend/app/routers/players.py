@@ -147,6 +147,10 @@ def scout_search(
     role: str | None = Query(default=None),
     batting_style: str | None = Query(default=None, pattern="^(RHB|LHB)$"),
     bowling_family: str | None = Query(default=None, pattern="^(pace|spin)$"),
+    # Batting position. Derived from the ball record, so unlike hand and
+    # bowling style this one has full coverage rather than being bounded by
+    # who happens to appear in the ICC squad feed.
+    opens: bool = Query(default=False),
     max_age: int | None = Query(default=None, ge=15, le=60),
     min_matches: int = Query(default=10, ge=1, le=500),
     form_state: str | None = Query(default=None),
@@ -173,6 +177,7 @@ def scout_search(
         role=role,
         batting_style=batting_style,
         bowling_family=bowling_family,
+        opens=opens,
         max_age=max_age,
         min_matches=min_matches,
         form_state=form_state,

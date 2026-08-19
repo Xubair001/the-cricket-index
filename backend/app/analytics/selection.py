@@ -188,31 +188,6 @@ def _keepers(db: Session, gender: str, competition_key, competition_type) -> dic
     return out
 
 
-def _openers(db: Session, gender: str, competition_key, competition_type) -> dict[str, int]:
-    """How often a player was among the first two batters of an innings.
-
-    The opening pair is exactly the two batters on strike and at the other end
-    for the first delivery, which the ball record gives directly.
-    """
-    first_balls = (
-        select(Delivery.match_id, Delivery.innings, Delivery.batter, Delivery.non_striker)
-        .join(Match, Match.match_id == Delivery.match_id)
-        .join(Competition, Competition.competition_id == Match.competition_id)
-        .where(Delivery.seq == 0, Match.gender == gender)
-    )
-    if competition_key:
-        first_balls = first_balls.where(Competition.key == competition_key)
-    if competition_type:
-        first_balls = first_balls.where(Competition.type == competition_type)
-
-    counts: dict[str, int] = {}
-    for _m, _i, batter, non_striker in db.execute(first_balls).all():
-        for pid in (batter, non_striker):
-            if pid:
-                counts[pid] = counts.get(pid, 0) + 1
-    return counts
-
-
 def _career_standing(
     db: Session, gender, competition_key, competition_type, summary=None
 ) -> dict[str, float]:
@@ -361,7 +336,7 @@ def select_side(
     career = _career_standing(db, gender, competition_key, competition_type, summary)
     keepers = _keepers(db, gender, competition_key, competition_type)
     sourced = scout._sourced_attributes(db)
-    openers = _openers(db, gender, competition_key, competition_type)
+    openers = explorer.openers(db, gender, competition_key, competition_type)
 
     eligible_now: set[str] | None = None
     anchor = cutoff = None

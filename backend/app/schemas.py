@@ -98,6 +98,39 @@ class CompetitionInfo(BaseModel):
     genders: list[str] = []
 
 
+class UnderratedPlayer(PlayerCountry):
+    player_identifier: str
+    player_name: str
+    """ICC's own published position, unmodified."""
+    icc_position: int
+    icc_points: int | None = None
+    """Both sides re-ranked 1..N within the comparable set. The gap is computed
+    from these, because comparing raw positions across two populations of
+    different sizes would not mean anything."""
+    icc_rank_in_set: int
+    index_rank_in_set: int
+    gap: int
+    index: float
+    matches: int
+
+
+class UnderratedTable(BaseModel):
+    rank_type: str
+    gender: str
+    competition_key: str
+    role: str
+    """ICC's most recent publication date. Older snapshots are not compared -
+    they would report disagreements ICC has since resolved."""
+    rank_date: str | None = None
+    icc_listed: int
+    icc_linked: int
+    comparable: int
+    """The gap required for this board, a quarter of the comparable set."""
+    min_gap: int
+    items: list[UnderratedPlayer] = []
+    notes: list[str] = []
+
+
 class TournamentEdition(BaseModel):
     season: str | None
     matches: int

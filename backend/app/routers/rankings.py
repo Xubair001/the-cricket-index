@@ -1,10 +1,16 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import queries, schemas, validation
-from ..analytics import config as analytics_config, selection, leaderboard as form_board, performance_index as performance_index_mod
+from ..analytics import (
+    config as analytics_config,
+    leaderboard as form_board,
+    performance_index as performance_index_mod,
+    selection,
+    underrated as underrated_mod,
+)
 from ..models import Team
 from ..database import get_db
 
@@ -164,6 +170,42 @@ def performance_index(
             )
             for r in items
         ],
+    )
+
+
+@router.get("/underrated", response_model=schemas.UnderratedTable)
+def underrated(
+    rank_type: str = Query(description="An ICC rank type, e.g. 'test-batting'"),
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> schemas.UnderratedTable:
+    """Where this project's rating and ICC's published position disagree (§15).
+
+    §15 calls the gap between the two rankings a product in its own right, and
+    is equally explicit that "the platform must never imply its rating replaces
+    or corrects the ICC's". So nothing here is worded as an ICC error. The two
+    are built from different evidence for different purposes - ICC's is a
+    points system over a rolling window of results, this one a percentile blend
+    over ball-by-ball contribution - and a large disagreement is a place a
+    selector might look, not a correction.
+
+    Both sides are re-ranked within the set of players who appear in BOTH, so
+    the comparison is between two orderings of one population. A player ICC
+    does not list is excluded rather than treated as ranked last: absence is
+    not a position.
+    """
+    table = underrated_mod.compute(db, rank_type, limit)
+    if table is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"no ICC ranking '{validation.echo(rank_type)}'; expected one of "
+                f"{sorted(queries.icc_player_rank_types(db))}"
+            ),
+        )
+    return schemas.UnderratedTable(
+        **{k: v for k, v in vars(table).items() if k != "items"},
+        items=[schemas.UnderratedPlayer(**vars(p)) for p in table.items],
     )
 
 

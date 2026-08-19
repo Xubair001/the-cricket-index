@@ -45,7 +45,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Competition, FixtureSquad, Match, Player, PlayerMatchStat
 from ..names import preferred_name
-from . import explorer, form as form_mod, performance_index as pi
+from . import config, explorer, form as form_mod, performance_index as pi
 
 # Bowling styles the ICC feed uses, split into the two families a scout asks
 # about. Anything not spin is treated as pace; the feed's vocabulary is small
@@ -204,6 +204,12 @@ def search(
     role: str | None = None,
     batting_style: str | None = None,
     bowling_family: str | None = None,
+    # Batting position, derived from who faces the first ball of an innings.
+    # Section 33 lists "opener" as the one Tier B constraint in its
+    # definition-of-success query, and stored deliveries answered it - the
+    # selector has used it since Best XI shipped. This exposes the same
+    # derivation to a brief.
+    opens: bool = False,
     max_age: int | None = None,
     min_matches: int = 10,
     form_state: str | None = None,
@@ -231,6 +237,10 @@ def search(
     rated = {r.player_identifier: r for r in _rated}
     sourced = _sourced_attributes(db)
     committed = _committed(db, date_from, date_to)
+    # Reuses the selector's derivation rather than a second copy of it: an
+    # opener is a batter seen on the first ball of an innings at least
+    # `config.OPENER_MIN_INNINGS` times.
+    openers = explorer.openers(db, gender, competition_key, competition_type) if opens else {}
 
     stmt = (
         select(
@@ -255,6 +265,12 @@ def search(
 
     countries = _queries._player_country_map(db, gender)
     today = date.today()
+
+    if opens:
+        applied["position"] = (
+            f"opener - faced the first ball of an innings at least "
+            f"{config.OPENER_MIN_INNINGS} times in this scope"
+        )
 
     considered = with_attrs = unknown_age = 0
     out: list[Candidate] = []
@@ -282,6 +298,12 @@ def search(
             }.get(inferred)
 
         if role and (role_value or "").lower() != role.lower():
+            continue
+        # Batting position, unlike hand and bowling style, is DERIVED from the
+        # ball record rather than sourced from a squad announcement - so it is
+        # a hard filter with full coverage, not one bounded by who happens to
+        # appear in the ICC feed.
+        if opens and openers.get(pid, 0) < config.OPENER_MIN_INNINGS:
             continue
         if batting_style and (attrs or {}).get("batting_style") != batting_style:
             continue

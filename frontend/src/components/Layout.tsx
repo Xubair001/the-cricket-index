@@ -71,6 +71,9 @@ const NAV: NavGroup[] = [
       // listed Performance Index twice, once as a link and once as blocked.
       { label: 'Performance Index', to: 'performance-index' },
       { label: 'ICC Rankings', to: 'icc-rankings' },
+      // Sits in Rankings because it IS the third thing you can do with
+      // the two rankings above: read them against each other.
+      { label: 'Underrated Players', to: 'underrated' },
     ],
   },
   {

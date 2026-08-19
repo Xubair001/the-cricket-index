@@ -24,6 +24,7 @@ import { Scout } from './pages/Scout'
 import { SquadAnalysis } from './pages/SquadAnalysis'
 import { TeamDetail } from './pages/TeamDetail'
 import { Teams } from './pages/Teams'
+import { Underrated } from './pages/Underrated'
 import { Tournaments } from './pages/Tournaments'
 import { TournamentDetail } from './pages/TournamentDetail'
 import { GENDER_STORAGE_KEY } from './components/Layout'
@@ -58,6 +59,7 @@ function App() {
           <Route path="analytics/opposition" element={<OppositionAnalytics />} />
           <Route path="analytics/:explorer" element={<Explorer />} />
           <Route path="icc-rankings" element={<IccRankings />} />
+          <Route path="underrated" element={<Underrated />} />
           <Route path="compare" element={<Compare />} />
           <Route path="fixtures" element={<Fixtures />} />
           <Route path="tournaments" element={<Tournaments />} />

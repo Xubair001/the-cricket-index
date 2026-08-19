@@ -1121,6 +1121,74 @@ provenance footnote deliberately does **not** repeat the percentages: it used to
 hardcode 55/30/15 and sat directly under a line stating 40/35/25, contradicting
 it.
 
+### Underrated Players compares two ratings without correcting either
+
+Section 15 calls the gap between the ICC's published position and the computed
+Performance Index a product in its own right, and in the same breath forbids the
+thing that would ruin it: **"the platform must never imply its rating replaces
+or corrects the ICC's."** `backend/app/analytics/underrated.py` is built around
+that sentence. Nothing is worded as an ICC error, ICC's own position is shown
+unmodified, and the two are described as measuring different things - a points
+system over a rolling window of results against a percentile blend over
+ball-by-ball contribution.
+
+**Both sides are re-ranked inside the players who appear in BOTH lists.** The
+obvious comparison, ICC position against Index position, compares two different
+populations: ICC ranks about 100 players per discipline, the Index rates every
+player in the scope. A player 3rd on ours and 45th on ICC's may simply be 3rd of
+a far larger pool. So the comparison is confined to the intersection and both
+orderings are compressed to 1..N over exactly it.
+
+**Absence is not a position.** A player ICC does not list is excluded, never
+treated as ranked last: it may mean 101st, it may mean ICC does not rate them at
+all, and this dataset cannot tell those apart. Roughly 12% of each ICC list
+cannot be matched to a player here either (the same refusal
+`icc_player_rankings.player_identifier` already makes), and a further chunk have
+too little cricket for the Index. All three exclusions are counted and reported
+above the table.
+
+#### The threshold is a PROPORTION of the comparable set, not a number of places
+
+Measured over 442 comparisons the pooled gap distribution is median 0, p75 10,
+p90 20. The median being zero is the reassuring part: the two ratings broadly
+agree, which is what makes a disagreement worth reading.
+
+A fixed threshold looked right and was not. Comparable sets run from 37 to 67
+players by discipline, so a gap of 20 is a 54% move in one board and 30% in
+another - and at a fixed 20, **Test bowling flagged nobody at all**, because its
+widest disagreement is 17 places. That board would have been permanently empty
+for a reason that says nothing about either rating. A quarter of the comparable
+set (floor 8) yields 4 to 14 players per board instead of 0 to 13.
+
+#### The associate skew is measured and stated, because it is not a finding
+
+Players from outside the twelve full members are **1.33x over-represented**
+among those flagged: 35% of flagged against 26% of the comparable pool, over 276
+comparisons. Neither rating is wrong. ICC's points weight a result by the
+opposition's own rating and associate sides rarely meet the highest-rated teams,
+while the Index is opposition-adjusted but still credits associate cricket at
+its adjusted value. Left unsaid, a board showing four Dutch and Irish names
+reads as "the ICC underrates associates" when much of it is a structural
+difference in what the two measure.
+
+### Batting position is a Tier B constraint that deliveries already answered
+
+Section 33's definition-of-success query lists seven constraints and says two
+were answerable when it was written. Six are now, and "opener" was the one still
+derivable-but-unexposed: `explorer.openers` reads the opening pair straight off
+`seq = 0`, the selector had used it since Best XI shipped, and Scout simply had
+no filter for it. `?opens=true` now applies it.
+
+It moved from `selection` to `explorer` to get there. Scout cannot import
+`selection`, because `selection` imports `scout` - and both openers and
+`discipline` are facts read off the ball record, which is what `explorer`
+already holds. Unlike hand and bowling style it is a **hard** filter with full
+coverage, because it is derived rather than sourced from the ICC squad feed.
+
+The seventh, "strong against pace", stays in `ignored` with its reason: it needs
+each delivery's bowler type, and bowling style is known only for players in the
+squad feed while the ball record spans 25 years.
+
 ### Tournaments are a normalisation problem before they are a feature
 
 `matches.event_name` is free text from Cricsheet and names 1,276 distinct

@@ -1052,3 +1052,38 @@ export interface TournamentDetail extends TournamentSummary {
   source_names: string[]
   notes: string[]
 }
+
+/* ── Underrated players (Section 15) ───────────────────────────
+ * Where this project's Performance Index and ICC's published position
+ * disagree. Not a correction of ICC's rating - the two are built from
+ * different evidence for different purposes. */
+
+export interface UnderratedPlayer extends PlayerCountry {
+  player_identifier: string
+  player_name: string
+  /** ICC's own published position, unmodified. */
+  icc_position: number
+  icc_points: number | null
+  /** Both sides re-ranked 1..N within the comparable set. The gap comes from
+   *  these: raw positions span two populations of different sizes. */
+  icc_rank_in_set: number
+  index_rank_in_set: number
+  gap: number
+  index: number
+  matches: number
+}
+
+export interface UnderratedTable {
+  rank_type: string
+  gender: string
+  competition_key: string
+  role: string
+  rank_date: string | null
+  icc_listed: number
+  icc_linked: number
+  comparable: number
+  /** The gap required for this board: a quarter of the comparable set. */
+  min_gap: number
+  items: UnderratedPlayer[]
+  notes: string[]
+}

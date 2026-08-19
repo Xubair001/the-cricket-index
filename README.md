@@ -157,6 +157,14 @@ cd backend && python -m scripts.validate_news          # add --strict to gate a 
 cd ingestion && python test_news_sources.py            # extraction unit tests
 ```
 
+### Underrated players
+
+`/:gender/underrated` reads the two rankings against each other: where the
+computed Performance Index and the ICC's published position disagree most. Both
+sides are re-ranked within the players who appear in both lists, so the gap is
+between two opinions of one group. It is not a correction of the ICC's rating,
+and the page says so.
+
 ### Scope
 
 Two switches sit in the app chrome, and both are hard partitions rather than
