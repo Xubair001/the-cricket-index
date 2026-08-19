@@ -983,6 +983,8 @@ export interface CompetitionInfo {
   display_name: string
   type: string
   matches: number
+  /** Which genders hold this competition. The PSL is `['male']`. */
+  genders: string[]
 }
 
 /* ── Tournaments ───────────────────────────────────────────────

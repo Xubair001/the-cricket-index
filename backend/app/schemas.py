@@ -91,6 +91,11 @@ class CompetitionInfo(BaseModel):
     display_name: str
     type: str
     matches: int
+    """Which genders hold this competition. `competitions` is keyed by
+    (key, gender), so grouping by key alone would hide that the PSL is
+    men-only - which let a Leagues switch appear in a women's scope where
+    every board behind it came back empty."""
+    genders: list[str] = []
 
 
 class TournamentEdition(BaseModel):

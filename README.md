@@ -113,6 +113,22 @@ python starter.py news:guardian   # one publisher (guardian|icc|skysports|espncr
 python schedule.py        # register both daily schedules: ICC at 06:00, news at 06:30
 ```
 
+A schedule only fires while the Temporal server AND the worker are up, and
+started by hand they die with the terminal session. Supervise them:
+
+```bash
+./deploy/install-systemd.sh                          # --uninstall to remove
+systemctl --user is-active cricket-worker            # should say "active"
+temporal schedule list                               # next run times
+sudo loginctl enable-linger $USER                    # survive logout (your call)
+```
+
+The daily ICC job refreshes the Cricsheet archives, which is also what keeps
+tournament data current: `event_name`, `event_stage` and `eliminator_team_id`
+are written by the same `ingest_match`. It then audits tournaments - flagging
+any new multi-team event name, which is how a renamed tournament announces
+itself, and removing matches stored twice by two sources.
+
 Re-running is cheap: each match is content-hashed, so unchanged matches are
 skipped rather than re-parsed. News works the same way, keyed on a hash of
 what was extracted rather than of the page.
@@ -173,6 +189,12 @@ print(events.merge_candidates([r[0] for r in
   sqlite3.connect('../cricket.db').execute(
     'SELECT DISTINCT event_name FROM matches WHERE event_name IS NOT NULL')]))"
 ```
+
+Tournament data refreshes with the daily sync - it is written by the same
+`ingest_match` that stores the matches, so nothing extra runs. The daily job
+also audits it: it flags any new multi-team event name (which is how a renamed
+tournament announces itself) and removes matches stored twice by two sources.
+Watch the `icc-daily-sync` result for `NEW EVENT NAMES needing an alias check`.
 
 Check for matches described twice by two sources:
 

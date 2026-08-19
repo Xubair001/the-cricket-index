@@ -43,6 +43,12 @@ def list_competitions(
             func.min(Competition.display_name),
             func.min(Competition.type),
             func.count(Match.match_id),
+            # Which genders actually hold this competition. Needed because
+            # `competitions` is keyed by (key, gender) and grouping by key
+            # alone hides that the PSL is men-only - which let a client offer
+            # a "Leagues" switch to a women's scope that has no league in it,
+            # and every board behind it came back empty.
+            func.group_concat(Competition.gender.distinct()),
         )
         .outerjoin(Match, Match.competition_id == Competition.competition_id)
         .group_by(Competition.key)
@@ -53,7 +59,11 @@ def list_competitions(
 
     return [
         schemas.CompetitionInfo(
-            key=key, display_name=display_name, type=ctype, matches=matches
+            key=key,
+            display_name=display_name,
+            type=ctype,
+            matches=matches,
+            genders=sorted((genders or "").split(",")) if genders else [],
         )
-        for key, display_name, ctype, matches in db.execute(stmt).all()
+        for key, display_name, ctype, matches, genders in db.execute(stmt).all()
     ]

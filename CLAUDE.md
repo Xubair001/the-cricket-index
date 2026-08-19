@@ -1063,6 +1063,16 @@ Three things worth keeping:
   own query string, and a prefix would have meant editing 48 link sites across
   24 files to gain nothing a reader can see.
 
+**The switch is gendered, and it has to be.** `/api/competitions` groups by key,
+so PSL looked like a competition both genders have - and the switch offered
+"Leagues" in a women's scope where every board behind it returned nothing,
+because the only league here is men-only. The endpoint now reports which
+genders hold each competition, the provider filters to the current one, and the
+control is **absent** rather than shown dead when a gender has only one family.
+It also falls back rather than stranding the app in a family the current gender
+cannot fill. This disappears the moment a women's league is ingested; until
+then, offering the switch would have been a promise the data cannot keep.
+
 `Teams.tsx` seeds its `team_type` tabs from the switch, because `team_type` and
 competition type are the same partition from two sides - the ingestion side maps
 one to the other in `shared.TEAM_TYPE_BY_COMPETITION_TYPE`.
@@ -1578,6 +1588,57 @@ intervals are set an order of magnitude below what each source advertises
 rather than at the line. A cross-worker limiter needs shared state this
 project's single-SQLite-file architecture has no good home for, and pretending
 otherwise would be worse than saying so.
+
+#### Tournament data needs no job of its own, but staying CORRECT does
+
+`event_name`, `event_stage` and `eliminator_team_id` are written by
+`ingest_match`, so the Cricsheet legs of `icc-daily-sync` already refresh
+tournaments every day - a new World Cup match arrives with its stage and its
+tiebreak winner attached, and nothing extra has to run. Yesterday's scheduled
+run ingested 37 new matches and 304'd the rest, which is the mechanism working
+as intended.
+
+What the daily sync does NOT do on its own is keep tournaments *correct*, and
+`activities.audit_tournaments` runs last in `IccDailySyncWorkflow` for the two
+ways they break silently:
+
+- **A renamed event splits a tournament, with no error anywhere.** Cricsheet
+  renames events between editions - the men's 50-over World Cup has three
+  names, the women's T20 World Cup four. An unaliased spelling does not fail;
+  it quietly becomes a separate one-edition tournament and the real one loses
+  those matches. This is not hypothetical: "Women's World T20" hid the 2014 and
+  2016 editions, 46 matches, until it was found by hand. The audit reports any
+  multi-team event whose first match falls inside `NEW_EVENT_WINDOW_DAYS`, so a
+  rename surfaces in the workflow result the day it appears. It **reports**
+  rather than fixes, because the alias table lives in `backend/app/events.py`
+  and deciding two names are one tournament is a judgement, not a rule.
+- **A duplicate match can outlive the cleanup meant to remove it.** The ICC
+  scorecard leg writes stand-ins daily; `ingest_match` drops one when Cricsheet
+  publishes the same match, but only if that match is parsed and only if the
+  natural keys agree. The audit re-runs the check over everything and removes
+  what is left.
+
+**Removing duplicates is not enough on its own, and the first version of this
+churned.** `ingest_icc_scorecards` decides whether Cricsheet already holds a
+match by comparing its freshly-computed `natural_key` against the **stored**
+key on Cricsheet rows. Those stored keys were written at insert time, so once
+`natural_key` started normalising team spellings they stopped matching: the ICC
+leg stored 22 stand-ins it should have skipped, the audit deleted them, and the
+same 22 came back the next day. Measured before and after re-deriving the
+stored keys:
+
+    before   22 stored, 0 already in Cricsheet  ->  22 deleted by the audit
+    after     0 stored, 95 already in Cricsheet ->   0 deleted
+
+So the audit also **writes the re-derived key back** (10,104 rows on the first
+pass). Deleting the row is cleaning up; fixing the key is what stops the work
+being redone every morning.
+
+The audit is in `ingestion/` and does **not** import `backend/app/events.py`,
+because CLAUDE.md's rule is that neither side imports from the other. That is
+why it flags new *names* rather than running the similarity report: the
+similarity logic belongs with the alias table it serves, and the ingestion side
+only needs to say "something new appeared, go and look".
 
 #### Two Temporal schedules, both daily
 

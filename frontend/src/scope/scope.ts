@@ -62,8 +62,10 @@ export type ScopeValue = {
   setFamily: (family: ScopeFamily) => void
   /** Pass as `competition_type` when no specific competition is chosen. */
   competitionType: string
-  /** Competitions in the current family, richest first. */
+  /** Competitions in the current family AND the current gender, richest first. */
   competitions: CompetitionInfo[]
+  /** Families the current gender actually has cricket in. */
+  availableFamilies: ScopeFamily[]
   /** Every competition, both families. Needed to tell which family a key is in. */
   allCompetitions: CompetitionInfo[]
   /** The family a competition key belongs to, or null while unknown. */
@@ -85,6 +87,18 @@ export function persistFamily(next: ScopeFamily): void {
     // Private browsing. The switch still works for this session.
   }
 }
+
+/** Competitions the given gender actually plays. */
+export function forGender(
+  competitions: CompetitionInfo[],
+  apiGender: string
+): CompetitionInfo[] {
+  // An empty `genders` means the API did not say, in which case admitting the
+  // competition is the safe direction: hiding cricket that exists is worse
+  // than offering a filter that returns nothing.
+  return competitions.filter((c) => c.genders.length === 0 || c.genders.includes(apiGender))
+}
+
 
 export function useScope(): ScopeValue {
   const ctx = useContext(ScopeContext)

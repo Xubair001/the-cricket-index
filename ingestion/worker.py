@@ -25,6 +25,7 @@ from news_activities import (
     record_news_progress,
 )
 from activities import (
+    audit_tournaments,
     download_archive,
     enrich_from_wikidata,
     fetch_icc_feed,
@@ -56,6 +57,7 @@ async def main() -> None:
             NewsSyncWorkflow,
         ],
         activities=[
+            audit_tournaments,
             download_archive,
             ingest_match,
             record_progress,

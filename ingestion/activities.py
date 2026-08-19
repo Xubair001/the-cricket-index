@@ -6,7 +6,7 @@ import logging
 import os
 import sqlite3
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import formatdate
 
 import httpx
@@ -1166,3 +1166,163 @@ async def sync_fixture_squads(window_days: int = 120, include_completed: bool = 
         f"{empty} fixtures with no squad announced"
     )
     return {"fixtures": len(rows), "rows": stored, "matched": matched, "no_squad": empty}
+
+
+# --------------------------------------------------------------------------
+# Daily tournament integrity
+# --------------------------------------------------------------------------
+#
+# Tournament data itself needs no separate job: `event_name`, `event_stage` and
+# `eliminator_team_id` are written by `ingest_match`, so the Cricsheet leg of
+# the daily sync already refreshes them. What the daily sync does NOT do is
+# keep the tournaments correct, and two things can silently break them.
+
+# How recently a multi-team event's first match must fall for it to count as
+# newly appeared. 45 days comfortably covers a tournament that started between
+# two daily runs while not re-reporting one that has been running for months.
+NEW_EVENT_WINDOW_DAYS = 45
+
+# Below this an "event" is a bilateral tour, not a tournament. Matches
+# `tournaments.MIN_SIDES` on the read side; kept as its own constant because
+# ingestion must not import from backend.
+TOURNAMENT_MIN_SIDES = 3
+
+
+@activity.defn
+async def audit_tournaments() -> dict:
+    """Flag newly-appeared tournament names, and repair cross-source duplicates.
+
+    Two failure modes, both of which have already happened here:
+
+    **A new spelling splits a tournament, silently.** Cricsheet renames events
+    between editions - the men's 50-over World Cup has appeared under three
+    names and the women's T20 World Cup under four. An unaliased spelling does
+    not error; it quietly becomes a separate one-edition tournament, and the
+    real one loses those matches. That is not hypothetical: "Women's World T20"
+    hid the 2014 and 2016 editions, 46 matches, until it was found by hand.
+    Aliases are curated in `backend/app/events.py` and cannot be applied from
+    here, so this reports rather than fixes - which is the right split anyway,
+    since deciding two names are one tournament is a judgement.
+
+    **A match gets stored twice.** The ICC scorecard leg runs daily and writes
+    stand-ins for matches Cricsheet has not published. When Cricsheet publishes
+    one later, `ingest_match` drops the stand-in - but only if that match is
+    parsed, and only if the natural keys agree. This re-runs the check over
+    everything and removes what is left, so duplicates cannot accumulate
+    between the daily runs that would otherwise catch them.
+    """
+    with get_connection() as conn:
+        cutoff = (
+            datetime.now(timezone.utc).date() - timedelta(days=NEW_EVENT_WINDOW_DAYS)
+        ).isoformat()
+
+        # A multi-team event whose EARLIEST match is inside the window is
+        # either a genuinely new tournament or an existing one under a new
+        # name. Both want a human eye; neither is an error.
+        # Sides are counted from the UNION of both columns, in Python. The
+        # obvious SQL - COUNT(DISTINCT team1_id) + COUNT(DISTINCT team2_id) -
+        # is wrong, and wrong in the direction that matters: a two-team tour
+        # whose sides swap home and away between matches has two distinct
+        # values in each column and scores 4, so every such tour would be
+        # reported as a new tournament and bury the renames this exists to
+        # surface. It flagged "Canada Women tour of Argentina" as a 4-side
+        # event before this was caught.
+        per_event: dict[tuple, dict] = {}
+        for name, gender, key, team1, team2, date in conn.execute(
+            """SELECT m.event_name, m.gender, c.key, m.team1_id, m.team2_id,
+                      m.match_date_start
+               FROM matches m
+               JOIN competitions c ON c.competition_id = m.competition_id
+               WHERE m.event_name IS NOT NULL"""
+        ):
+            bucket = per_event.setdefault(
+                (name, gender, key), {"matches": 0, "sides": set(), "first": None}
+            )
+            bucket["matches"] += 1
+            bucket["sides"].update(t for t in (team1, team2) if t)
+            if date and (bucket["first"] is None or date < bucket["first"]):
+                bucket["first"] = date
+
+        new_events = sorted(
+            (
+                {"event": name, "gender": gender, "competition": key,
+                 "matches": v["matches"], "sides": len(v["sides"]),
+                 "first": v["first"]}
+                for (name, gender, key), v in per_event.items()
+                if len(v["sides"]) >= TOURNAMENT_MIN_SIDES
+                and v["first"] is not None
+                and v["first"] >= cutoff
+            ),
+            key=lambda e: -e["matches"],
+        )
+
+        # Recompute every key with the CURRENT rule rather than reading the
+        # stored column, which is exactly the value that is wrong on an
+        # affected row - and WRITE IT BACK where it differs.
+        #
+        # The write-back is what stops this job churning. `ingest_icc_scorecards`
+        # decides whether Cricsheet already has a match by comparing its own
+        # freshly-computed key against the STORED key on Cricsheet rows. Those
+        # stored keys were computed at insert time, so after `natural_key`
+        # changed they no longer matched, the ICC leg stored 22 stand-ins it
+        # should have skipped, this audit deleted them, and the whole cycle
+        # repeated the next day. Re-deriving the stored key fixes the check
+        # itself rather than cleaning up after it.
+        buckets: dict[str, list[tuple[str, str]]] = {}
+        restated = 0
+        for match_id, source, gender, date, competition, team_a, team_b, stored in conn.execute(
+            """SELECT m.match_id, m.source, m.gender, m.match_date_start, c.key,
+                      t1.name, t2.name, m.natural_key
+               FROM matches m
+               JOIN competitions c ON c.competition_id = m.competition_id
+               LEFT JOIN teams t1 ON t1.team_id = m.team1_id
+               LEFT JOIN teams t2 ON t2.team_id = m.team2_id
+               WHERE m.match_date_start IS NOT NULL"""
+        ):
+            key = natural_key(gender, competition, date, team_a, team_b)
+            if key != stored:
+                conn.execute(
+                    "UPDATE matches SET natural_key = ? WHERE match_id = ?",
+                    (key, match_id),
+                )
+                restated += 1
+            buckets.setdefault(key, []).append((match_id, source))
+
+        superseded = [
+            match_id
+            for rows in buckets.values()
+            if len(rows) > 1 and {s for _, s in rows} == {"cricsheet", "icc"}
+            for match_id, source in rows
+            if source == "icc"
+        ]
+        for match_id in superseded:
+            conn.execute("DELETE FROM deliveries WHERE match_id = ?", (match_id,))
+            conn.execute("DELETE FROM player_match_stats WHERE match_id = ?", (match_id,))
+            conn.execute("DELETE FROM matches WHERE match_id = ?", (match_id,))
+        conn.commit()
+
+    if new_events:
+        activity.logger.warning(
+            "new multi-team event names since %s - check whether any is an "
+            "existing tournament renamed, and add an alias to "
+            "backend/app/events.py if so: %s",
+            cutoff,
+            ", ".join(f"{e['event']} ({e['matches']}m)" for e in new_events),
+        )
+    if superseded:
+        activity.logger.info(
+            f"removed {len(superseded)} ICC matches superseded by a Cricsheet record"
+        )
+
+    if restated:
+        activity.logger.info(
+            f"re-derived natural_key on {restated} matches so the ICC leg's "
+            f"'Cricsheet already has this' check matches again"
+        )
+
+    return {
+        "new_events": new_events,
+        "duplicates_removed": len(superseded),
+        "keys_restated": restated,
+        "window_days": NEW_EVENT_WINDOW_DAYS,
+    }

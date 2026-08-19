@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
     from shared import CRICSHEET_URLS, IngestionJobInput
     from ingestion_workflow import CricsheetIngestionWorkflow
     from activities import (
+        audit_tournaments,
         enrich_from_wikidata,
         find_icc_scorecard_candidates,
         ingest_icc_scorecards,
@@ -214,6 +215,38 @@ class IccDailySyncWorkflow:
             except Exception as e:  # noqa: BLE001 - one archive must not sink the rest
                 workflow.logger.warning(f"cricsheet {competition} failed: {e!r}")
                 parts.append(f"{competition}: FAILED {type(e).__name__}")
+
+        # LAST, and after every archive, because both checks read rows the legs
+        # above have just written. Tournament data itself needs no job of its
+        # own - event_name, event_stage and eliminator_team_id are written by
+        # ingest_match, so the Cricsheet legs already refresh it daily. What
+        # this adds is keeping tournaments CORRECT: a renamed event splits a
+        # tournament silently, and an ICC stand-in can outlive the Cricsheet
+        # match that supersedes it.
+        try:
+            audit = await workflow.execute_activity(
+                audit_tournaments,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            summary = (
+                f"tournaments: {audit['duplicates_removed']} duplicate matches "
+                f"removed, {audit.get('keys_restated', 0)} keys re-derived"
+            )
+            if audit["new_events"]:
+                # Deliberately loud. This is the failure that hid 46 matches of
+                # the women's T20 World Cup, and it raises no error of its own.
+                names = ", ".join(
+                    f"{e['event']} ({e['matches']}m, {e['gender']})"
+                    for e in audit["new_events"][:5]
+                )
+                summary += f"; NEW EVENT NAMES needing an alias check: {names}"
+                if len(audit["new_events"]) > 5:
+                    summary += f" and {len(audit['new_events']) - 5} more"
+            parts.append(summary)
+        except Exception as e:  # noqa: BLE001
+            workflow.logger.warning(f"tournament audit failed: {e!r}")
+            parts.append("tournaments: audit FAILED")
 
         return " | ".join(parts)
 

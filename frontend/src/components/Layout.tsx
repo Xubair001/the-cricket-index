@@ -446,12 +446,16 @@ export function Layout() {
  * what the API already defaults to.
  */
 function ScopeSwitch() {
-  const { family, setFamily, allCompetitions } = useScope()
-  const families: ScopeFamily[] = ['international', 'league']
-  const present = new Set(
-    allCompetitions.map((c) => (c.type === 'domestic_league' ? 'league' : 'international'))
+  const { family, setFamily, availableFamilies } = useScope()
+  // Only families the CURRENT GENDER actually has cricket in. Offering
+  // "Leagues" to a women's scope on the strength of the men-only PSL gave a
+  // switch that emptied every board behind it. When only one family exists
+  // there is nothing to switch between, so the control is absent rather than
+  // shown as a single dead option.
+  const families = (['international', 'league'] as ScopeFamily[]).filter((f) =>
+    availableFamilies.includes(f)
   )
-  if (families.some((f) => !present.has(f))) return null
+  if (families.length < 2) return null
 
   return (
     <div
