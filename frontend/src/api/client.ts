@@ -25,6 +25,7 @@ import type {
   TeamDetail,
   TeamStrengthTable,
   CompetitionInfo,
+  TeamWeakness,
   UnderratedTable,
   TournamentDetail,
   TournamentSummary,
@@ -332,6 +333,10 @@ export const api = {
   newsSources: () => getJson<NewsSourceInfo[]>('/api/news/sources'),
 
   newsHealth: () => getJson<NewsHealth>('/api/news/health'),
+
+  /** What has declined for a side against its own recent past (§19). */
+  teamWeakness: (teamId: number, competition?: string) =>
+    getJson<TeamWeakness>(`/api/teams/${teamId}/weakness`, { competition }),
 
   /** Every competition this dataset holds. Read once by the scope provider. */
   competitions: (gender?: string) =>

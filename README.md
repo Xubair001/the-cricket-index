@@ -157,6 +157,13 @@ cd backend && python -m scripts.validate_news          # add --strict to gate a 
 cd ingestion && python test_news_sources.py            # extraction unit tests
 ```
 
+### Team weakness
+
+A team page carries a "what has got worse" panel: each phase over the side's
+last 10 matches against their own previous 40. A weakness is a decline against
+themselves, never a position in a table, and Tests report that phases do not
+apply rather than inventing a powerplay.
+
 ### Underrated players
 
 `/:gender/underrated` reads the two rankings against each other: where the

@@ -1087,3 +1087,38 @@ export interface UnderratedTable {
   items: UnderratedPlayer[]
   notes: string[]
 }
+
+/* ── Team weakness (Section 19) ────────────────────────────────
+ * What has declined for a side against its OWN recent past. Named phases, not
+ * a total, and never a league position. */
+
+export interface WeaknessFacet {
+  key: string
+  label: string
+  /** 'batting' or 'bowling'. Decides which direction of change is worse. */
+  side: string
+  recent: number | null
+  baseline: number | null
+  peer_median: number | null
+  recent_deliveries: number
+  baseline_deliveries: number
+  /** Signed so NEGATIVE is always worse, whether the figure is a run rate or
+   *  an economy conceded. */
+  delta_percent: number | null
+  versus_peers_percent: number | null
+  verdict: 'declined' | 'improved' | 'steady' | 'unmeasured'
+  note: string
+}
+
+export interface TeamWeakness {
+  team_id: number
+  team_name: string
+  competition_key: string | null
+  recent_matches: number
+  baseline_matches: number
+  facets: WeaknessFacet[]
+  /** Only facets that declined. Empty is a real answer, not a failure. */
+  weaknesses: string[]
+  unavailable: Record<string, string>
+  notes: string[]
+}

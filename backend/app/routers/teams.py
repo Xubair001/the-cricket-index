@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from .. import flags, queries, schemas, validation
-from ..analytics import squad as squad_mod
+from ..analytics import squad as squad_mod, team_weakness as weakness_mod
 from ..database import get_db
 from ..models import Team
 
@@ -110,3 +110,33 @@ def head_to_head(
     if result is None:
         raise HTTPException(status_code=404, detail="one or both teams not found")
     return result
+
+
+@router.get("/{team_id}/weakness", response_model=schemas.TeamWeakness)
+def team_weakness(
+    team_id: int = Path(ge=1, le=validation.MAX_DB_INT),
+    competition: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> schemas.TeamWeakness:
+    """What has got worse for this side, and against what (§19).
+
+    Section 19 calls this the differentiator on a team page and gives the shape
+    of the answer: "death bowling performance has declined over the last 10
+    matches". A weakness here is therefore always a named phase, always a
+    comparison with the side's OWN recent past, and always over a window of
+    their own last ten matches rather than a calendar range - the same rule
+    `squad.py` follows, because most international sides play in bursts.
+
+    Phases are defined per competition and Tests have none, so a Test scope
+    reports that in `unavailable` rather than slicing the first six overs off a
+    Test innings and calling it a powerplay.
+    """
+    result = weakness_mod.analyse(
+        db, team_id, validation.check_competition_key(db, competition)
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="team not found")
+    return schemas.TeamWeakness(
+        **{k: v for k, v in vars(result).items() if k != "facets"},
+        facets=[schemas.WeaknessFacet(**vars(f)) for f in result.facets],
+    )

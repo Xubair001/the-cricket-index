@@ -1121,6 +1121,61 @@ provenance footnote deliberately does **not** repeat the percentages: it used to
 hardcode 55/30/15 and sat directly under a line stating 40/35/25, contradicting
 it.
 
+### Team weakness is a decline against the side itself, not a league position
+
+Section 19 calls this "the differentiator" on a team page and gives the answer's
+exact shape: *"death bowling performance has declined over the last 10
+matches"*. `backend/app/analytics/team_weakness.py` implements that sentence
+literally - a named PHASE rather than a total, compared against the side's OWN
+previous window rather than against a table, over the side's own last ten
+matches rather than a date range (the rule `squad.py` already follows, because
+most international sides play in bursts).
+
+Being below the peer figure is reported but deliberately does **not** make
+something a weakness. A side can sit below the median for its whole history
+with nothing having gone wrong, and a page that called that a weakness would
+tell every below-average side the same thing.
+
+#### The decline threshold is 20%, and the first guess was 8%
+
+Measured over 536 facet comparisons across 97 men's T20I sides, the spread of
+|change against own baseline| is median 10.5%, p75 18.2%, p90 29.4%. At 8% it
+flagged **62% of all phases** as declining, which is a horoscope.
+
+Worth checking before blaming the window: widening the recent window from 10
+matches to 30 moves the median only from 10.5% to 9.0%, so that spread is
+genuine era-to-era movement rather than small-sample noise. The window stays at
+Section 19's own ten matches and the threshold sits in the tail of real
+variation instead - 20% is about p80 and flags roughly one phase per side.
+
+#### The peer reference took three attempts, and the first two failed silently
+
+This is the same trap `opposition.py` documents - a team-count reference puts
+par opposition at roughly Malta - and it had to be rediscovered here:
+
+1. **Median of every side's rate** put powerplay batting at 6.82 an over while
+   every Test nation sat between 8.9 and 9.7. There are ~110 men's
+   international sides and most play rarely, so the median side is an associate.
+2. **Pooled over every delivery** barely moved it, to 6.77: volume-weighting
+   does not help when more than half the men's T20Is here genuinely are between
+   sides outside the full members.
+3. **The most active sides in a recent window** was the worst, and the only one
+   with a visible tell. In 2019 the ICC granted T20I status to every member, so
+   the 600 most recent men's T20Is are mostly associate cricket and the "core"
+   it selected was **Austria, Indonesia, Sweden, Brazil and Romania**. The
+   symptom was that every side came out above the reference on batting and
+   below it on bowling simultaneously, which cannot happen against a real peer
+   group - the reference was a single number applied to both sides.
+
+What works is the twelve sides with the most **all-time** cricket in the scope,
+pooled over matches **between two of them**. Full members have played T20Is
+since 2005 and most associates only since 2019, so career volume separates them
+where a recent window inverts them. The resulting reference - 8.3-8.6 powerplay,
+~9.6 at the death - is what top-level T20I actually looks like.
+
+`_peer_rates` also filters on gender, which the first version did not: a men's
+team page was being measured against a pool containing women's matches.
+
 ### Underrated Players compares two ratings without correcting either
 
 Section 15 calls the gap between the ICC's published position and the computed

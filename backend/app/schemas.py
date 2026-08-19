@@ -98,6 +98,39 @@ class CompetitionInfo(BaseModel):
     genders: list[str] = []
 
 
+class WeaknessFacet(BaseModel):
+    key: str
+    label: str
+    """'batting' or 'bowling'. Decides which direction of change is worse."""
+    side: str
+    recent: float | None = None
+    baseline: float | None = None
+    peer_median: float | None = None
+    recent_deliveries: int
+    baseline_deliveries: int
+    """Change against the side's OWN past, signed so negative is always worse
+    whether the underlying figure is a run rate or an economy conceded."""
+    delta_percent: float | None = None
+    versus_peers_percent: float | None = None
+    """'declined' | 'improved' | 'steady' | 'unmeasured'."""
+    verdict: str
+    note: str = ""
+
+
+class TeamWeakness(BaseModel):
+    team_id: int
+    team_name: str
+    competition_key: str | None = None
+    recent_matches: int
+    baseline_matches: int
+    facets: list[WeaknessFacet] = []
+    """Only facets that declined against the side's own baseline. Empty is a
+    real answer, not a failure."""
+    weaknesses: list[str] = []
+    unavailable: dict[str, str] = {}
+    notes: list[str] = []
+
+
 class UnderratedPlayer(PlayerCountry):
     player_identifier: str
     player_name: str

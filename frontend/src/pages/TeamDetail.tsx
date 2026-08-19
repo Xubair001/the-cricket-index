@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { MatchSummary, TeamDetail as TeamDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
+import { TeamWeaknessPanel } from '../components/TeamWeakness'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { StatCard } from '../components/StatCard'
 import { Flag } from '../components/Flag'
@@ -184,6 +185,8 @@ export function TeamDetail() {
         </Panel>
       </div>
 
+      <TeamWeaknessPanel teamId={team.team_id} />
+
       <Panel title="Recent Matches">
         {team.recent_matches.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted">No matches recorded for this team.</p>
@@ -221,7 +224,9 @@ export function TeamDetail() {
       <p className="max-w-3xl text-xs leading-relaxed text-dim">
         Run and wicket leaders are scoped to this team, not to the player's whole career - a
         franchise page shows what a player did for that franchise. Squad composition and role
-        balance need per-delivery data this dataset does not yet store.
+        balance are on the squad analysis page, derived from each player's share of deliveries in
+        the side's own recent window - this footnote said they needed data the dataset did not
+        store, which stopped being true when deliveries landed.
       </p>
     </div>
   )
