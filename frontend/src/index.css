@@ -1,18 +1,244 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *));
+/*
+ * Design system - The Cricket Index
+ * ================================================================
+ *
+ * Light is the default and dark is a peer, not an afterthought. The dark
+ * palette that used to be the only one is preserved below, re-stepped rather
+ * than reused: a colour that clears 3:1 on #0b1117 does not necessarily clear
+ * it on #ffffff, so each mode's values were validated separately against their
+ * own surface.
+ *
+ * Three rules the components depend on:
+ *
+ * 1. Semantic colour carries meaning and nothing else. Green is "above par",
+ *    red is "below par", blue is neutral analytical information.
+ *
+ * 2. Semantic colour is NEVER the only channel. Amber and red cannot be
+ *    separated at any lightness - every candidate pair tested landed ΔE 11.5
+ *    to 12.8 for *normal* vision, under the 15 floor, and as low as ΔE 0.6
+ *    under deuteranopia. Since amber means *uncertainty* and red means *below
+ *    baseline*, and the two sit side by side in a form row, uncertainty was
+ *    moved off hue entirely: it is now a dotted underline (`.uncertain`) plus
+ *    a marker glyph. Amber survives only where it is isolated from red - a
+ *    lone chip, a "soon" tag. Above/below par always carries a sign as well as
+ *    a colour.
+ *
+ * 3. Figures use tabular numerals everywhere. In a product that is mostly
+ *    columns of numbers, proportional digits make rows fail to line up and the
+ *    eye has to re-find the decimal point on every line.
+ *
+ * The signature device is the *par datum* - a hairline at 1.00x that figures
+ * sit above or below. It is not decoration: par is this product's own unit
+ * (form boards rank on par units gained, and opposition strength is fitted so
+ * that par means an average match), so the line encodes the one idea the
+ * numbers are all relative to.
+ */
 
 @theme {
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* ── Type ──────────────────────────────────────────────────────
+   * Three roles, each doing one job.
+   *
+   * Archivo is the display face, used only for page titles and headline
+   * figures, and always at an expanded width (see `.u-display`). It is a
+   * newspaper-lineage grotesque, which is the right register for a reference
+   * work - and deliberately not the high-contrast serif that this kind of
+   * brief usually attracts.
+   *
+   * Inter stays the body face. It is the obvious choice, and it is kept on
+   * purpose: this product lives in 11-13px table rows, and Inter's x-height
+   * and hinting at that size are the reason it exists. Trading that for
+   * character would cost legibility exactly where the product is read.
+   *
+   * IBM Plex Mono stays the utility face for labels, codes and figures. */
+  --font-display: 'Archivo Variable', 'Archivo', 'Inter Variable', system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Two extra steps above Tailwind's scale, for the hero only. Fluid so the
+   * headline never has to wrap awkwardly on a narrow viewport. */
+  --text-display: clamp(2rem, 1.4rem + 2.6vw, 3.25rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.022em;
+  --text-title: clamp(1.375rem, 1.15rem + 0.9vw, 1.875rem);
+  --text-title--line-height: 1.15;
+  --text-title--letter-spacing: -0.018em;
+
+  /* ── Surfaces - light ──────────────────────────────────────────
+   * A cool grey-blue paper rather than a warm cream. Cream is the reflex
+   * choice for anything that wants to feel like a printed record, and it
+   * pushes every neutral warm; a figures product reads better on a ground
+   * that stays out of the way. White cards then lift off the ground without
+   * needing a heavy shadow to do it. */
+  --color-ground: #eff2f5;
+  --color-surface: #ffffff;
+  --color-elevated: #f7f9fb;
+  --color-sunken: #e7ecf1;
+  --color-border-subtle: #e4e9ee;
+  --color-border-default: #cfd8e0;
+  --color-border-strong: #aab8c4;
+
+  /* ── Ink - light ───────────────────────────────────────────────
+   * Against #ffffff: ink 17.6:1, muted 6.2:1, dim 4.5:1. `dim` is the
+   * tertiary tier and is set to clear AA rather than merely look quiet -
+   * it carries real content (confidence figures, provenance notes). */
+  --color-ink: #0f1a24;
+  --color-muted: #55636f;
+  --color-dim: #6b7885;
+
+  /* ── Semantic marks - light ────────────────────────────────────
+   * Fills, dots, rules and bar segments. Validated ≥ 3:1 against the
+   * white chart surface. Not used for text; see the -ink tier below. */
+  --color-positive: #0f7a56;
+  --color-negative: #ce3a2e;
+  --color-warning: #c98a00;
+  --color-analytic: #1f5fc4;
+
+  /* ── Semantic text - light ─────────────────────────────────────
+   * The same four meanings, darkened to clear AA for body text:
+   * 6.5:1 / 6.5:1 / 5.9:1 / 6.0:1 against white. Two tiers exist because
+   * one set cannot do both jobs - a colour dark enough to read as 12px text
+   * is too dark to keep its hue apart from its neighbours as a 6px dot. */
+  --color-positive-ink: #0a6b4a;
+  --color-negative-ink: #b3271c;
+  --color-warning-ink: #8a5a00;
+  --color-analytic-ink: #1f5fc4;
+
+  /* ── Semantic fills - light ────────────────────────────────────
+   * Badge and callout backgrounds. Each pairs with its -ink tier at ≥ 5.2:1. */
+  --color-positive-dim: #e6f4ee;
+  --color-negative-dim: #fdeceb;
+  --color-warning-dim: #fbf1dd;
+  --color-analytic-dim: #e8f0fd;
+
+  /* ── Chart series - light ──────────────────────────────────────
+   * Categorical identity, assigned in this fixed order and never cycled.
+   * Validated as a set on the light surface: lightness band PASS, chroma
+   * floor PASS, worst adjacent CVD ΔE 10.2 (deutan) PASS, worst adjacent
+   * normal-vision ΔE 19.1 PASS, contrast all ≥ 3:1 PASS.
+   *
+   * Known bound: slots 2 and 4 (orange, ochre) collide when every pair is on
+   * screen at once - ΔE 1.4 protan, 9.5 normal. That is fine for lines, bars
+   * and stacks, where only adjacent pairs matter, but any all-pairs form
+   * (scatter, bubble, small multiples) caps at three series and folds the
+   * rest into "Other". */
+  --color-series-1: #1f5fc4;
+  --color-series-2: #e0662b;
+  --color-series-3: #16a578;
+  --color-series-4: #b07300;
+
+  /* ── Elevation ─────────────────────────────────────────────────
+   * Light mode needs real shadows to separate a white card from a near-white
+   * ground; dark mode overrides these to almost nothing, because on a dark
+   * ground the border does that job and a shadow just muddies it. */
+  --shadow-card: 0 1px 2px rgb(15 26 36 / 0.04), 0 1px 3px rgb(15 26 36 / 0.06);
+  --shadow-raised: 0 2px 4px rgb(15 26 36 / 0.05), 0 8px 20px rgb(15 26 36 / 0.09);
+  --shadow-menu: 0 4px 8px rgb(15 26 36 / 0.06), 0 12px 32px rgb(15 26 36 / 0.14);
+}
+
+/* ── Dark ────────────────────────────────────────────────────────
+ * Declared under both scopes. The media query covers the OS setting; the
+ * data-theme scope covers the in-app toggle, which must win in both
+ * directions. `:where()` zeroes the media block's specificity so an explicit
+ * [data-theme="dark"] still beats it, and the `:not([data-theme="light"])`
+ * guard lets an explicit light choice beat an OS set to dark.
+ *
+ * These are the values the product shipped with, kept intact where they were
+ * already right. What changed: `dim` was lifted (it sat at 3.9:1 on the card
+ * surface, under AA for the confidence figures it carries), and the semantic
+ * colours gained the same mark/text split as light mode. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --color-ground: #0b1117;
+    --color-surface: #111922;
+    --color-elevated: #17212b;
+    --color-sunken: #070c11;
+    --color-border-subtle: #1b2530;
+    --color-border-default: #25313c;
+    --color-border-strong: #36444f;
+
+    --color-ink: #f4f7fa;
+    --color-muted: #9aa7b4;
+    --color-dim: #7c8a97;
+
+    --color-positive: #199e70;
+    --color-negative: #e06a60;
+    --color-warning: #c98500;
+    --color-analytic: #3987e5;
+
+    --color-positive-ink: #4cc796;
+    --color-negative-ink: #f08a80;
+    --color-warning-ink: #e0aa3c;
+    --color-analytic-ink: #6aa9f0;
+
+    --color-positive-dim: #10301f;
+    --color-negative-dim: #3a1a17;
+    --color-warning-dim: #33280f;
+    --color-analytic-dim: #12283f;
+
+    --color-series-1: #3987e5;
+    --color-series-2: #d95926;
+    --color-series-3: #199e70;
+    --color-series-4: #c98500;
+
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.36);
+    --shadow-menu: 0 8px 28px rgb(0 0 0 / 0.5);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-ground: #0b1117;
+  --color-surface: #111922;
+  --color-elevated: #17212b;
+  --color-sunken: #070c11;
+  --color-border-subtle: #1b2530;
+  --color-border-default: #25313c;
+  --color-border-strong: #36444f;
+
+  --color-ink: #f4f7fa;
+  --color-muted: #9aa7b4;
+  --color-dim: #7c8a97;
+
+  --color-positive: #199e70;
+  --color-negative: #e06a60;
+  --color-warning: #c98500;
+  --color-analytic: #3987e5;
+
+  --color-positive-ink: #4cc796;
+  --color-negative-ink: #f08a80;
+  --color-warning-ink: #e0aa3c;
+  --color-analytic-ink: #6aa9f0;
+
+  --color-positive-dim: #10301f;
+  --color-negative-dim: #3a1a17;
+  --color-warning-dim: #33280f;
+  --color-analytic-dim: #12283f;
+
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.36);
+  --shadow-menu: 0 8px 28px rgb(0 0 0 / 0.5);
 }
 
 :root {
   color-scheme: light;
 }
 
-.dark {
-  color-scheme: dark;
+:root[data-theme="light"] {
+  color-scheme: light;
 }
+
+/* ── Base ────────────────────────────────────────────────────── */
 
 html,
 body,
@@ -23,12 +249,150 @@ body,
 body {
   margin: 0;
   font-family: var(--font-sans);
-  @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* `cv11` gives Inter the single-storey lowercase g and a straight-tailed
+   * l/1, which pulls apart 1/l/I in a product full of figures. */
+  font-feature-settings: 'cv11', 'ss01';
 }
 
 * {
   box-sizing: border-box;
 }
+
+/* The theme swap should be instant on first paint but smooth when the user
+ * flips the toggle. `.theme-transition` is added to <html> for one frame
+ * around the change, so nothing animates on load. */
+.theme-transition,
+.theme-transition * {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+/* ── Type utilities ──────────────────────────────────────────── */
+
+/* The display face, always expanded. Archivo's width axis is the reason it
+ * was chosen - at 112% the caps pick up the horizontal emphasis of a ruled
+ * ledger, which is what distinguishes a title here from body text set large. */
+.u-display {
+  font-family: var(--font-display);
+  font-stretch: 112%;
+  font-weight: 620;
+}
+
+/* Small caps-style eyebrow used on section headers and column labels. */
+.u-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--color-muted);
+}
+
+/* Any element presenting figures. Applied at the utility level rather than
+ * globally so that prose keeps proportional digits, which read better. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Uncertainty ─────────────────────────────────────────────────
+ * The second channel that replaced amber-as-text. A figure the product does
+ * not want fully trusted gets a dotted rule under it - a texture, legible
+ * without colour, and impossible to confuse with the red of a below-par
+ * figure sitting in the next column. */
+.uncertain {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--color-warning);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+/* ── The par datum ───────────────────────────────────────────────
+ * A fixed-width track with a hairline at the 1.00x position. The bar grows
+ * right from the datum when a player is above par and left when below, so
+ * the direction of the mark is readable before any colour is.
+ *
+ * `--par-pos` is where the datum sits in the track (0-1), `--par-fill` how
+ * far the bar runs from it (0-1 of the remaining side). */
+.par-track {
+  position: relative;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-sunken);
+  overflow: hidden;
+}
+
+/* The datum itself. 2px of ink rather than 1px of border colour: at the 56px
+ * width these render at in a form row, a hairline in a mid-grey disappeared
+ * against the fill entirely, which left the meter reading as a plain bar and
+ * took the whole device with it. */
+.par-track::after {
+  content: '';
+  position: absolute;
+  inset-block: -1px;
+  left: calc(var(--par-pos, 0.5) * 100%);
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--color-ink);
+  opacity: 0.55;
+  z-index: 2;
+}
+
+.par-fill {
+  position: absolute;
+  inset-block: 1px;
+  border-radius: 9999px;
+}
+
+/* ── Layout helpers ──────────────────────────────────────────── */
+
+/* Wide content scrolls inside its own container; the page body never scrolls
+ * sideways. */
+.scroll-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* ── Focus ───────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--color-analytic);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ── Form controls ───────────────────────────────────────────────
+ * Native selects and inputs otherwise render with the UA's own light
+ * chrome, which is invisible against a light card and jarring against a
+ * dark one. `color-scheme` on :root handles most of it; these pin the rest. */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% + 1px),
+    calc(100% - 10px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────── */
 
 ::-webkit-scrollbar {
   width: 10px;
@@ -36,9 +400,23 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-transparent;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  background: var(--color-border-default);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

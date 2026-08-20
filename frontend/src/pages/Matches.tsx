@@ -5,23 +5,34 @@ import type { MatchSummary, TeamSummary } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
+import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useScopedCompetition } from '../scope/scope'
+import {
+  tableClass,
+  tdClass,
+  trClass,
+} from '../components/ui'
 
 const LIMIT = 25
 
 // A match list isn't an aggregate, so "All" here really is everything --
 // unlike Rankings, showing a Test and a PSL fixture side by side sums nothing.
-const COMPETITIONS = [
-  { value: '', label: 'All Competitions' },
-  { value: 'tests', label: 'Tests' },
-  { value: 'odis', label: 'ODIs' },
-  { value: 't20is', label: 'T20Is' },
-  { value: 'psl', label: 'PSL' },
-]
+const field = 'rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
+const fieldLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 export function Matches() {
   const { slug, apiGender } = useGender()
-  const [competition, setCompetition] = useState('')
+  const [requestedCompetition, setCompetition] = useState('')
+  // A match list is not a summed figure, so mixing families here would not
+  // corrupt a number - but a reader who has put the app into Leagues is asking
+  // for league cricket, and a list that quietly included Tests would make the
+  // switch mean nothing on this page.
+  const {
+    competition,
+    competitionType,
+    options: competitionOptions,
+  } = useScopedCompetition(requestedCompetition)
   const [teamId, setTeamId] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -34,7 +45,11 @@ export function Matches() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.teams(apiGender).then(setTeams).catch(() => {})
+    // The filter is a select, so it needs every side rather than a page.
+    api
+      .teams(apiGender, undefined, { limit: 500 })
+      .then((res) => setTeams(res.items))
+      .catch(() => {})
   }, [apiGender])
 
   useEffect(() => {
@@ -54,6 +69,7 @@ export function Matches() {
     api
       .matches(apiGender, {
         competition: competition || undefined,
+        competition_type: competitionType,
         team_id: teamId ? Number(teamId) : undefined,
         search: debouncedSearch || undefined,
         limit: LIMIT,
@@ -73,93 +89,111 @@ export function Matches() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, teamId, debouncedSearch, offset])
+  }, [apiGender, competition, competitionType, teamId, debouncedSearch, offset])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Matches</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <h1 className="u-display text-title text-ink">Matches</h1>
+        <p className="mt-1 text-sm text-muted">
           {total.toLocaleString()} matches, most recent first
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <select
-          value={competition}
-          onChange={(e) => {
-            setCompetition(e.target.value)
-            setOffset(0)
-          }}
-          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        >
-          {COMPETITIONS.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={teamId}
-          onChange={(e) => {
-            setTeamId(e.target.value)
-            setOffset(0)
-          }}
-          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        >
-          <option value="">All Teams</option>
-          {teams.map((t) => (
-            <option key={t.team_id} value={t.team_id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          placeholder="Search venue, event..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        />
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Competition</span>
+          <select
+            value={competition}
+            onChange={(e) => {
+              setCompetition(e.target.value)
+              setOffset(0)
+            }}
+            className={field}
+          >
+            {competitionOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Team</span>
+          <select
+            value={teamId}
+            onChange={(e) => {
+              setTeamId(e.target.value)
+              setOffset(0)
+            }}
+            className={field}
+          >
+            <option value="">All teams</option>
+            {teams.map((t) => (
+              <option key={t.team_id} value={t.team_id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Search</span>
+          <input
+            type="text"
+            placeholder="Venue or event"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className={`${field} w-56 placeholder:text-dim`}
+          />
+        </label>
       </div>
 
       {error && <ErrorMessage message={error} />}
       {loading && matches.length === 0 && <LoadingSpinner />}
 
       {!error && matches.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <table className="w-full text-sm">
+        <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
+          <table className={`${tableClass} min-w-[720px]`}>
             <tbody>
               {matches.map((m) => (
-                <tr key={m.match_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
-                  <td className="py-2.5 pl-5">
+                <tr
+                  key={m.match_id}
+                  className={trClass}
+                >
+                  <td className="px-4 py-2.5 align-top">
                     <CompetitionBadge competition={m.competition_key} />
                   </td>
-                  <td className="whitespace-nowrap py-2.5 text-slate-500 dark:text-slate-400">{m.match_date_start}</td>
-                  <td className="py-2.5">
+                  <td className="tnum whitespace-nowrap px-3 py-2.5 align-top text-muted">
+                    {m.match_date_start ?? '-'}
+                  </td>
+                  <td className={tdClass}>
                     <Link
                       to={`/${slug}/matches/${m.match_id}`}
-                      className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100 dark:hover:text-emerald-400"
+                      className="font-medium text-ink hover:text-analytic-ink"
                     >
-                      {m.team1?.name} vs {m.team2?.name}
+                      <Flag code={m.team1?.country_code} name={m.team1?.name} />{' '}
+                      {m.team1?.name} v {m.team2?.name}{' '}
+                      <Flag code={m.team2?.country_code} name={m.team2?.name} />
                     </Link>
-                    <div className="text-xs text-slate-400">{m.venue}</div>
+                    <div className="mt-0.5 text-xs text-dim">{m.venue ?? 'Venue not recorded'}</div>
                   </td>
-                  <td className="py-2.5 pr-5 text-right text-slate-600 dark:text-slate-300">
+                  <td className="px-4 py-2.5 text-right align-top text-muted">
                     {m.winner ? `${m.winner.name} won` : (m.outcome_result ?? '-')}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div className="px-5">
+          <div className="px-4">
             <Pagination total={total} limit={LIMIT} offset={offset} onChange={setOffset} />
           </div>
         </div>
       )}
 
       {!loading && !error && matches.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">No matches found.</p>
+        <p className="rounded-xl border border-border-subtle bg-surface shadow-card px-4 py-6 text-sm text-muted">
+          No matches match these filters.
+        </p>
       )}
     </div>
   )

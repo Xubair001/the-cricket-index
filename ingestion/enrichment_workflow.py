@@ -1,8 +1,15 @@
-"""Workflows for the two non-Cricsheet data sources.
+"""Workflows for the non-Cricsheet sources, plus the daily job that ties all
+three together.
 
-Both are separate from CricsheetIngestionWorkflow on purpose: they run on their
-own cadence (ICC daily, Wikidata rarely), they fail independently, and neither
-should be able to hold up or corrupt a match ingest.
+The ICC and Wikidata workflows stay separate from CricsheetIngestionWorkflow:
+they fail independently and neither can hold up or corrupt a match ingest.
+IccDailySyncWorkflow is the scheduled entry point and composes them, calling
+Cricsheet ingestion as a child workflow rather than duplicating it.
+
+Wikidata is deliberately NOT in the daily job. It is the slowest source by an
+order of magnitude (48 throttled SPARQL batches), and bios, names and photos
+change on the scale of years -- running it daily would spend most of the
+schedule's wall clock re-confirming dates of birth.
 """
 import asyncio
 from datetime import timedelta
@@ -13,8 +20,13 @@ from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from enrichment import icc_feeds
+    from shared import CRICSHEET_URLS, IngestionJobInput
+    from ingestion_workflow import CricsheetIngestionWorkflow
     from activities import (
+        audit_tournaments,
         enrich_from_wikidata,
+        find_icc_scorecard_candidates,
+        ingest_icc_scorecards,
         fetch_icc_feed,
         fetch_icc_fixtures,
         sync_people_register,
@@ -24,6 +36,11 @@ with workflow.unsafe.imports_passed_through():
 # pick up results that landed after a match finished; forwards for the schedule.
 FIXTURE_WINDOW_PAST_DAYS = 120
 FIXTURE_WINDOW_FUTURE_DAYS = 365
+
+# Which Cricsheet archives the daily job refreshes. Every configured one --
+# listing them from CRICSHEET_URLS rather than repeating the names means adding
+# a league is still a one-line change in shared.py.
+DAILY_COMPETITIONS = sorted(CRICSHEET_URLS)
 
 
 @workflow.defn
@@ -93,15 +110,74 @@ class IccFixturesWorkflow:
 
 
 @workflow.defn
-class IccDailySyncWorkflow:
-    """The scheduled daily job: rankings and fixtures together.
+class IccScorecardsWorkflow:
+    """Ingests ICC scorecards for completed fixtures we have no match for.
 
-    One schedule rather than two, because they share a cadence and a source;
-    each half still fails independently.
+    Two jobs in one mechanism:
+
+    * closes the freshness gap, since Cricsheet publishes in bulk every few
+      days and recent matches would otherwise simply be missing;
+    * is the ONLY route to Afghanistan cricket, which Cricsheet has withheld
+      entirely since 2024-11-14 (their protest at the ICC's treatment of Afghan
+      women's cricket -- a publisher policy, not a gap in our ingestion).
+
+    Only completed fixtures in formats this schema models are fetched, and a
+    match Cricsheet already describes is skipped, so this never competes with
+    the better source.
     """
 
     @workflow.run
-    async def run(self) -> str:
+    async def run(self, days_back: int = 30, limit: int = 200) -> str:
+        cutoff = (workflow.now().date() - timedelta(days=days_back)).isoformat()
+        ids = await workflow.execute_activity(
+            find_icc_scorecard_candidates,
+            args=[cutoff, limit],
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if not ids:
+            return "icc scorecards: nothing to fetch"
+        stats = await workflow.execute_activity(
+            ingest_icc_scorecards,
+            args=[ids],
+            start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        return (
+            f"icc scorecards: {stats['stored']} stored of {stats['seen']} seen "
+            f"({stats['skipped_unchanged']} unchanged, "
+            f"{stats['skipped_cricsheet_has_it']} already in Cricsheet, "
+            f"{stats['skipped_format']} unmodelled format, {stats['failed']} failed); "
+            f"players {stats['players_linked']} linked / {stats['players_unlinked']} unlinked"
+        )
+
+
+@workflow.defn
+class IccDailySyncWorkflow:
+    """The scheduled daily job: ICC rankings, ICC fixtures, and Cricsheet.
+
+    One schedule rather than three, because they share a cadence; each part
+    still fails independently (return_exceptions), so a bad ICC feed cannot
+    stop match ingestion and vice versa.
+
+    The three sources move at genuinely different speeds, and running them on
+    one daily tick is what keeps that from mattering:
+
+    * ICC fixtures change hourly during play (a scoreline landing).
+    * ICC rankings republish roughly weekly.
+    * Cricsheet publishes match archives in bulk every few days -- so the
+      Cricsheet leg mostly gets a 304 and costs nothing. It is scheduled
+      anyway because the alternative is noticing by hand, and a new archive
+      then sits uningested for however long that takes.
+
+    Cricsheet runs sequentially after the ICC legs rather than alongside them:
+    the archives share one SQLite file with everything else, and a bulk ingest
+    is the one job here heavy enough to be worth not overlapping.
+    """
+
+    @workflow.run
+    async def run(self, competitions: list[str] | None = None) -> str:
         rankings, fixtures = await asyncio.gather(
             workflow.execute_child_workflow(
                 IccRankingsWorkflow.run, id=f"{workflow.info().workflow_id}-rankings"
@@ -115,6 +191,63 @@ class IccDailySyncWorkflow:
             r if isinstance(r, str) else f"FAILED: {type(r).__name__}"
             for r in (rankings, fixtures)
         ]
+
+        # Scorecards run after fixtures, not beside them: the candidate list is
+        # read from the rows the fixtures leg has just written, so running them
+        # concurrently would work off yesterday's schedule.
+        try:
+            parts.append(str(await workflow.execute_child_workflow(
+                IccScorecardsWorkflow.run,
+                id=f"{workflow.info().workflow_id}-scorecards",
+            )))
+        except Exception as e:  # noqa: BLE001
+            workflow.logger.warning(f"icc scorecards failed: {e!r}")
+            parts.append(f"scorecards: FAILED {type(e).__name__}")
+
+        for competition in competitions if competitions is not None else DAILY_COMPETITIONS:
+            try:
+                result = await workflow.execute_child_workflow(
+                    CricsheetIngestionWorkflow.run,
+                    IngestionJobInput(competition=competition, archive_path="", match_ids=[]),
+                    id=f"{workflow.info().workflow_id}-{competition}",
+                )
+                parts.append(str(result))
+            except Exception as e:  # noqa: BLE001 - one archive must not sink the rest
+                workflow.logger.warning(f"cricsheet {competition} failed: {e!r}")
+                parts.append(f"{competition}: FAILED {type(e).__name__}")
+
+        # LAST, and after every archive, because both checks read rows the legs
+        # above have just written. Tournament data itself needs no job of its
+        # own - event_name, event_stage and eliminator_team_id are written by
+        # ingest_match, so the Cricsheet legs already refresh it daily. What
+        # this adds is keeping tournaments CORRECT: a renamed event splits a
+        # tournament silently, and an ICC stand-in can outlive the Cricsheet
+        # match that supersedes it.
+        try:
+            audit = await workflow.execute_activity(
+                audit_tournaments,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            summary = (
+                f"tournaments: {audit['duplicates_removed']} duplicate matches "
+                f"removed, {audit.get('keys_restated', 0)} keys re-derived"
+            )
+            if audit["new_events"]:
+                # Deliberately loud. This is the failure that hid 46 matches of
+                # the women's T20 World Cup, and it raises no error of its own.
+                names = ", ".join(
+                    f"{e['event']} ({e['matches']}m, {e['gender']})"
+                    for e in audit["new_events"][:5]
+                )
+                summary += f"; NEW EVENT NAMES needing an alias check: {names}"
+                if len(audit["new_events"]) > 5:
+                    summary += f" and {len(audit['new_events']) - 5} more"
+            parts.append(summary)
+        except Exception as e:  # noqa: BLE001
+            workflow.logger.warning(f"tournament audit failed: {e!r}")
+            parts.append("tournaments: audit FAILED")
+
         return " | ".join(parts)
 
 
@@ -136,6 +269,11 @@ class PlayerEnrichmentWorkflow:
         stats = await workflow.execute_activity(
             enrich_from_wikidata,
             start_to_close_timeout=timedelta(hours=1),
+            # Without a heartbeat timeout a dead worker is only discovered when
+            # start_to_close expires, so a crash at batch 2 stalls the workflow
+            # for the remaining 59 minutes. Two minutes is comfortably longer
+            # than the slowest throttled batch.
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         return (

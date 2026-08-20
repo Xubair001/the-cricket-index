@@ -5,10 +5,10 @@ Cricsheet ball-by-ball data by this project, these are ICC's own ratings
 fetched from their feed. Presenting them under one path would invite reading a
 number this app derived as an official one, or vice versa.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import queries, schemas
+from .. import queries, schemas, validation
 from ..database import get_db
 
 router = APIRouter(prefix="/api/icc", tags=["icc"])
@@ -24,24 +24,34 @@ def rank_types(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/players/{rank_type}", response_model=schemas.IccRankingTable)
-def player_ranking(rank_type: str, db: Session = Depends(get_db)) -> schemas.IccRankingTable:
-    table = queries.get_icc_player_ranking(db, rank_type)
+def player_ranking(
+    rank_type: str,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> schemas.IccRankingTable:
+    table = queries.get_icc_player_ranking(db, rank_type, limit, offset)
     if table is None:
         raise HTTPException(
             status_code=404,
-            detail=f"no ICC player ranking stored for '{rank_type}'; "
+            detail=f"no ICC player ranking stored for '{validation.echo(rank_type)}'; "
                    f"available: {queries.icc_player_rank_types(db)}",
         )
     return table
 
 
 @router.get("/teams/{rank_type}", response_model=schemas.IccTeamRankingTable)
-def team_ranking(rank_type: str, db: Session = Depends(get_db)) -> schemas.IccTeamRankingTable:
-    table = queries.get_icc_team_ranking(db, rank_type)
+def team_ranking(
+    rank_type: str,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> schemas.IccTeamRankingTable:
+    table = queries.get_icc_team_ranking(db, rank_type, limit, offset)
     if table is None:
         raise HTTPException(
             status_code=404,
-            detail=f"no ICC team ranking stored for '{rank_type}'; "
+            detail=f"no ICC team ranking stored for '{validation.echo(rank_type)}'; "
                    f"available: {queries.icc_team_rank_types(db)}",
         )
     return table

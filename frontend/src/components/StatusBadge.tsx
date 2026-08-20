@@ -8,13 +8,19 @@ import type { PlayerStatus } from '../api/types'
  * injury, being dropped, and uncovered domestic cricket alike. "Retired" shows
  * only when a source says so, and says which source on hover.
  */
+/* The -ink tier throughout: these are 12px labels, and the mark tier is
+ * stepped for fills rather than for text. */
 const STYLES: Record<string, string> = {
-  active:
-    'bg-emerald-100 text-emerald-800 ring-emerald-600/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/20',
-  retired:
-    'bg-slate-200 text-slate-700 ring-slate-500/20 dark:bg-slate-500/20 dark:text-slate-300 dark:ring-slate-400/20',
-  inactive:
-    'bg-amber-100 text-amber-800 ring-amber-600/20 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/20',
+  active: 'bg-positive-dim text-positive-ink ring-positive/25',
+  // Sourced fact, stated plainly -- neutral rather than semantic, because
+  // being retired is not a judgement about the player.
+  retired: 'bg-elevated text-muted ring-border-default',
+  // Amber is the product's uncertainty colour, which is exactly right here:
+  // "last played 2019" is an observation, not a conclusion about why. Safe as
+  // a hue in this one place because the badge is isolated -- the amber/red
+  // confusion the rest of the product designs around only bites when the two
+  // sit in adjacent columns of the same row.
+  inactive: 'bg-warning-dim text-warning-ink ring-warning/25',
 }
 
 function year(date: string | null): string | null {
@@ -43,7 +49,7 @@ function tooltip(status: PlayerStatus): string {
   }
   return (
     `No appearances since ${status.last_played} in this dataset. ` +
-    `That may mean retirement, injury, or cricket this dataset doesn't cover — ` +
+    `That may mean retirement, injury, or cricket this dataset doesn't cover - ` +
     `no source confirms which, so none is claimed.`
   )
 }
@@ -61,10 +67,10 @@ export function StatusBadge({ status }: { status: PlayerStatus | null }) {
         aria-hidden
         className={`h-1.5 w-1.5 rounded-full ${
           status.state === 'active'
-            ? 'bg-emerald-500'
+            ? 'bg-positive'
             : status.state === 'retired'
-              ? 'bg-slate-400'
-              : 'bg-amber-500'
+              ? 'bg-muted'
+              : 'bg-warning'
         }`}
       />
       {statusLabel(status)}

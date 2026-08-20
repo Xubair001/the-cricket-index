@@ -28,6 +28,13 @@ CRICSHEET_PEOPLE_REGISTER = "https://cricsheet.org/register/people.csv"
 # 'w' suffix for women's ('odiw'); there is no women's Test ranking, which is
 # why (testw, *) is absent rather than merely empty.
 ICC_RANKING_ENDPOINT = "https://assets-icc.sportz.io/cricket/v1/ranking"
+
+# NOT a secret, despite looking like one. This is the public client id ICC's own
+# website sends from browser JavaScript to a public CDN endpoint - readable by
+# anyone with a network tab open, granting no privileged access and identifying
+# nobody. It is hardcoded rather than read from the environment so that a secret
+# scanner's hit here has a written answer, and so nobody "fixes" it by adding a
+# config step that protects nothing.
 ICC_CLIENT_ID = "tPZJbRgIub3Vua93/DWtyQ=="
 
 ICC_COMP_TYPES = {
