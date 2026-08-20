@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowExternal, ArrowRight } from '../components/Icon'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type {
@@ -122,7 +123,7 @@ const CAPABILITIES = [
 ]
 
 function TrendGlyph({ trend }: { trend: FormLeaderRow['trend'] }) {
-  const glyph = { rising: '↗', flat: '→', falling: '↘', unknown: '·' }[trend]
+  const glyph = { rising: '\u2197', flat: '\u2192', falling: '↘', unknown: '·' }[trend]
   const tone =
     trend === 'rising' ? 'text-positive-ink' : trend === 'falling' ? 'text-negative-ink' : 'text-dim'
   const description = {
@@ -341,7 +342,7 @@ function NewsStrip({
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-default pb-2">
         <h2 className="u-display text-title text-ink">In the cricket press</h2>
         <Link to={`/${slug}/news`} className="text-xs text-analytic-ink hover:underline">
-          All news &rarr;
+          All news <ArrowRight className="ml-1" />
         </Link>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-dim">
@@ -404,10 +405,10 @@ function LeadStory({ article }: { article: NewsArticleSummary }) {
           <p className="line-clamp-2 text-sm leading-relaxed text-muted">{article.standfirst}</p>
         )}
         {/* A literal escape, not `&nearr;`: JSX resolves named entities through
-            Babel's table, which has `&rarr;` but not this one, so the entity
+            Babel's table, which has `<ArrowRight className="ml-1" />` but not this one, so the entity
             rendered as text on the page. */}
         <span aria-hidden className="mt-auto pt-1 text-xs text-dim">
-          Read at {article.publisher} {'\u2197'}
+          Read at {article.publisher} <ArrowExternal className="ml-1" />
         </span>
       </div>
     </a>
@@ -508,7 +509,7 @@ export function Home() {
               className="inline-flex items-center gap-1.5 rounded-lg bg-analytic px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-analytic"
             >
               {PRIMARY_ACTION.label}
-              <span aria-hidden>&rarr;</span>
+              <span aria-hidden><ArrowRight className="ml-1" /></span>
             </Link>
             {SECONDARY_ACTIONS.map((a) => (
               <Link
@@ -560,7 +561,7 @@ export function Home() {
                 aria-hidden
                 className="mt-auto pt-1 text-xs text-dim transition-colors group-hover:text-analytic-ink"
               >
-                Open &rarr;
+                Open <ArrowRight className="ml-1" />
               </span>
             </Link>
           ))}
@@ -621,17 +622,12 @@ export function Home() {
       <NewsStrip articles={news} loading={loading} slug={slug} />
 
       <Provenance>
-        Form compares a player against their own preceding 12 months, scoped to international
-        cricket - never blended with franchise cricket. The figure beside each name is a{' '}
+        Form compares a player with their own preceding twelve months, within one competition.
+        The figure beside each name is a{' '}
         <strong className="font-semibold text-muted">form score out of 100</strong>: a percentile of
-        the par units they have gained against their own baseline, weighted by how much cricket the
-        verdict rests on. It replaced the raw percentage, which has no ceiling - it reaches +306% in
-        this dataset - and which was not ordered the same way the board is, so the column
-        contradicted the sort. The meter beside it is the absolute standard against par, and it is
-        the column that separates "improved to excellent" from "improved to still below average". A
-        dotted rule means confidence below 60%, from a thin sample. Every performance is weighted by
-        the strength of the side it came against, fitted from what every team concedes across the
-        whole fixture list - so runs against a weak attack count for less.
+        the par units gained against that baseline, weighted by how much cricket it rests on. The
+        meter shows the absolute standard against par, which is what separates "improved to
+        excellent" from "improved to still below average". A dotted rule means a thin sample.
       </Provenance>
     </div>
   )
@@ -678,7 +674,7 @@ function IccMovementStrip({ gender, slug }: { gender: ApiGender; slug: string })
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-subtle px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight text-ink">Latest ICC movements</h2>
         <Link to={`/${slug}/icc-rankings`} className="text-xs text-muted hover:text-ink">
-          All ICC rankings &rarr;
+          All ICC rankings <ArrowRight className="ml-1" />
         </Link>
       </header>
       <p className="px-4 pt-2 text-xs text-dim">
@@ -714,7 +710,7 @@ function IccMovementStrip({ gender, slug }: { gender: ApiGender; slug: string })
                 )}
               </span>
               <span className="tnum shrink-0 text-xs text-muted">
-                {m.previous_position} &rarr; {m.position}
+                {m.previous_position} <ArrowRight className="mx-0.5" /> {m.position}
               </span>
               <span
                 className={`tnum w-8 shrink-0 text-right text-xs font-semibold ${

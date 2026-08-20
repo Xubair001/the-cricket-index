@@ -553,6 +553,13 @@ export interface ExplorerPage {
   sort_by: string
   filters: ExplorerFilters
   sorts: string[]
+  /** How many players matched every filter BEFORE the volume floors, and the
+   *  floors actually applied. Both are returned because their being different is
+   *  the whole story on a narrowed slice: without the first, a reader cannot
+   *  tell "no cricket here" from "the floor removed all of it". */
+  total_before_volume_floor: number
+  applied_min_balls: number
+  applied_min_innings: number
   items: ExplorerRow[]
 }
 
@@ -739,6 +746,12 @@ export interface SelectionPick extends PlayerCountry {
   form_display: string | null
   form_state: string | null
   recent_mean: number | null
+  /** This player's record at the requested ground, where one was requested and
+   *  they have played there. `venue_matches` is the sample the adjustment rests
+   *  on and is always shown beside it: two matches is not a venue record. */
+  venue_matches: number | null
+  venue_mean: number | null
+  venue_score: number | null
   selection_score: number
   reason: string
   /** Sourced from ICC squads where present, else null. Never inferred. */
@@ -777,6 +790,12 @@ export interface SelectedSide {
   objective: string
   objective_label: string
   objective_detail: string
+  /** The ground the side was tilted towards, and how many candidates have any
+   *  record there - a venue term over 12 of 327 candidates is a different claim
+   *  from one over most of them. */
+  venue: string | null
+  venue_candidates_with_record: number
+  eligibility_floor: number
   /** The best players left out, with the constraint that left them out. */
   tradeoffs: SelectionTradeOff[]
   /** Candidates whose age is unknown, where the objective depends on age. */

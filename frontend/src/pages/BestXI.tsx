@@ -136,6 +136,7 @@ export function BestXI() {
   // and `?pool=all_time` still selects the all-time side.
   const pool = params.get('pool') === 'all_time' ? 'all_time' : 'current'
   const objective = params.get('objective') || 'overall'
+  const venue = params.get('venue') ?? ''
 
   const { competitions } = useScope()
   const {
@@ -149,6 +150,7 @@ export function BestXI() {
   const competition = scopedCompetition || competitions[0]?.key || ''
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
+  const [grounds, setGrounds] = useState<{ venue: string; matches: number }[]>([])
   const [side, setSide] = useState<SelectedSide | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -179,6 +181,13 @@ export function BestXI() {
   }, [apiGender, teamType])
 
   useEffect(() => {
+    api
+      .venues(apiGender)
+      .then((res) => setGrounds(res.map((g) => ({ venue: g.venue, matches: g.matches }))))
+      .catch(() => setGrounds([]))
+  }, [apiGender])
+
+  useEffect(() => {
     if (!competition) return
     let cancelled = false
     setLoading(true)
@@ -189,6 +198,7 @@ export function BestXI() {
         size,
         pool,
         objective,
+        venue: venue || undefined,
         team_id: teamId ? Number(teamId) : undefined,
       })
       .then((res) => !cancelled && setSide(res))
@@ -197,7 +207,7 @@ export function BestXI() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, size, teamId, pool, objective])
+  }, [apiGender, competition, size, teamId, pool, objective, venue])
 
   return (
     <div className="space-y-5">
@@ -235,6 +245,22 @@ export function BestXI() {
             {POOLS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabelClass}>Ground</span>
+          <select
+            value={venue}
+            onChange={(e) => update({ venue: e.target.value })}
+            className={fieldClass}
+            title="Tilts the side towards players with a record at this ground. Not a re-scope: at any one ground most players have one or two matches, so a side picked only on venue records would be picked on noise."
+          >
+            <option value="">Any ground</option>
+            {grounds.slice(0, 200).map((g) => (
+              <option key={g.venue} value={g.venue}>
+                {g.venue} ({g.matches})
               </option>
             ))}
           </select>
@@ -352,6 +378,19 @@ export function BestXI() {
                   {Object.values(side.shape).reduce((sum, n) => sum + n, 0) < side.size
                     ? ', with the remaining places on merit.'
                     : ', which fills the side.'}
+                  {side.venue && (
+                    <>
+                      {' '}
+                      Tilted towards <strong className="font-semibold text-ink">
+                        {side.venue}
+                      </strong>
+                      , where{' '}
+                      <span className="tnum">{side.venue_candidates_with_record}</span> of{' '}
+                      <span className="tnum">{side.pool_size}</span> candidates have any record -
+                      a record at one ground moves a player within the side rather than deciding
+                      it, because at most grounds the median player has one or two matches.
+                    </>
+                  )}
                 </>
               }
               bodyClassName=""
@@ -412,6 +451,23 @@ export function BestXI() {
                           )}
                         </div>
                         <p className="mt-0.5 text-xs text-dim">{p.reason}</p>
+                        {/* The at-ground record, always with its sample beside
+                            it. Three matches at a ground is not a venue record,
+                            and a figure shown without its count invites reading
+                            it as one. */}
+                        {p.venue_matches !== null && p.venue_mean !== null && (
+                          <p className="mt-0.5 text-xs text-muted">
+                            At this ground:{' '}
+                            <span className="tnum font-medium text-ink">
+                              {rate(p.venue_mean)}x par
+                            </span>{' '}
+                            from{' '}
+                            <span className="tnum">
+                              {p.venue_matches} {p.venue_matches === 1 ? 'match' : 'matches'}
+                            </span>
+                            {p.venue_matches < 4 && ' - too few to move them much'}
+                          </p>
+                        )}
                       </div>
 
                       <span

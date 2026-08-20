@@ -297,7 +297,7 @@ export function Explorer() {
           <input
             type="number"
             min={1}
-            placeholder={String(data?.filters.min_innings ?? '')}
+            placeholder={data ? String(data.applied_min_innings) : ''}
             value={minInnings}
             onChange={(e) => update({ min_innings: e.target.value })}
             className={`${field} w-24 placeholder:text-dim`}
@@ -308,7 +308,7 @@ export function Explorer() {
           <input
             type="number"
             min={0}
-            placeholder={String(data?.filters.min_balls ?? '')}
+            placeholder={data ? String(data.applied_min_balls) : ''}
             value={minBalls}
             onChange={(e) => update({ min_balls: e.target.value })}
             className={`${field} w-24 placeholder:text-dim`}
@@ -323,10 +323,16 @@ export function Explorer() {
           everyone (§21). */}
       {data && (
         <p className="text-xs text-muted">
-          {data.total.toLocaleString()} players qualify ·{' '}
-          <span className="tnum">{data.filters.min_innings}</span> matches and{' '}
-          <span className="tnum">{data.filters.min_balls}</span> balls minimum
-          {data.filters.min_balls > 0 && ' - rate columns are meaningless below a volume floor'}
+          {/* The count BEFORE the floor is the important half. A batting board
+              for one ground against one side used to report 0 players where 148
+              had played, and nothing on the page distinguished that from a
+              ground with no cricket at it. */}
+          <span className="tnum font-medium text-ink">{data.total.toLocaleString()}</span> of{' '}
+          <span className="tnum">{data.total_before_volume_floor.toLocaleString()}</span> players
+          shown · needs <span className="tnum">{data.applied_min_innings}</span>{' '}
+          {data.applied_min_innings === 1 ? 'match' : 'matches'} and{' '}
+          <span className="tnum">{data.applied_min_balls}</span> balls
+          {!minInnings && !minBalls && ' (scaled to this slice)'}
         </p>
       )}
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowRight } from '../components/Icon'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { FormLeaderRow, FormLeaderboard } from '../api/types'
@@ -96,8 +97,8 @@ const BOARDS: Board[] = [
 ]
 
 const TREND_GLYPH: Record<FormLeaderRow['trend'], { glyph: string; tone: string; note: string }> = {
-  rising: { glyph: '↗', tone: 'text-positive-ink', note: 'Improving within the recent window' },
-  flat: { glyph: '→', tone: 'text-dim', note: 'Level within the recent window' },
+  rising: { glyph: '\u2197', tone: 'text-positive-ink', note: 'Improving within the recent window' },
+  flat: { glyph: '\u2192', tone: 'text-dim', note: 'Level within the recent window' },
   falling: { glyph: '↘', tone: 'text-negative-ink', note: 'Declining within the recent window' },
   unknown: { glyph: '·', tone: 'text-dim', note: 'Not enough cricket to read a trend' },
 }
@@ -170,7 +171,7 @@ export function FormBoards() {
             to={`/${slug}/performance-index`}
             className="text-sm text-analytic-ink hover:underline"
           >
-            Performance Index →
+            Performance Index <ArrowRight className="ml-1" />
           </Link>
         }
       />
@@ -352,18 +353,12 @@ export function FormBoards() {
 
       <Provenance>
         Each player is compared with their own preceding twelve months in this scope, never with
-        other players - that is what makes “in form” mean <em>changed</em> rather than{' '}
+        other players - that is what makes "in form" mean <em>changed</em> rather than{' '}
         <em>good</em>. The <strong className="font-semibold text-muted">form score</strong> is a
-        percentile, out of 100, of the par units a player has gained against their own baseline,
-        weighted by how much cricket the verdict rests on - so it is bounded, and it orders the
-        board the same way the board is sorted. It replaced the raw change percentage as the
-        headline for both reasons: that figure has no ceiling, reaching +306% here, and it was not
-        monotonic with the sort, so the top row could read +198% above a row showing +48%. The
-        change is still shown beside it, worded as a multiple past a doubling. Every performance is
-        weighted by the strength of the side it came against, fitted per era. Internationals and
-        franchise cricket are never blended into one figure. The last column is the evidence the
-        verdict rests on - recent matches against earlier ones - and a figure marked with a dotted
-        rule rests on a thin sample.
+        percentile, out of 100, of the par units gained against that baseline, weighted by how much
+        cricket the verdict rests on. The change is shown beside it, as a multiple past a doubling.
+        Every performance is scaled by the strength of the side it came against. Internationals and
+        franchise cricket are never blended. A figure with a dotted rule rests on a thin sample.
       </Provenance>
     </div>
   )

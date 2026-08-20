@@ -897,6 +897,12 @@ class SelectionPick(PlayerCountry):
     components they have. A retired player carries no form term rather than a
     neutral stand-in, so the shape differs per pick and is reported."""
     applied_weights: dict[str, float] = {}
+    """This player's record at the requested ground, where one was requested and
+    they have played there. `venue_matches` is the sample the adjustment rests
+    on and is always shown beside it: two matches at a ground is not a record."""
+    venue_matches: int | None = None
+    venue_mean: float | None = None
+    venue_score: float | None = None
     form_state: str | None
     recent_mean: float | None
     selection_score: float
@@ -957,6 +963,11 @@ class SelectedSide(BaseModel):
     player has more than 14 women's Tests here - so it is a fraction of what a
     long career in this scope looks like, and is reported rather than assumed."""
     eligibility_floor: int = 8
+    """The ground the side was tilted towards, and how many candidates have any
+    record there. Reported because a venue term computed over 12 of 327
+    candidates is a different claim from one computed over most of them."""
+    venue: str | None = None
+    venue_candidates_with_record: int = 0
     """Which of §18's objectives this side answers. The same heading means a
     different side depending on it, so it is always reported."""
     objective: str = "overall"
@@ -1068,6 +1079,17 @@ class ExplorerPage(BaseModel):
     # rather than wondering why an expected player is absent (§21).
     filters: dict
     sorts: list[str]
+    """How many players matched every filter BEFORE the volume floor, and the
+    floor that was actually applied.
+
+    Both are returned because their being different is the whole story on a
+    narrowed slice, and without the first a reader cannot tell "no cricket here"
+    from "the floor removed all of it". Measured before this existed: a batting
+    board for one ground against one side reported 0 players where 148 had
+    played, because a 200-ball career floor is unreachable in that cut."""
+    total_before_volume_floor: int = 0
+    applied_min_balls: int = 0
+    applied_min_innings: int = 0
     items: list[ExplorerRow]
 
 

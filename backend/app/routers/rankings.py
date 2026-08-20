@@ -223,6 +223,11 @@ def best_side(
     # §18's optimisation objectives. Validated against the analytics table
     # rather than a regex, so adding one stays a single-file change.
     objective: str = Query(default="overall"),
+    # Canonical ground name. A TILT rather than a re-scope: at a single ground
+    # almost nobody has a real record, so the side is still picked over the whole
+    # scope and a venue record moves a candidate within it. See
+    # `selection._venue_records`.
+    venue: str | None = Query(default=None, max_length=120),
     db: Session = Depends(get_db),
 ) -> schemas.SelectedSide:
     """Best XI or XV for a scope (§18).
@@ -264,6 +269,7 @@ def best_side(
         team_id=team_id,
         pool=pool,
         objective=objective,
+        venue=venue,
     )
     team_name = None
     if team_id is not None:
@@ -287,6 +293,8 @@ def best_side(
         cutoff_date=result.cutoff_date,
         weights=result.weights,
         eligibility_floor=result.eligibility_floor,
+        venue=result.venue,
+        venue_candidates_with_record=result.venue_candidates_with_record,
         objective=result.objective,
         objective_label=result.objective_label,
         objective_detail=result.objective_detail,

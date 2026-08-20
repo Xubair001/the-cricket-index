@@ -162,9 +162,38 @@ export function EmptyState({ title, hint }: { title: string; hint?: ReactNode })
  *
  * Small and quiet, but never omitted: it is where the derivation lives.
  */
+/**
+ * The note under a table that says how its figures were produced.
+ *
+ * Was `max-w-3xl`, which left it ending well short of the table above it and
+ * reading as a stray paragraph rather than that table's own footnote. Now it
+ * fills the column and is framed as a note, so it is skimmable: the label tells
+ * a reader they can skip it, which is what makes it safe to keep.
+ */
 export function Provenance({ children }: { children: ReactNode }) {
   return (
-    <p className="max-w-3xl text-xs leading-relaxed text-dim">{children}</p>
+    // A DISCLOSURE, not a paragraph. These notes carry the product's honesty
+    // devices and are load-bearing, so they cannot be cut - but several ran past
+    // 700 characters and a wall of small grey text at the foot of every page is
+    // read by nobody, which defeats the purpose of writing it. Collapsed, the
+    // page ends on one clear line; open, the whole explanation is there.
+    //
+    // `<details>` rather than a React toggle: it is keyboard accessible, works
+    // before hydration, and is searchable by the browser's own find.
+    <details className="group rounded-xl border border-border-subtle bg-elevated px-4 py-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-muted transition-colors hover:text-ink">
+        How these figures are produced
+        <span
+          aria-hidden
+          className="text-[10px] text-dim transition-transform group-open:rotate-90"
+        >
+          &#9656;
+        </span>
+      </summary>
+      <div className="mt-2.5 border-t border-border-subtle pt-2.5 text-xs leading-relaxed text-muted">
+        {children}
+      </div>
+    </details>
   )
 }
 
@@ -177,7 +206,15 @@ export function Provenance({ children }: { children: ReactNode }) {
  * range from 380px to 840px - and a shared floor either lets a narrow table
  * scroll when it did not need to or lets a wide one crush its columns. Each
  * page appends its own. */
-export const tableClass = 'w-full border-collapse text-sm'
+/**
+ * Table cells were `px-3` with no edge inset, so the first and last columns sat
+ * 12px from the card border and read as clipped. The inset is declared here
+ * rather than on every page's cells: one place, and it cannot drift.
+ */
+export const tableClass =
+  'w-full border-collapse text-sm ' +
+  '[&_th:first-child]:pl-5 [&_td:first-child]:pl-5 ' +
+  '[&_th:last-child]:pr-5 [&_td:last-child]:pr-5'
 
 /**
  * The header styling sits on the `<tr>`, not on `<thead>`, so the mono/uppercase
@@ -186,13 +223,13 @@ export const tableClass = 'w-full border-collapse text-sm'
 export const theadRowClass =
   'border-b border-border-default bg-elevated text-left font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
-export const thClass = 'px-3 py-2.5 font-medium whitespace-nowrap'
-export const thNumClass = 'px-3 py-2.5 text-right font-medium whitespace-nowrap'
+export const thClass = 'px-3 py-3 font-medium whitespace-nowrap'
+export const thNumClass = 'px-3 py-3 text-right font-medium whitespace-nowrap'
 
 export const trClass =
   'border-b border-border-subtle transition-colors last:border-0 hover:bg-elevated'
 
-export const tdClass = 'px-3 py-2.5 text-ink'
+export const tdClass = 'px-3 py-3 text-ink'
 
 /**
  * A numeric cell. Right-aligned and tabular, which together are what make a
@@ -200,8 +237,8 @@ export const tdClass = 'px-3 py-2.5 text-ink'
  * Muted by default: in a row of eight figures at most one is the point, and
  * that one gets `tdNumStrongClass`.
  */
-export const tdNumClass = 'tnum px-3 py-2.5 text-right text-muted'
-export const tdNumStrongClass = 'tnum px-3 py-2.5 text-right font-semibold text-ink'
+export const tdNumClass = 'tnum px-3 py-3 text-right text-muted'
+export const tdNumStrongClass = 'tnum px-3 py-3 text-right font-semibold text-ink'
 
 /* ── Uncertainty ───────────────────────────────────────────────
  * The product's second channel for "trust this less". Not a colour, because

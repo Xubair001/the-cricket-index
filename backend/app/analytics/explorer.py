@@ -59,6 +59,7 @@ produce a "batting average" no source publishes.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 from sqlalchemy import Integer, Select, String, and_, false as sa_false, func, or_, select
@@ -88,8 +89,20 @@ class ExplorerFilters:
     opposition_team_id: int | None = None
     date_from: str | None = None
     date_to: str | None = None
-    min_innings: int = DEFAULT_MIN_INNINGS
-    min_balls: int = 0
+    # None means DERIVE, exactly as for `min_balls` below. The fixed default of
+    # 5 matches was the larger half of the same bug: at one ground against one
+    # side almost nobody plays five, so "Sydney Cricket Ground against
+    # Australia" fell from 261 players to 35 on the innings floor before the
+    # ball floor touched it, and thinner grounds fell to zero.
+    min_innings: int | None = None
+    # None means DERIVE from the slice. A career-scale floor is wrong on a
+    # narrowed one: 200 balls faced is a sensible qualification for an all-time
+    # batting board and impossible at a single ground against a single side.
+    # Measured, this is not a rounding problem - "Bellerive Oval against
+    # Australia" returned 0 players of 148, and "Sydney Cricket Ground against
+    # New Zealand" returned 1 of 42, so the page read as having no data at all.
+    # See `derive_min_balls`.
+    min_balls: int | None = None
     # Canonical ground name (see app/venues.py). Matching happens on the
     # normalised key, so asking for "Sharjah Cricket Stadium" also returns the
     # seven matches Cricsheet filed under "Sharjah Cricket Association Stadium".
@@ -305,8 +318,10 @@ def batting_rows(db: Session, f: ExplorerFilters) -> list[dict]:
     for r in db.execute(stmt).all():
         matches = r.matches or 0
         balls = r.balls_faced or 0
-        if matches < f.min_innings or balls < f.min_balls:
-            continue
+        # BOTH floors are applied in `page()`, not here, so the rows they
+        # remove can be COUNTED and reported. Applied in the builder they simply
+        # never existed, and a slice showing 0 of 148 players looked like a slice
+        # with no cricket in it.
         role = discipline(balls, r.balls_bowled or 0)
         if role not in ELIGIBLE["batting"] or (f.role and role != f.role):
             continue
@@ -352,8 +367,6 @@ def bowling_rows(db: Session, f: ExplorerFilters) -> list[dict]:
     for r in db.execute(stmt).all():
         matches = r.matches or 0
         balls = r.balls_bowled or 0
-        if matches < f.min_innings or balls < f.min_balls:
-            continue
         role = discipline(r.balls_faced or 0, balls)
         if role not in ELIGIBLE["bowling"] or (f.role and role != f.role):
             continue
@@ -442,10 +455,8 @@ def allround_rows(db: Session, f: ExplorerFilters) -> list[dict]:
     out = []
     for e in acc.values():
         matches = e["matches"]
-        if matches < f.min_innings:
-            continue
-        if (e["balls_faced"] + e["balls_bowled"]) < f.min_balls:
-            continue
+        # Both floors are applied in `page()` for the same reason as the other
+        # two builders: so the rows they remove can be counted.
         role = discipline(e["balls_faced"], e["balls_bowled"])
         if role not in ELIGIBLE["allround"] or (f.role and role != f.role):
             continue
@@ -461,6 +472,11 @@ def allround_rows(db: Session, f: ExplorerFilters) -> list[dict]:
                 "player_name": e["player_name"],
                 "player_identifier": e["player_identifier"],
                 "matches": matches,
+                # Emitted so the volume floor in `page()` can measure this board
+                # too. Without them `_volume_of` read zero for every all-round
+                # row and floored the whole board away.
+                "balls_faced": e["balls_faced"],
+                "balls_bowled": e["balls_bowled"],
                 "runs": e["runs"],
                 "wickets": e["wickets"],
                 "batting_contribution": round(bat / matches, 3),
@@ -497,6 +513,70 @@ BUILDERS = {
 }
 
 
+# What a volume floor is FOR: a rate computed off a handful of balls is noise,
+# and an unfiltered leaderboard is dominated by two-innings anomalies (§21). What
+# it must not do is silently empty a legitimate slice.
+#
+# Where the caller does not name a floor, it is derived from the slice itself: a
+# quarter of what a well-established player in THIS cut has faced, taken as the
+# 75th percentile of balls. On a career board that lands near the old fixed 200;
+# on "one ground against one side" it lands where it should, which is far lower.
+DERIVED_FLOOR_PERCENTILE = 0.75
+DERIVED_FLOOR_FRACTION = 0.25
+# Never derive a floor below this. Two balls is not a strike rate at any scale.
+DERIVED_FLOOR_MIN = 12
+
+
+def _volume_of(row: dict, explorer: str) -> int:
+    """The balls a floor should be measured against, per discipline."""
+    if explorer == "bowling":
+        return int(row.get("balls_bowled") or 0)
+    if explorer == "allround":
+        return int((row.get("balls_faced") or 0) + (row.get("balls_bowled") or 0))
+    return int(row.get("balls_faced") or 0)
+
+
+def derive_min_innings(rows: list[dict]) -> int:
+    """A match floor proportionate to the slice.
+
+    Same argument as `derive_min_balls`, and this was the larger half of the
+    bug: five matches is a fair minimum for a career board and almost nobody
+    plays five at a single ground against a single side, so the innings floor cut
+    "Sydney Cricket Ground against Australia" from 261 players to 35 before the
+    ball floor touched it.
+
+    Floored at one rather than two, because on a narrow cut "played here" is a
+    legitimate qualification and the BALL floor is what stops a rate computed off
+    four deliveries reaching the board.
+    """
+    counts = sorted(int(r.get("matches") or 0) for r in rows)
+    if not counts:
+        return 1
+    established = counts[min(len(counts) - 1, int(len(counts) * DERIVED_FLOOR_PERCENTILE))]
+    return max(1, int(established * DERIVED_FLOOR_FRACTION))
+
+
+def derive_min_balls(rows: list[dict], explorer: str) -> int:
+    """A volume floor proportionate to the slice being looked at.
+
+    A fixed floor is the bug this replaces. 200 balls faced is a reasonable
+    qualification for an all-time batting board and unreachable at a single
+    ground against a single opponent, so the same number that made a career
+    leaderboard trustworthy made a narrowed one look empty: measured, "Bellerive
+    Oval against Australia" returned 0 players of 148 and "Sydney Cricket Ground
+    against New Zealand" returned 1 of 42.
+
+    Scope-relative for the same reason `selection._all_time_floor` is: the
+    threshold has to mean "enough cricket for this cut" rather than a number
+    chosen once for the widest possible cut.
+    """
+    volumes = sorted(_volume_of(r, explorer) for r in rows)
+    if not volumes:
+        return DERIVED_FLOOR_MIN
+    established = volumes[min(len(volumes) - 1, int(len(volumes) * DERIVED_FLOOR_PERCENTILE))]
+    return max(DERIVED_FLOOR_MIN, int(established * DERIVED_FLOOR_FRACTION))
+
+
 def page(
     db: Session,
     explorer: str,
@@ -504,13 +584,17 @@ def page(
     sort_by: str,
     limit: int,
     offset: int,
-) -> tuple[list[dict], int]:
-    """One sorted, paginated page of an explorer, plus the total after filters.
+) -> tuple[list[dict], int, int, int, int]:
+    """One page: (rows, total, total_before_floors, applied_balls, applied_innings).
 
     Sorted in Python for the same reason the ranking aggregates are: the rate
     metrics need a divide-by-zero guard that is awkward in SQLite, and a row
     whose average is undefined must sort last rather than as zero -- which is
     what `None` would do if the database ordered it.
+
+    Returns the count BEFORE the volume floor as well as after, because those
+    two numbers being different is the whole story on a narrowed slice and the
+    reader cannot otherwise tell "no cricket here" from "the floor removed it".
     """
     # Cached per (explorer, filter set). `ExplorerFilters` is a frozen dataclass,
     # so it is hashable and the whole filter object is the key - two identical
@@ -522,9 +606,27 @@ def page(
     # cache. The all-round board is the one that needed this - it was 1.6 s on
     # every request, where the batting and bowling boards ride on the aggregates
     # cached in `queries`.
+    # The cache key drops the volume floor, because the floor is applied AFTER
+    # the build now: two requests differing only in `min_balls` share one build
+    # rather than each paying for their own.
+    scope = dataclasses.replace(f, min_balls=None, min_innings=None)
     rows = cache.get_or_compute(
-        db, ("explorer_rows", explorer, f), lambda: BUILDERS[explorer](db, f)
+        db, ("explorer_rows", explorer, scope), lambda: BUILDERS[explorer](db, scope)
     )
+
+    # Applied here so the rows they remove can be counted and reported.
+    before_floor = len(rows)
+    innings_floor = (
+        f.min_innings if f.min_innings is not None else derive_min_innings(rows)
+    )
+    floor = f.min_balls if f.min_balls is not None else derive_min_balls(rows, explorer)
+    rows = [
+        r
+        for r in rows
+        if int(r.get("matches") or 0) >= innings_floor
+        and _volume_of(r, explorer) >= floor
+    ]
+
     ascending = SORTS[explorer].get(sort_by, False)
 
     def key(row: dict):
@@ -541,11 +643,11 @@ def page(
     absent = [r for r in rows if r.get(sort_by) is None]
     rows = present + absent
 
-    return rows[offset : offset + limit], len(rows)
+    return rows[offset : offset + limit], len(rows), before_floor, floor, innings_floor
 
 
 __all__ = [
-    "ExplorerFilters", "page", "SORTS", "BUILDERS",
+    "ExplorerFilters", "page", "SORTS", "BUILDERS", "derive_min_balls", "derive_min_innings",
     "DEFAULT_MIN_INNINGS", "DEFAULT_MIN_BALLS_FACED", "DEFAULT_MIN_BALLS_BOWLED",
 ]
 

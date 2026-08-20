@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowRight } from './Icon'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { IccMovementReport, IccMover } from '../api/types'
@@ -177,7 +178,7 @@ function MoverList({
                 )}
               </span>
               <span className="tnum shrink-0 text-xs text-muted">
-                {m.previous_position} &rarr; {m.position}
+                {m.previous_position} <ArrowRight className="mx-0.5" /> {m.position}
               </span>
               <span
                 className={`tnum w-10 shrink-0 text-right text-xs font-semibold ${

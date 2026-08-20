@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight } from '../components/Icon'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { NewsArticleDetail, NewsEntity } from '../api/types'
@@ -124,7 +125,7 @@ export function NewsArticle() {
     <div className="space-y-6">
       <div>
         <Link to={`/${slug}/news`} className="text-xs text-muted hover:text-ink">
-          ← All news
+          <ArrowLeft className="mr-1" /> All news
         </Link>
       </div>
 
@@ -152,7 +153,7 @@ export function NewsArticle() {
             rel="noopener noreferrer external"
             className="font-medium text-analytic-ink hover:underline"
           >
-            Read the full article at {article.publisher} →
+            Read the full article at {article.publisher} <ArrowRight className="ml-1" />
           </a>
         </p>
 

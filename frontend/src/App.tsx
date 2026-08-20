@@ -15,6 +15,7 @@ import { IccRankings } from './pages/IccRankings'
 import { MatchDetail } from './pages/MatchDetail'
 import { MatchIntelligence } from './pages/MatchIntelligence'
 import { Matches } from './pages/Matches'
+import { Contact } from './pages/Contact'
 import { News } from './pages/News'
 import { NewsArticle } from './pages/NewsArticle'
 import { PlayerDetail } from './pages/PlayerDetail'
@@ -68,6 +69,7 @@ function App() {
           {/* A splat, not a param: Cricsheet labels a tournament crossing a new
               year "2023/24", so the season itself contains a slash. */}
           <Route path="tournaments/:tournament/editions/*" element={<TournamentEdition />} />
+          <Route path="about" element={<Contact />} />
           <Route path="news" element={<News />} />
           <Route path="news/:articleId" element={<NewsArticle />} />
           <Route path="availability" element={<Availability />} />

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight } from '../components/Icon'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { MatchDetail as MatchDetailType, MatchPerformer, TeamRef } from '../api/types'
@@ -135,7 +136,7 @@ export function MatchDetail() {
     <div className="space-y-6">
       <div>
         <Link to={`/${slug}/matches`} className="text-sm text-muted transition-colors hover:text-ink">
-          &larr; All matches
+          <ArrowLeft className="mr-1" /> All matches
         </Link>
         {/* §22: the scorecard says who scored what; intelligence says which
             stand decided it and which spell broke it.
@@ -148,7 +149,7 @@ export function MatchDetail() {
             to={`/${slug}/matches/${matchId}/intelligence`}
             className="ml-4 text-sm text-analytic-ink hover:underline"
           >
-            Match intelligence &rarr;
+            Match intelligence <ArrowRight className="ml-1" />
           </Link>
         ) : (
           <span

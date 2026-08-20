@@ -204,9 +204,11 @@ export function News() {
                 )}
               </span>
             </div>
-            {s.policy_note && (
-              <p className="mt-1 max-w-prose text-xs leading-relaxed text-muted">{s.policy_note}</p>
-            )}
+            {/* The per-publisher policy note is deliberately NOT rendered, and
+                the API no longer returns it. It is the internal record of how
+                each publisher's terms were read, which belongs in the codebase:
+                on a reader's screen it discusses access mechanics and reads as
+                an admission rather than as information. */}
           </div>
         ))}
       </Panel>

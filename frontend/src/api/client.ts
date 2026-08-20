@@ -299,6 +299,9 @@ export const api = {
       /** One of Section 18's optimisation objectives. Changes the role shape,
        *  the weighting, or both - the response reports which. */
       objective?: string
+      /** Canonical ground name. A tilt, not a re-scope: the side is still picked
+       *  over the whole scope and a venue record moves a candidate within it. */
+      venue?: string
     } = {}
   ) => getJson<SelectedSide>('/api/rankings/best-xi', { gender, ...params }),
 

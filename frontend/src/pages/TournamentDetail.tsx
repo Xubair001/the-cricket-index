@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight } from '../components/Icon'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TournamentDetail as Detail, TournamentEdition } from '../api/types'
@@ -91,7 +92,7 @@ function EditionRow({
             to={`/${slug}/tournaments/${tournamentSlug}/editions/${e.season}`}
             className="text-xs text-analytic-ink hover:underline"
           >
-            Table &amp; fixtures &rarr;
+            Table &amp; fixtures <ArrowRight className="ml-1" />
           </Link>
         )}
       </td>
@@ -132,7 +133,7 @@ export function TournamentDetail() {
     <div className="space-y-6">
       <div>
         <Link to={`/${slug}/tournaments`} className="text-xs text-muted hover:text-ink">
-          ← All tournaments
+          <ArrowLeft className="mr-1" /> All tournaments
         </Link>
       </div>
 

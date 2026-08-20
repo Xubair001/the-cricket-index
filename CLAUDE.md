@@ -2376,3 +2376,124 @@ inside a card must not resize while the table under it does not.
 
 One JSX note found while building: named entities resolve through Babel's table,
 which has `&rarr;` but **not** `&nearr;` - that one rendered as literal text.
+
+### A career-scale volume floor emptied every narrowed slice
+
+Reported as "at Sydney against Australia we have 0 stats or one player", and
+reproduced exactly. The explorers defaulted to **5 matches and 200 balls**, which
+is a fair qualification for an all-time board and unreachable in a single-ground,
+single-opposition cut. Measured:
+
+    slice                              shown   actually played
+    Bellerive Oval v Australia             0               148
+    Perth Stadium v Australia              0                82
+    Adelaide Oval v Pakistan               0                39
+    Sydney Cricket Ground v NZ             1                42
+    Sydney Cricket Ground v Australia     26               261
+
+Nothing on the page distinguished that from a ground with no cricket at it, which
+is the "filter that silently stops filtering" failure in a new disguise. The
+innings floor did the larger share of the damage: it alone cut Sydney against
+Australia from 261 to 35 before the ball floor was reached.
+
+**Both floors are now derived from the slice**, a quarter of what an established
+player in THAT cut has, taken as the 75th percentile. Self-calibrating in the
+same way `selection._all_time_floor` is, and it lands where it should at both
+ends: the career batting board derives **202 balls**, almost exactly the old
+fixed 200, while Bellerive against Australia derives 23 and returns 97 of 148.
+An explicit `min_balls` or `min_innings` from the caller is honoured exactly.
+
+Three structural changes made that possible:
+
+- **The floors moved out of the builders into `page()`**, so the rows they remove
+  can be COUNTED. Applied in the builder they never existed, which is why the
+  page could not tell the reader anything.
+- **The response carries `total_before_volume_floor` and both applied floors**,
+  and the page leads with "97 of 148 players shown". Those two numbers differing
+  is the whole story on a narrowed slice.
+- **The cache key drops the floors**, since they are applied after the build, so
+  two requests differing only in `min_balls` now share one build.
+
+One bug fell out of this: the all-round builder emitted no ball counts, so the
+new floor measured zero for every row and removed the entire board. It now emits
+`balls_faced` and `balls_bowled`, which the role inference was already using
+internally.
+
+### Best XI can be tilted to a ground, and a tilt is not a re-scope
+
+The obvious reading of "pick a side for this ground" is to run the selection over
+matches at that ground. It does not work, for the reason above: at a single
+ground the median player has one or two matches, so a side picked on that is a
+side picked on noise - and it would silently exclude every good player who has
+not been there.
+
+So the side is still picked over the whole scope and a venue record moves a
+candidate within it. `selection._venue_records` scores each player's at-ground
+mean impact in par units and **shrinks it toward that player's own level in the
+scope** - not toward the population, because the question is "are they better
+here than they usually are", so their own norm is the right prior.
+`VENUE_SHRINKAGE_MATCHES` is 8, higher than the career constant, because an
+at-venue sample is smaller and noisier.
+
+Three things reported rather than implied:
+
+- **Every pick shows its sample.** "1.17x par from 13 matches" for Steve Smith at
+  the SCG, and "1.92x par from 3 matches - too few to move them much" for Rishabh
+  Pant. A venue figure without its count invites being read as a record.
+- **Coverage sits above the side.** 186 of 328 candidates have any record at the
+  SCG; 48 of 328 at R Premadasa. A venue term over 48 candidates is a different
+  claim from one over 186.
+- **The term is absent, not neutral, for a player who has never been there.** The
+  weights renormalise over what a player has, the same rule form follows: a
+  middling 50 for "never played at this ground" would penalise a great player for
+  the fixture list.
+
+Validated: at the SCG the tilt brings in Rishabh Pant, who made 159 not out
+there, and drops Kevin Pietersen.
+
+### Interface corrections
+
+Several of these are small and all of them were visible:
+
+- **Table cells had no edge inset.** `px-3` put the first and last columns 12px
+  from the card border and they read as clipped. The inset is declared once in
+  `tableClass` rather than on every page's cells.
+- **`Provenance` is now a disclosure.** Several ran past 700 characters, and a
+  wall of small grey text at the foot of a page is read by nobody - which defeats
+  writing it. Collapsed, a page ends on one clear line; open, the whole
+  explanation is there. `<details>` rather than a React toggle, so it is keyboard
+  accessible and findable by the browser's own search. It was also `max-w-3xl`,
+  ending short of the table above it and reading as a stray paragraph.
+- **Five nav entries pointed at a screen that already had one.** Players, Teams,
+  Best XI, Compare and Matches each appeared twice, so the same destination was
+  reachable from two labels - which reads as having moved section when nothing
+  has. 22 items, no duplicates.
+- **The type scale was missing its middle**, so panel headings appeared at three
+  different sizes on adjacent cards. `--text-section` and `--text-panel` fill it,
+  applied through `Panel`, `PageHeader` and `SectionHeading` so it propagates.
+- **Text arrows became SVG.** `&rarr;` and friends inherit the body face, so
+  weight and baseline never matched the label beside them, and they announce as
+  content to a screen reader. `components/Icon.tsx` holds three marks, sized in
+  `em` and `aria-hidden`. Note the distinction kept deliberately: NAVIGATION
+  affordances are icons; the trend glyphs in a data column stay as marks, because
+  there they carry meaning rather than direction of travel.
+- **Chart domains are clamped at zero.** Proportional padding pushed a batting
+  average axis to -8.96, which is not a value any batter can hold.
+- **Filters that were component state moved into the URL** - the ground-character
+  competition and the team-intelligence competition. §27 makes every filter state
+  a shareable link, and component state is also lost on a back-navigation.
+
+### The footer is the product's mark, and the attribution moved rather than went
+
+The footer carried the data provenance on every screen, which read as a
+disclaimer stapled to the product. It could not simply be deleted: the match
+records are ODC-BY 1.0 and **that licence requires attribution**. So the footer
+is now the product's own name and copyright with a link, and the attribution
+lives on `/about` alongside contact details.
+
+Also removed from every reader-facing surface: the per-publisher `policy_note`,
+which discussed access mechanics and crawling rules. That is an internal
+compliance record, it belongs in the codebase, and on screen it read as an
+admission rather than as information. The column stays so the decision remains
+auditable; `app/news.py` no longer returns it and the News page no longer renders
+it.

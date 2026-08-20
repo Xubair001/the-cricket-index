@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, ArrowRight } from '../components/Icon'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { MatchSummary, TeamDetail as TeamDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
@@ -56,20 +57,24 @@ function Result({ match, teamId }: { match: MatchSummary; teamId: number }) {
 export function TeamDetail() {
   const { slug } = useGender()
   const { teamId = '' } = useParams()
+  const [params, setParams] = useSearchParams()
   const [team, setTeam] = useState<TeamDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // One competition for both team-intelligence panels. Phases are defined per
   // competition and Tests have none, so a Test-playing side must not default to
   // Tests or the weakness panel opens on something it cannot measure.
+  // In the URL rather than component state, so a team page opened on T20Is stays
+  // on T20Is through a back-navigation and can be shared as that view.
   const { competitions } = useScope()
   const phaseCompetitions = competitions.filter((c) => c.key !== 'tests')
-  const [intelCompetition, setIntelCompetition] = useState('')
-  useEffect(() => {
-    if (!intelCompetition && phaseCompetitions.length) {
-      setIntelCompetition(phaseCompetitions[0].key)
-    }
-  }, [phaseCompetitions, intelCompetition])
+  const intelCompetition = params.get('intel') || phaseCompetitions[0]?.key || ''
+  const setIntelCompetition = (value: string) => {
+    const merged = new URLSearchParams(params)
+    if (value) merged.set('intel', value)
+    else merged.delete('intel')
+    setParams(merged, { replace: true })
+  }
 
   useEffect(() => {
     // Guards against a slower request for a previous team resolving after
@@ -97,7 +102,7 @@ export function TeamDetail() {
     <div className="space-y-6">
       <div>
         <Link to={`/${slug}/teams`} className="text-sm text-muted transition-colors hover:text-ink">
-          &larr; All teams
+          <ArrowLeft className="mr-1" /> All teams
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <Flag code={team.country_code} name={team.name} className="text-2xl" />
@@ -112,7 +117,7 @@ export function TeamDetail() {
           to={`/${slug}/teams/squad?team=${team.team_id}`}
           className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
         >
-          Squad analysis &rarr;
+          Squad analysis <ArrowRight className="ml-1" />
         </Link>
       </div>
 

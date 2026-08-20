@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowRight } from '../components/Icon'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { VenueOption, VenueProfile } from '../api/types'
@@ -107,11 +108,17 @@ export function VenueAnalytics() {
   // Tests and T20Is has two characters. Defaults to the competition with the
   // most cricket in the current family rather than to a fixed key, so the
   // Leagues switch does not open the chart on an empty international format.
+  // In the URL, like every other filter on this page, so a narrowed view is a
+  // link a colleague can open on the same slice (§27). Component state would
+  // also be lost on a back-navigation.
   const { competitions } = useScope()
-  const [charCompetition, setCharCompetition] = useState('')
-  useEffect(() => {
-    if (!charCompetition && competitions.length) setCharCompetition(competitions[0].key)
-  }, [competitions, charCompetition])
+  const charCompetition = params.get('character') || competitions[0]?.key || ''
+  const setCharCompetition = (value: string) => {
+    const merged = new URLSearchParams(params)
+    if (value) merged.set('character', value)
+    else merged.delete('character')
+    setParams(merged, { replace: true })
+  }
 
   function choose(venue: string) {
     const merged = new URLSearchParams(params)
@@ -329,7 +336,7 @@ export function VenueAnalytics() {
                     to={`/${slug}/analytics/batting?venue=${encodeURIComponent(profile.venue)}`}
                     className="text-analytic-ink hover:underline"
                   >
-                    See the players who scored them →
+                    See the players who scored them <ArrowRight className="ml-1" />
                   </Link>
                 </Provenance>
               </Panel>

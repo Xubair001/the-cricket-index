@@ -181,11 +181,15 @@ export function ExplorerScatter({
   // and absurd on economy, which spans 2.5 to 4.5: it produced an axis running
   // -2.61 to 9.11 with every point squashed into the middle third, so the chart
   // showed no separation at all in the dimension it exists to show.
+  // Clamped at zero, because none of these metrics can be negative: an average,
+  // a strike rate and an economy all have a floor of 0. Proportional padding
+  // alone pushed the axis to -8.96 on a batting board, which is not a value any
+  // batter can hold and reads as a broken chart.
   const pad = (values: number[]): [number, number] => {
     const lo = Math.min(...values)
     const hi = Math.max(...values)
     const margin = (hi - lo) * 0.08 || Math.abs(hi) * 0.08 || 1
-    return [lo - margin, hi + margin]
+    return [Math.max(0, lo - margin), hi + margin]
   }
   const xDomain = pad(points.map((p) => p.x as number))
   const yDomain = pad(points.map((p) => p.y as number))

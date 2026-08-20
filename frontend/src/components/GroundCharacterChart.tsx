@@ -167,7 +167,7 @@ export function GroundCharacterChart({
             tick={{ fill: chart.axis, fontSize: 11 }}
             tickLine={false}
             tickFormatter={(v: number) => rate(v)}
-            domain={['dataMin - 0.03', 'dataMax + 0.03']}
+            domain={[(v: number) => Math.max(0, v - 0.03), (v: number) => v + 0.03]}
             label={{
               value: 'Scoring rate against par  ->  higher scoring',
               position: 'insideBottom',
@@ -183,7 +183,7 @@ export function GroundCharacterChart({
             tickLine={false}
             axisLine={false}
             tickFormatter={(v: number) => rate(v)}
-            domain={['dataMin - 0.03', 'dataMax + 0.03']}
+            domain={[(v: number) => Math.max(0, v - 0.03), (v: number) => v + 0.03]}
             label={{
               value: 'Wickets harder to take  ->',
               angle: -90,

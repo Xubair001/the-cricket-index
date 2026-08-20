@@ -56,7 +56,14 @@ from sqlalchemy.orm import Session
 from ..models import Competition, Delivery, Match, PlayerMatchStat, Team
 from ..names import preferred_name
 from ..models import Player
-from . import config, scout, explorer, form as form_mod, performance_index as pi
+from . import (
+    config,
+    explorer,
+    form as form_mod,
+    impact as impact_mod,
+    performance_index as pi,
+    scout,
+)
 
 # The shape a side is picked to. Deliberately a *minimum* per role with the
 # remainder open, rather than a rigid quota: a side with three genuine
@@ -224,6 +231,12 @@ class Pick:
     # components they have. A retired player carries no form term at all rather
     # than a neutral stand-in, so the shape is per pick and is reported (§30).
     applied_weights: dict = field(default_factory=dict)
+    # Their record at the requested ground, where one was requested and they have
+    # played there. `venue_matches` is the sample the adjustment rests on and is
+    # always shown beside it - two matches at a ground is not a venue record.
+    venue_matches: int | None = None
+    venue_mean: float | None = None
+    venue_score: float | None = None
 
 
 @dataclass
@@ -280,6 +293,11 @@ class Selection:
     # Matches a player needs in this scope to be eligible. Scope-relative for an
     # all-time side, so it is reported rather than assumed.
     eligibility_floor: int = MIN_MATCHES
+    # The ground the side was tilted towards, and how much of the pool has any
+    # record there. Reported because a venue term computed over 12 of 327
+    # candidates is a different claim from one computed over most of them.
+    venue: str | None = None
+    venue_candidates_with_record: int = 0
     # Which of §18's objectives this side answers, and what that changed.
     objective: str = "overall"
     objective_label: str = ""
@@ -554,6 +572,7 @@ def select_side(
     team_id: int | None = None,
     pool: str = "all_time",
     objective: str = "overall",
+    venue: str | None = None,
 ) -> Selection:
     """Pick a side of `size` within one scope.
 
@@ -599,6 +618,35 @@ def select_side(
         db, gender, competition_key, competition_type, summary,
         floor=eligibility_floor,
     )
+    # The venue tilt. Computed after career standing because it shrinks toward
+    # each player's own level in this scope, which is what career_mean holds.
+    venue_records = (
+        _venue_records(
+            db,
+            gender=gender,
+            competition_key=competition_key,
+            competition_type=competition_type,
+            venue=venue,
+            career_mean=summary.career_mean,
+        )
+        if venue
+        else {}
+    )
+    # Percentiled within discipline, like every other 0-100 term here, so a
+    # venue figure is comparable with the career and Index figures beside it.
+    venue_score: dict[str, float] = {}
+    if venue_records:
+        by_role: dict[str, list[tuple[str, float]]] = {}
+        for pid, record in venue_records.items():
+            faced, bowled = summary.balls.get(pid, (0, 0))
+            by_role.setdefault(explorer.discipline(faced, bowled), []).append(
+                (pid, record.adjusted)
+            )
+        for rows_ in by_role.values():
+            scores = pi._percentiles([v for _p, v in rows_])
+            for (pid, _v), pct in zip(rows_, scores):
+                venue_score[pid] = pct
+
     keepers = _keepers(db, gender, competition_key, competition_type)
     sourced = scout._sourced_attributes(db)
     openers = explorer.openers(db, gender, competition_key, competition_type)
@@ -638,10 +686,17 @@ def select_side(
 
     # The objective's two levers, resolved before the loop so every candidate is
     # scored the same way.
-    weights = spec.get("weights") or (
-        config.SELECTION_WEIGHTS_CURRENT if pool == "current"
-        else config.SELECTION_WEIGHTS
+    weights = dict(
+        spec.get("weights")
+        or (
+            config.SELECTION_WEIGHTS_CURRENT if pool == "current"
+            else config.SELECTION_WEIGHTS
+        )
     )
+    # The venue term rides alongside the others and is renormalised per player,
+    # so naming its weight here is enough - a player with no record at the ground
+    # simply has no venue component.
+    weights["venue"] = VENUE_WEIGHT
     shape = spec.get("shape") or XI_SHAPE
     bonus_kind = spec.get("bonus")
 
@@ -726,6 +781,13 @@ def select_side(
         }
         if verdict.form_score is not None:
             parts["form"] = verdict.form_score
+        # A venue term only for players who have actually played there. Absent
+        # rather than neutral, so the weights renormalise over what a player has
+        # - the same rule form follows, and for the same reason: scoring a
+        # middling 50 for "never been to this ground" would penalise a great
+        # player for the fixture list.
+        if pid in venue_score:
+            parts["venue"] = venue_score[pid]
         live = {name: weights[name] for name in parts}
         total_weight = sum(live.values()) or 1.0
         quality = sum(
@@ -771,6 +833,9 @@ def select_side(
                 form_score=verdict.form_score,
                 form_display=verdict.delta_display,
                 applied_weights=applied_weights,
+                venue_matches=venue_records[pid].matches if pid in venue_records else None,
+                venue_mean=venue_records[pid].mean_value if pid in venue_records else None,
+                venue_score=venue_score.get(pid),
                 form_state=verdict.state,
                 recent_mean=verdict.recent_mean,
                 selection_score=round(score, 2),
@@ -796,7 +861,7 @@ def select_side(
         picks=picks,
         shape=dict(wanted),
         unavailable=UNAVAILABLE,
-        notes=_notes(picks, size, wanted),
+        notes=_notes(picks, size, wanted, venue),
         pool=pool,
         pool_size=len(candidates),
         pool_considered=considered,
@@ -804,6 +869,10 @@ def select_side(
         cutoff_date=cutoff,
         weights=dict(weights),
         eligibility_floor=eligibility_floor,
+        venue=venue,
+        venue_candidates_with_record=sum(
+            1 for c in candidates if c.venue_matches is not None
+        ),
         objective=objective,
         objective_label=spec["label"],
         objective_detail=spec["detail"],
@@ -812,6 +881,117 @@ def select_side(
     )
 
 
+
+
+# How much a venue record may move a pick. A minority share, deliberately: at any
+# one ground most players have one to three matches, so a venue term that
+# dominated would be a lottery of small samples - the same failure the career
+# shrinkage above exists to prevent.
+VENUE_WEIGHT = 0.18
+
+# Shrinkage for the at-venue mean, in matches. Higher than the career constant
+# because an at-venue sample is smaller and noisier: a player with three matches
+# at a ground is pulled most of the way back to their own overall level, and only
+# a substantial record there moves them.
+VENUE_SHRINKAGE_MATCHES = 8
+
+
+@dataclass(slots=True)
+class VenueRecord:
+    """One player's record at one ground, in par units."""
+
+    matches: int
+    mean_value: float
+    # The same figure after shrinking toward the player's own scope mean. This is
+    # what scores; `mean_value` is reported so the raw record stays visible.
+    adjusted: float
+
+
+def _venue_records(
+    db: Session,
+    *,
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+    venue: str,
+    career_mean: dict[str, float],
+) -> dict[str, VenueRecord]:
+    """Per-player mean impact at one ground, shrunk toward their own level.
+
+    Why a TILT rather than a re-scope
+    ---------------------------------
+    The obvious implementation of "pick a side for this ground" is to run the
+    whole selection over matches at that ground. It does not work, and for the
+    reason the explorers had to be fixed for: at a single ground almost nobody
+    has a real record. Even the busiest ground here holds fewer than 40 Tests,
+    and the median player has one or two matches at any given one. A side picked
+    on that is a side picked on noise, with the added flaw that it would silently
+    exclude every good player who has not been there.
+
+    So the side is still picked over the full scope, and a venue record moves a
+    candidate up or down within it. The shrinkage is the honest part: a player
+    with two matches at the ground barely moves, one with twenty moves a lot, and
+    the response reports the sample behind every adjustment.
+
+    Scored on the same par-unit impact everything else uses, so a venue term is
+    comparable with the career and Index terms it sits beside.
+    """
+    pairs = explorer.raw_venue_pairs(db, venue)
+    if not pairs:
+        return {}
+
+    stmt = (
+        select(
+            PlayerMatchStat.player_identifier,
+            Competition.key,
+            Match.gender,
+            PlayerMatchStat.runs_scored,
+            PlayerMatchStat.balls_faced,
+            PlayerMatchStat.wickets_taken,
+            PlayerMatchStat.balls_bowled,
+            PlayerMatchStat.runs_conceded,
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(
+            explorer.venue_condition(pairs),
+            Match.gender == gender,
+            PlayerMatchStat.player_identifier.is_not(None),
+        )
+    )
+    if competition_key:
+        stmt = stmt.where(Competition.key == competition_key)
+    if competition_type:
+        stmt = stmt.where(Competition.type == competition_type)
+
+    par = impact_mod.par_table(db)
+    totals: dict[str, list[float]] = {}
+    for pid, key, row_gender, runs, bf, wkts, bb, rc in db.execute(stmt).all():
+        value = impact_mod.score(
+            runs_scored=runs or 0,
+            balls_faced=bf or 0,
+            wickets_taken=wkts or 0,
+            balls_bowled=bb or 0,
+            runs_conceded=rc or 0,
+            par=par.lookup(key, row_gender),
+        ).normalized
+        totals.setdefault(pid, []).append(value)
+
+    out: dict[str, VenueRecord] = {}
+    k = VENUE_SHRINKAGE_MATCHES
+    for pid, values in totals.items():
+        n = len(values)
+        mean = sum(values) / n
+        # Shrink toward the player's OWN level in this scope, not toward the
+        # population: the question is "are they better here than they usually
+        # are", so their own norm is the right prior.
+        own = career_mean.get(pid, mean)
+        out[pid] = VenueRecord(
+            matches=n,
+            mean_value=round(mean, 3),
+            adjusted=(n * mean + k * own) / (n + k),
+        )
+    return out
 
 def _fill_shape(
     candidates: list[Pick], size: int, shape: dict[str, int]
@@ -947,9 +1127,36 @@ def _tradeoffs(
     return out
 
 
-def _notes(picks: list[Pick], size: int, wanted: dict[str, int] | None = None) -> list[str]:
+def _notes(
+    picks: list[Pick],
+    size: int,
+    wanted: dict[str, int] | None = None,
+    venue: str | None = None,
+) -> list[str]:
     """What the selector could not guarantee about this side."""
     notes = []
+    # A venue tilt resting on almost nothing. Stated rather than left to be
+    # inferred from a column of small numbers: at most grounds the median player
+    # has one or two matches, so the honest reading of a venue-tilted side is
+    # often "barely tilted at all".
+    tilted = [p for p in picks if p.venue_matches is not None]
+    if venue and tilted:
+        thin_venue = [p for p in tilted if (p.venue_matches or 0) < 4]
+        notes.append(
+            f"{len(tilted)} of {len(picks)} picks have a record at this ground"
+            + (
+                f", and {len(thin_venue)} of those rest on fewer than four "
+                f"matches there - their venue record barely moves them."
+                if thin_venue
+                else "."
+            )
+        )
+    elif venue:
+        notes.append(
+            "No pick has a record at this ground, so the venue made no "
+            "difference to this side. Shown rather than hidden: the request was "
+            "honoured and the data could not answer it."
+        )
     # A quota the pool could not fill. Silent before, so a XV of women's Tests
     # reported a 4-bowler shape and fielded 2 with nothing saying why.
     if wanted:

@@ -249,7 +249,10 @@ def explore(
     opposition_team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     date_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    min_innings: int = Query(default=explorer_mod.DEFAULT_MIN_INNINGS, ge=1, le=500),
+    # None means DERIVE from the slice, the same as `min_balls`. A fixed default
+    # of 5 matches is fair on a career board and unreachable at one ground
+    # against one side, and it was the larger half of the empty-slice bug.
+    min_innings: int | None = Query(default=None, ge=1, le=500),
     min_balls: int | None = Query(default=None, ge=0, le=100_000),
     # Narrows *within* an explorer's eligible set. Each explorer already
     # excludes the opposite specialism, so this is for asking a batting board
@@ -278,14 +281,12 @@ def explore(
             detail=f"cannot sort '{validation.echo(explorer)}' by '{validation.echo(sort_by)}'; available: {sorted(sorts)}",
         )
 
-    # The qualification that makes a rate leaderboard mean anything differs by
-    # discipline -- balls faced for batting, balls bowled for bowling -- so the
-    # default depends on which explorer was asked for.
-    if min_balls is None:
-        min_balls = {
-            "batting": explorer_mod.DEFAULT_MIN_BALLS_FACED,
-            "bowling": explorer_mod.DEFAULT_MIN_BALLS_BOWLED,
-        }.get(explorer, 0)
+    # `min_balls` is passed through as None when the caller did not name one, and
+    # the analytics layer derives it FROM THE SLICE. The old behaviour -
+    # substituting a fixed per-discipline default here - is what made a narrowed
+    # view look empty: 200 balls faced is a fair qualification for an all-time
+    # batting board and unreachable at one ground against one side, so
+    # "Bellerive Oval against Australia" returned 0 players of 148.
 
     filters = explorer_mod.ExplorerFilters(
         gender=gender,
@@ -300,7 +301,9 @@ def explore(
         venue=venue,
         role=role,
     )
-    items, total = explorer_mod.page(db, explorer, filters, sort_by, limit, offset)
+    items, total, before_floor, applied_balls, applied_innings = explorer_mod.page(
+        db, explorer, filters, sort_by, limit, offset
+    )
     return schemas.ExplorerPage(
         explorer=explorer,
         total=total,
@@ -309,6 +312,12 @@ def explore(
         sort_by=sort_by,
         filters=filters.describe(explorer),
         sorts=sorted(sorts),
+        # Both counts, because their being different IS the story on a narrowed
+        # slice. Without the "before" figure a reader cannot tell "no cricket
+        # here" from "the volume floor removed all of it".
+        total_before_volume_floor=before_floor,
+        applied_min_balls=applied_balls,
+        applied_min_innings=applied_innings,
         # ExplorerRow allows extra fields, so country/country_code ride along
         # without the model having to know about them.
         items=[

@@ -23,8 +23,8 @@ const TONE: Record<FormState, { fg: string; bg: string; ring: string }> = {
 }
 
 const TREND_GLYPH: Record<FormVerdict['trend'], string> = {
-  rising: '↗',
-  flat: '→',
+  rising: '\u2197',
+  flat: '\u2192',
   falling: '↘',
   unknown: '·',
 }

@@ -340,7 +340,13 @@ def sources(db: Session) -> list[dict]:
         {
             "key": r.key, "name": r.name, "home_url": r.home_url,
             "strategy": r.strategy, "content_policy": r.content_policy,
-            "attribution": r.attribution, "policy_note": r.policy_note,
+            "attribution": r.attribution,
+            # `policy_note` is deliberately NOT returned. It records how each
+            # publisher's terms were read - crawling rules and access
+            # behaviour - which is an internal compliance note, not something a
+            # reader of a cricket site needs or benefits from. The column stays
+            # so the decision remains documented and auditable.
+            "policy_note": None,
             "enabled": bool(r.enabled), "last_synced_at": r.last_synced_at,
             "articles": r.articles,
         }

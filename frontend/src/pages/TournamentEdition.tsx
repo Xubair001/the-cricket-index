@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ArrowLeft } from '../components/Icon'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { EditionFixture, EditionLeader, TournamentEditionDetail } from '../api/types'
@@ -94,7 +95,7 @@ export function TournamentEdition() {
           to={`/${slug}/tournaments/${data.tournament_slug}`}
           className="text-xs text-muted hover:text-ink"
         >
-          &larr; {data.tournament_name}
+          <ArrowLeft className="mr-1" /> {data.tournament_name}
         </Link>
       </div>
 
