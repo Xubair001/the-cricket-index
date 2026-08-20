@@ -1,8 +1,8 @@
 """Fixtures: upcoming schedule, live matches, and recent results.
 
 Separate from /api/matches, which serves Cricsheet records with per-player
-figures. A fixture is a calendar entry — an upcoming one has no result and no
-player stats at all — so merging the two would put resultless rows into the
+figures. A fixture is a calendar entry - an upcoming one has no result and no
+player stats at all - so merging the two would put resultless rows into the
 endpoint every aggregate depends on.
 """
 from typing import Literal

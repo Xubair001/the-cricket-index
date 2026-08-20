@@ -3,10 +3,19 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { IccRankingTable, IccTeamRankingTable } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
+import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { PlayerName } from '../components/PlayerName'
+import {
+  tableClass,
+  tdNumStrongClass,
+  thClass,
+  theadRowClass,
+  trClass,
+} from '../components/ui'
 
 /**
- * ICC's own published ratings — distinct from /rankings, which this project
+ * ICC's own published ratings - distinct from /rankings, which this project
  * computes from ball-by-ball data. The page says so explicitly, because two
  * pages of "rankings" with different provenance is exactly how a reader ends up
  * quoting a derived number as an official one.
@@ -21,11 +30,17 @@ const DISCIPLINES = [
   { value: 'team', label: 'Team' },
 ]
 
+const LIMIT = 25
+
 const FORMATS = [
   { value: 'test', label: 'Test' },
   { value: 'odi', label: 'ODI' },
   { value: 't20', label: 'T20I' },
 ]
+
+const field = 'rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink'
+const fieldLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
+const notice = 'rounded-xl border border-border-subtle bg-surface shadow-card px-4 py-6 text-sm text-muted'
 
 export function IccRankings() {
   const { slug, apiGender } = useGender()
@@ -34,6 +49,7 @@ export function IccRankings() {
   const [available, setAvailable] = useState<{ players: string[]; teams: string[] } | null>(null)
   const [players, setPlayers] = useState<IccRankingTable | null>(null)
   const [teams, setTeams] = useState<IccTeamRankingTable | null>(null)
+  const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -47,10 +63,15 @@ export function IccRankings() {
     api.iccRankTypes().then(setAvailable).catch((e) => setError(String(e)))
   }, [])
 
+  // A new table is a new list; carrying an offset into it can land past the end.
+  useEffect(() => {
+    setOffset(0)
+  }, [rankType])
+
   const known = available
     ? [...available.players, ...available.teams].includes(rankType)
     : true
-  // ICC publishes no women's Test rankings — say so rather than showing an error.
+  // ICC publishes no women's Test rankings - say so rather than showing an error.
   const womensTest = apiGender === 'female' && format === 'test'
 
   useEffect(() => {
@@ -69,40 +90,39 @@ export function IccRankings() {
     setError(null)
     setPlayers(null)
     setTeams(null)
+    const page = { limit: LIMIT, offset }
     const request =
       discipline === 'team'
-        ? api.iccTeamRanking(rankType).then((t) => !cancelled && setTeams(t))
-        : api.iccPlayerRanking(rankType).then((t) => !cancelled && setPlayers(t))
+        ? api.iccTeamRanking(rankType, page).then((t) => !cancelled && setTeams(t))
+        : api.iccPlayerRanking(rankType, page).then((t) => !cancelled && setPlayers(t))
     request
       .catch((e) => !cancelled && setError(String(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [rankType, discipline, womensTest])
+  }, [rankType, discipline, womensTest, offset])
+
+  const published = players ?? teams
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">ICC Rankings</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <h1 className="u-display text-title text-ink">ICC Rankings</h1>
+        <p className="mt-1 max-w-3xl text-sm text-muted">
           Official ratings published by the ICC, refreshed daily. These are not computed by this
-          site — for figures derived from ball-by-ball data see{' '}
-          <Link to={`/${slug}/rankings`} className="text-emerald-600 hover:underline dark:text-emerald-400">
+          site - for figures derived from ball-by-ball data see{' '}
+          <Link to={`/${slug}/rankings`} className="text-analytic-ink hover:underline">
             Rankings
           </Link>
           .
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          Format
-          <select
-            value={format}
-            onChange={(e) => setFormat(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          >
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Format</span>
+          <select value={format} onChange={(e) => setFormat(e.target.value)} className={field}>
             {FORMATS.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label}
@@ -110,12 +130,12 @@ export function IccRankings() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          Discipline
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Discipline</span>
           <select
             value={discipline}
             onChange={(e) => setDiscipline(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className={field}
           >
             {DISCIPLINES.map((d) => (
               <option key={d.value} value={d.value}>
@@ -127,95 +147,109 @@ export function IccRankings() {
       </div>
 
       {womensTest ? (
-        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-          The ICC does not publish women's Test rankings. Try ODI or T20I.
-        </p>
+        <p className={notice}>The ICC does not publish women's Test rankings. Try ODI or T20I.</p>
       ) : loading ? (
         <LoadingSpinner />
       ) : error && known ? (
         <ErrorMessage message={error} />
       ) : error ? (
-        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-          No ICC data stored for this combination yet.
-        </p>
+        <p className={notice}>No ICC data stored for this combination yet.</p>
       ) : (
         <>
-          {(players || teams) && (
-            <p className="text-xs text-slate-400">
-              Published {(players ?? teams)!.rank_date}
-              {(players ?? teams)!.fetched_at &&
-                ` · fetched ${(players ?? teams)!.fetched_at!.slice(0, 10)}`}
+          {published && (
+            <p className="tnum text-xs text-dim">
+              Published {published.rank_date}
+              {published.fetched_at && ` · fetched ${published.fetched_at.slice(0, 10)}`}
             </p>
           )}
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <table className="w-full text-sm">
+          <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
+            <table className={`${tableClass} min-w-[560px]`}>
               <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
-                  <th className="py-3 pl-5">Rank</th>
-                  <th className="py-3">{discipline === 'team' ? 'Team' : 'Player'}</th>
-                  {discipline !== 'team' && <th className="py-3">Country</th>}
-                  <th className="py-3 pr-5 text-right">Rating</th>
-                  {discipline !== 'team' && <th className="py-3 pr-5">Career best</th>}
+                <tr className={theadRowClass}>
+                  <th className="px-4 py-2.5">Rank</th>
+                  <th className={thClass}>{discipline === 'team' ? 'Team' : 'Player'}</th>
+                  {discipline !== 'team' && <th className={thClass}>Country</th>}
+                  <th className="px-3 py-2.5 text-right">Rating</th>
+                  {discipline !== 'team' && <th className="px-4 py-2.5 text-right">Career best</th>}
                 </tr>
               </thead>
               <tbody>
                 {players?.rows.map((r) => (
                   <tr
                     key={`${r.position}-${r.player_name}`}
-                    className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-800/40"
+                    className={trClass}
                   >
-                    <td className="py-2.5 pl-5 text-slate-400">{r.position}</td>
-                    <td className="py-2.5 font-medium text-slate-800 dark:text-slate-100">
+                    <td className="tnum px-4 py-2.5 text-dim">{r.position}</td>
+                    <td className="px-3 py-2.5 font-medium text-ink">
                       {/* Only confidently-matched entries become links. An
                           unmatched name is still shown -- it's ICC's data and
                           it's real -- but is not attached to a profile. */}
-                      {r.player_identifier ? (
-                        <Link
-                          to={`/${slug}/players/${r.player_identifier}`}
-                          className="hover:text-emerald-600 dark:hover:text-emerald-400"
-                        >
-                          {r.player_name}
-                        </Link>
-                      ) : (
-                        <span title="No confident match to a player in this dataset">
-                          {r.player_name}
-                        </span>
-                      )}
+                      {/* The flag here comes from ICC's own country column, not
+                          from our appearance data - this is their list, and
+                          resolving it any other way would mix a derived figure
+                          into a published one. */}
+                      <PlayerName
+                        name={r.player_name}
+                        country={r.country}
+                        countryCode={r.country_code}
+                        to={
+                          r.player_identifier
+                            ? `/${slug}/players/${r.player_identifier}`
+                            : undefined
+                        }
+                        className={r.player_identifier ? '' : 'text-muted'}
+                      />
                     </td>
-                    <td className="py-2.5 text-slate-500 dark:text-slate-400">{r.country ?? '—'}</td>
-                    <td className="py-2.5 pr-5 text-right font-semibold text-slate-800 dark:text-slate-100">
-                      {r.points ?? '—'}
+                    <td className="px-3 py-2.5 text-muted">{r.country ?? '-'}</td>
+                    <td className={tdNumStrongClass}>
+                      {r.points ?? '-'}
                     </td>
-                    <td className="py-2.5 pr-5 text-xs text-slate-400">{r.career_best ?? '—'}</td>
+                    <td className="tnum px-4 py-2.5 text-right text-xs text-dim">
+                      {r.career_best ?? '-'}
+                    </td>
                   </tr>
                 ))}
                 {teams?.rows.map((r) => (
                   <tr
                     key={`${r.position}-${r.team_name}`}
-                    className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-800/40"
+                    className={trClass}
                   >
-                    <td className="py-2.5 pl-5 text-slate-400">{r.position}</td>
-                    <td className="py-2.5 font-medium text-slate-800 dark:text-slate-100">
+                    <td className="tnum px-4 py-2.5 text-dim">{r.position}</td>
+                    <td className="px-3 py-2.5 font-medium text-ink">
                       {r.team_id ? (
-                        <Link
-                          to={`/${slug}/teams/${r.team_id}`}
-                          className="hover:text-emerald-600 dark:hover:text-emerald-400"
-                        >
+                        <Link to={`/${slug}/teams/${r.team_id}`} className="hover:text-analytic-ink">
                           {r.team_name}
                         </Link>
                       ) : (
-                        r.team_name
+                        <span className="text-muted">{r.team_name}</span>
                       )}
                     </td>
-                    <td className="py-2.5 pr-5 text-right font-semibold text-slate-800 dark:text-slate-100">
-                      {r.points ?? '—'}
+                    <td className={tdNumStrongClass}>
+                      {r.points ?? '-'}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {published && (
+              <div className="px-4">
+                <Pagination
+                  total={published.total}
+                  limit={published.limit || LIMIT}
+                  offset={published.offset}
+                  onChange={setOffset}
+                />
+              </div>
+            )}
           </div>
+
+          <p className="max-w-3xl text-xs leading-relaxed text-dim">
+            ICC names people in full where this dataset uses the scorecard form, and publishes no
+            shared identifier, so entries are matched on surname and initial with country as a
+            tiebreak. Anything ambiguous resolves to no link rather than a guess - about one entry in
+            six stays unlinked, and those still show ICC's figure.
+          </p>
         </>
       )}
     </div>

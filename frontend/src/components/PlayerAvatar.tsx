@@ -5,7 +5,7 @@ import { useState } from 'react'
  *
  * Renders nothing at all when there's no image, and removes itself if the
  * fetch fails (Commons rate-limits bursts with 429). A missing photo is a
- * missing photo — no silhouette placeholder, for the same reason the bio
+ * missing photo - no silhouette placeholder, for the same reason the bio
  * fields say "Not available" rather than inventing a value.
  */
 export function PlayerAvatar({
@@ -26,7 +26,7 @@ export function PlayerAvatar({
       loading="lazy"
       onError={() => setFailed(true)}
       referrerPolicy="no-referrer"
-      className={`${className} shrink-0 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700`}
+      className={`${className} shrink-0 rounded-full object-cover ring-1 ring-border-default`}
     />
   )
 }

@@ -1,9 +1,10 @@
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
-from . import schemas
+from . import cache, schemas, flags
+from .names import preferred_name
 from .models import (
     Competition,
     Fixture,
@@ -111,6 +112,118 @@ def _last_played_map(db: Session, gender: str | None = None) -> dict[str, str]:
     return {ident: last for ident, last in db.execute(stmt).all() if last}
 
 
+def _build_player_country_map(
+    db: Session, gender: str | None = None
+) -> dict[str, tuple[str, str | None]]:
+    """player_identifier -> (national side represented, ISO code or None).
+
+    The flag beside a player means the same thing as the flag beside a team:
+    the nation they turn out for. It is read from their appearances, which is
+    Cricsheet-derived and exact, and deliberately *not* from
+    `players.nationality` - that is a Wikidata citizenship claim answering a
+    different question. A Guyanese passport does not make a West Indies player
+    Guyanese in cricketing terms, and the dataset carries values like "United
+    Kingdom" that name no cricketing side at all.
+
+    Three cases the shape of the data forces:
+
+    * **Franchise-only players** (1,247 of 9,442, mostly PSL) represent no
+      nation here and get no entry. They render as the neutral mark, exactly
+      as a franchise team does.
+    * **Invitational appearances** are skipped, so the 146 players with more
+      than one "international" side collapse to their real one - an ICC World
+      XI cap does not make Dravid dual-national.
+    * **Genuine switchers** remain (van der Merwe: South Africa then
+      Netherlands; Garth: Australia then Ireland). The most recent side wins,
+      tie-broken on appearances. That is a sourced fact - who they last played
+      for - rather than a guess at allegiance, and the side's name travels with
+      the code so the UI can say which on hover.
+    """
+    # Request-scoped memo, INSIDE the process-scoped one in `_player_country_map`.
+    # Both earn their place: building this scans every international appearance
+    # and groups ~5,400 players, and the batting and bowling aggregate helpers
+    # each call it on every invocation - so a player profile rebuilt it once per
+    # competition, and a two-player comparison twice that again. Measured cost of
+    # not caching: 6.9s for /players/compare and 2.8s for a profile, against
+    # 0.06s and 0.04s before flags were added.
+    #
+    # Session.info is exactly request-scoped (get_db opens and closes a Session
+    # per request), so this tier cannot go stale within a response. It is kept
+    # because a caller reaching the builder directly still wants it.
+    #
+    # Named `request_memo`, not `cache`: the module-level `cache` import is what
+    # the outer tier uses, and shadowing it here would be a trap for the next
+    # edit rather than a bug today.
+    request_memo = db.info.setdefault("_player_country_map", {})
+    if gender in request_memo:
+        return request_memo[gender]
+
+    stmt = (
+        select(
+            PlayerMatchStat.player_identifier,
+            Team.name,
+            Team.team_type,
+            func.max(Match.match_date_start),
+            func.count(),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Team, Team.team_id == PlayerMatchStat.team_id)
+        .where(PlayerMatchStat.player_identifier.is_not(None))
+        .where(Team.team_type == "international")
+        .group_by(PlayerMatchStat.player_identifier, Team.team_id)
+    )
+    if gender:
+        stmt = stmt.where(Match.gender == gender)
+
+    best: dict[str, tuple[str, int, str, str | None]] = {}
+    for identifier, name, team_type, last_played, appearances in db.execute(stmt).all():
+        if not flags.is_national_side(name, team_type):
+            continue
+        candidate = (last_played or "", appearances, name, flags.country_code(name, team_type))
+        current = best.get(identifier)
+        if current is None or candidate[:2] > current[:2]:
+            best[identifier] = candidate
+    resolved = {ident: (name, code) for ident, (_, _, name, code) in best.items()}
+    request_memo[gender] = resolved
+    return resolved
+
+
+def _player_country_map(
+    db: Session, gender: str | None = None
+) -> dict[str, tuple[str, str | None]]:
+    """Cached view of the appearance-derived flag map.
+
+    Every board that shows a player name needs this, and it is a GROUP BY over
+    all 220k appearance rows regardless of how many rows the page returns - a
+    25-row rankings page was paying roughly 200 ms for it. It changes only when
+    matches are ingested, which `app.cache` detects.
+    """
+    return cache.get_or_compute(
+        db, ("player_country_map", gender), lambda: _build_player_country_map(db, gender)
+    )
+
+
+def _team_record_map(db: Session) -> dict[int, tuple[int, int, int]]:
+    """Cached view of every team's played/won/decided counts."""
+    return cache.get_or_compute(db, ("team_record_map",), lambda: _build_team_record_map(db))
+
+
+def _attach_country(
+    rows: list[dict], countries: dict[str, tuple[str, str | None]], key: str = "player_identifier"
+) -> list[dict]:
+    """Stamp `country` / `country_code` onto already-built row dicts.
+
+    Applied after the fact rather than joined into each aggregate query: the
+    ranking helpers already group and sort in Python, and a join would have to
+    be repeated identically in seven places with the invitational rule in each.
+    """
+    for row in rows:
+        name, code = countries.get(row.get(key) or "", (None, None))
+        row["country"] = name
+        row["country_code"] = code
+    return rows
+
+
 def _safe_div(numerator: float, denominator: float) -> float | None:
     if not denominator:
         return None
@@ -120,12 +233,18 @@ def _safe_div(numerator: float, denominator: float) -> float | None:
 def _team_ref(team: Team | None) -> schemas.TeamRef | None:
     if team is None:
         return None
-    return schemas.TeamRef(team_id=team.team_id, name=team.name)
+    return schemas.TeamRef(
+        team_id=team.team_id,
+        name=team.name,
+        country_code=flags.country_code(team.name, team.team_type),
+    )
 
 
 def _match_summary(m: Match, comp: Competition, team1: Team | None, team2: Team | None, winner: Team | None) -> schemas.MatchSummary:
     return schemas.MatchSummary(
         match_id=m.match_id,
+        source=m.source,
+        has_ball_by_ball=(m.source == "cricsheet"),
         competition_key=comp.key,
         competition_name=comp.display_name,
         gender=m.gender,
@@ -160,7 +279,7 @@ def _competition_scoped(stmt, competition_key: str | None, competition_type: str
     return stmt
 
 
-def _batting_aggregate_rows(
+def _build_batting_aggregate_rows(
     db: Session,
     gender: str,
     competition_key: str | None = None,
@@ -176,14 +295,16 @@ def _batting_aggregate_rows(
             # into a single ranking row. player_match_stats.player_identifier is
             # populated for every Cricsheet-sourced row.
             #
-            # Display uses the Wikidata label ("Joe Root") where we have one and
-            # the scorecard name ("JE Root") otherwise -- max() wrappers keep it
-            # valid under GROUP BY even though the join is 1:1 on the group key.
+            # Both name forms are selected and resolved by names.preferred_name
+            # in Python: which one to show depends on whether the scorecard name
+            # is initials, which no SQL dialect expresses cleanly, and keeping
+            # the rule in one module is what stops rankings and profiles
+            # disagreeing about what a player is called. max() wrappers keep
+            # these valid under GROUP BY -- the join is 1:1 on the group key.
             func.coalesce(
-                func.max(Player.display_name),
-                func.max(Player.name),
-                func.max(PlayerMatchStat.player_name),
-            ).label("player_name"),
+                func.max(Player.name), func.max(PlayerMatchStat.player_name)
+            ).label("scorecard_name"),
+            func.max(Player.display_name).label("wikidata_name"),
             PlayerMatchStat.player_identifier,
             func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
             func.sum(PlayerMatchStat.runs_scored).label("runs"),
@@ -211,7 +332,7 @@ def _batting_aggregate_rows(
         balls_faced = r.balls_faced or 0
         results.append(
             {
-                "player_name": r.player_name,
+                "player_name": preferred_name(r.scorecard_name, r.wikidata_name),
                 "player_identifier": r.player_identifier,
                 "matches": r.matches,
                 "runs": runs,
@@ -223,10 +344,14 @@ def _batting_aggregate_rows(
                 "strike_rate": _safe_div(runs * 100, balls_faced),
             }
         )
-    return results
+    # Stamped here rather than in each caller so rankings, the dashboard's top
+    # tens and a team page's leaders all carry the flag without three copies of
+    # the rule. Note the country is the player's own nation even on a team page
+    # scoped to a franchise -- Babar Azam is Pakistan on a Peshawar Zalmi list.
+    return _attach_country(results, _player_country_map(db, gender))
 
 
-def _bowling_aggregate_rows(
+def _build_bowling_aggregate_rows(
     db: Session,
     gender: str,
     competition_key: str | None = None,
@@ -238,10 +363,9 @@ def _bowling_aggregate_rows(
         select(
             # Grouped by identifier, not name -- see _batting_aggregate_rows.
             func.coalesce(
-                func.max(Player.display_name),
-                func.max(Player.name),
-                func.max(PlayerMatchStat.player_name),
-            ).label("player_name"),
+                func.max(Player.name), func.max(PlayerMatchStat.player_name)
+            ).label("scorecard_name"),
+            func.max(Player.display_name).label("wikidata_name"),
             PlayerMatchStat.player_identifier,
             func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
             func.sum(PlayerMatchStat.wickets_taken).label("wickets"),
@@ -267,7 +391,7 @@ def _bowling_aggregate_rows(
         balls_bowled = r.balls_bowled or 0
         results.append(
             {
-                "player_name": r.player_name,
+                "player_name": preferred_name(r.scorecard_name, r.wikidata_name),
                 "player_identifier": r.player_identifier,
                 "matches": r.matches,
                 "wickets": wickets,
@@ -277,7 +401,57 @@ def _bowling_aggregate_rows(
                 "economy": _safe_div(runs_conceded * 6, balls_bowled),
             }
         )
-    return results
+    return _attach_country(results, _player_country_map(db, gender))
+
+
+def _cached_aggregate_rows(build, db, key_prefix, *args) -> list[dict]:
+    """Cache a scope-wide aggregate, pass a single-player one straight through.
+
+    These two GROUP BYs are the hot spot of the whole read path: a rankings page,
+    an explorer board, the player directory, a team page and the dashboard all
+    start here, and each one paid the full 220k-row aggregate to return 25 rows.
+
+    Only the scope-wide form is cached. `player_identifier` is the last argument
+    and, when set, the query is an indexed lookup of one player's rows - already
+    fast, and caching it would key the store by 9,500 identifiers per scope for
+    no gain.
+    """
+    gender, competition_key, competition_type, player_identifier, team_id = args
+    if player_identifier is not None:
+        return build(db, gender, competition_key, competition_type, player_identifier, team_id)
+    return cache.get_or_compute(
+        db,
+        (key_prefix, gender, competition_key, competition_type, team_id),
+        lambda: build(db, gender, competition_key, competition_type, None, team_id),
+    )
+
+
+def _batting_aggregate_rows(
+    db: Session,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    player_identifier: str | None = None,
+    team_id: int | None = None,
+) -> list[dict]:
+    return _cached_aggregate_rows(
+        _build_batting_aggregate_rows, db, "batting_rows",
+        gender, competition_key, competition_type, player_identifier, team_id,
+    )
+
+
+def _bowling_aggregate_rows(
+    db: Session,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    player_identifier: str | None = None,
+    team_id: int | None = None,
+) -> list[dict]:
+    return _cached_aggregate_rows(
+        _build_bowling_aggregate_rows, db, "bowling_rows",
+        gender, competition_key, competition_type, player_identifier, team_id,
+    )
 
 
 def _ranking_scope(competition_key: str | None, competition_type: str | None) -> str | None:
@@ -311,6 +485,9 @@ def get_batting_rankings(
         competition_type=_ranking_scope(competition_key, competition_type),
     )
     rows = [r for r in rows if r["matches"] >= min_matches]
+    # Identifier as the final key so equal figures always land in the same
+    # order -- otherwise paging through a ranking can repeat or skip a row.
+    rows.sort(key=lambda r: (r["player_identifier"] or ""))
     rows.sort(key=lambda r: (r[sort_by] if r[sort_by] is not None else -1), reverse=True)
     total = len(rows)
     return rows[offset : offset + limit], total
@@ -334,9 +511,97 @@ def get_bowling_rankings(
     )
     rows = [r for r in rows if r["matches"] >= min_matches]
     reverse = sort_by not in ("average", "economy")  # lower is better for both
+    rows.sort(key=lambda r: (r["player_identifier"] or ""))
     rows.sort(key=lambda r: (r[sort_by] if r[sort_by] is not None else (10**9)), reverse=reverse)
     total = len(rows)
     return rows[offset : offset + limit], total
+
+
+def _top_by_plain_sum(db: Session, gender: str, discipline: str, limit: int) -> list[dict]:
+    """Top N players by total runs / wickets, ordered and limited in SQL.
+
+    The general ranking helpers build a dict for every player in the dataset
+    (~6,000 rows) and sort in Python, because average and strike rate need a
+    divide-with-guard that's awkward in SQLite. Runs and wickets need no such
+    thing -- they're plain SUMs -- so the dashboard's "top 5" can be answered
+    with ORDER BY ... LIMIT and never materialise the other 5,995 rows.
+    """
+    is_batting = discipline == "batting"
+    total = func.sum(
+        PlayerMatchStat.runs_scored if is_batting else PlayerMatchStat.wickets_taken
+    ).label("total")
+
+    # No join to `players` here. Resolving display names inside the aggregate
+    # costs a lookup for every one of ~6,000 groups to label the 5 that survive
+    # the LIMIT -- measured 245ms against 137ms. The names are fetched for the
+    # handful of winners afterwards instead.
+    columns = [
+        func.max(PlayerMatchStat.player_name).label("fallback_name"),
+        PlayerMatchStat.player_identifier,
+        func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
+        total,
+    ]
+    if is_batting:
+        columns += [
+            func.sum(PlayerMatchStat.dismissals).label("dismissals"),
+            func.sum(PlayerMatchStat.balls_faced).label("balls_faced"),
+            func.sum(PlayerMatchStat.fours).label("fours"),
+            func.sum(PlayerMatchStat.sixes).label("sixes"),
+        ]
+    else:
+        columns += [
+            func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
+            func.sum(PlayerMatchStat.balls_bowled).label("balls_bowled"),
+        ]
+
+    stmt = (
+        select(*columns)
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .where(Match.gender == gender)
+        .group_by(PlayerMatchStat.player_identifier)
+        # player_identifier breaks ties deterministically. Two bowlers on
+        # exactly 335 wickets is not hypothetical -- it's the women's ODI list
+        # today -- and an unspecified order there makes paginated results
+        # unstable, repeating or skipping a row between pages.
+        .order_by(total.desc(), PlayerMatchStat.player_identifier)
+        .limit(limit)
+    )
+    # Same scope rule as the rankings endpoints: never blend competition types.
+    stmt = _competition_scoped(stmt, None, DEFAULT_RANKING_COMPETITION_TYPE)
+    if not is_batting:
+        stmt = stmt.where(PlayerMatchStat.balls_bowled > 0)
+
+    results = db.execute(stmt).all()
+    names = {
+        p.identifier: p.display_name or p.name
+        for p in db.execute(
+            select(Player).where(
+                Player.identifier.in_([r.player_identifier for r in results])
+            )
+        ).scalars()
+    }
+
+    rows = []
+    for r in results:
+        display = names.get(r.player_identifier) or r.fallback_name
+        if is_batting:
+            rows.append({
+                "player_name": display, "player_identifier": r.player_identifier,
+                "matches": r.matches, "runs": r.total or 0,
+                "dismissals": r.dismissals or 0, "balls_faced": r.balls_faced or 0,
+                "fours": r.fours or 0, "sixes": r.sixes or 0,
+                "average": _safe_div(r.total or 0, r.dismissals or 0),
+                "strike_rate": _safe_div((r.total or 0) * 100, r.balls_faced or 0),
+            })
+        else:
+            rows.append({
+                "player_name": display, "player_identifier": r.player_identifier,
+                "matches": r.matches, "wickets": r.total or 0,
+                "runs_conceded": r.runs_conceded or 0, "balls_bowled": r.balls_bowled or 0,
+                "average": _safe_div(r.runs_conceded or 0, r.total or 0),
+                "economy": _safe_div((r.runs_conceded or 0) * 6, r.balls_bowled or 0),
+            })
+    return rows
 
 
 def get_dashboard_stats(db: Session, gender: str) -> schemas.DashboardStats:
@@ -370,12 +635,8 @@ def get_dashboard_stats(db: Session, gender: str) -> schemas.DashboardStats:
         ).all()
     ]
 
-    batting_rows, _ = get_batting_rankings(
-        db, gender, competition_key=None, min_matches=1, sort_by="runs", limit=5, offset=0
-    )
-    bowling_rows, _ = get_bowling_rankings(
-        db, gender, competition_key=None, min_matches=1, sort_by="wickets", limit=5, offset=0
-    )
+    batting_rows = _top_by_plain_sum(db, gender, "batting", limit=5)
+    bowling_rows = _top_by_plain_sum(db, gender, "bowling", limit=5)
 
     return schemas.DashboardStats(
         gender=gender,
@@ -409,6 +670,7 @@ def _team_summary(db: Session, team: Team) -> schemas.TeamSummary:
     return schemas.TeamSummary(
         team_id=team.team_id,
         name=team.name,
+        country_code=flags.country_code(team.name, team.team_type),
         gender=team.gender,
         team_type=team.team_type,
         matches=matches,
@@ -419,9 +681,53 @@ def _team_summary(db: Session, team: Team) -> schemas.TeamSummary:
     )
 
 
+def _build_team_record_map(db: Session) -> dict[int, tuple[int, int, int]]:
+    """team_id -> (played, wins, decided), for every team in one query.
+
+    Each match contributes a row per side, so a team's appearances are just the
+    rows carrying its id. Built as a single grouped scan because the per-team
+    version ran three COUNTs for each team -- 330 queries to render one teams
+    page, one of which had no index and scanned `matches` end to end each time.
+    """
+    appearances = union_all(
+        select(
+            Match.team1_id.label("tid"), Match.winner_team_id.label("winner")
+        ).where(Match.team1_id.is_not(None)),
+        select(
+            Match.team2_id.label("tid"), Match.winner_team_id.label("winner")
+        ).where(Match.team2_id.is_not(None)),
+    ).subquery()
+
+    rows = db.execute(
+        select(
+            appearances.c.tid,
+            func.count().label("played"),
+            func.sum(
+                case((appearances.c.winner == appearances.c.tid, 1), else_=0)
+            ).label("wins"),
+            func.sum(
+                case((appearances.c.winner.is_not(None), 1), else_=0)
+            ).label("decided"),
+        ).group_by(appearances.c.tid)
+    ).all()
+    return {r.tid: (r.played, r.wins or 0, r.decided or 0) for r in rows}
+
+
 def get_teams_summary(
-    db: Session, gender: str, team_type: str | None = None
-) -> list[schemas.TeamSummary]:
+    db: Session,
+    gender: str,
+    team_type: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[schemas.TeamSummary], int]:
+    """One page of team records, plus the total after filtering.
+
+    The win/loss record has to be assembled before a side can be ranked or even
+    included -- sides with no completed matches are dropped -- so the slice is
+    taken after that work rather than in SQL. At ~119 sides that is immaterial,
+    and it keeps `total` honest: it counts sides that actually appear, not rows
+    in the table.
+    """
     # Without a team_type filter this lists Karachi Kings next to Australia --
     # they're both male teams, but they aren't comparable entities. The caller
     # picks a side; the API doesn't blend them by default.
@@ -429,10 +735,34 @@ def get_teams_summary(
     if team_type:
         stmt = stmt.where(Team.team_type == team_type)
     teams = db.execute(stmt).scalars().all()
-    summaries = [_team_summary(db, t) for t in teams]
-    summaries = [s for s in summaries if s.matches > 0]
+
+    records = _team_record_map(db)
+    summaries = []
+    for team in teams:
+        played, wins, decided = records.get(team.team_id, (0, 0, 0))
+        if not played:
+            continue
+        # losses = decided matches this team didn't win; the rest are ties or
+        # no-results. Same definitions the per-team version used.
+        summaries.append(
+            schemas.TeamSummary(
+                team_id=team.team_id,
+                name=team.name,
+                country_code=flags.country_code(team.name, team.team_type),
+                gender=team.gender,
+                team_type=team.team_type,
+                matches=played,
+                wins=wins,
+                losses=decided - wins,
+                ties_or_no_result=played - decided,
+                win_pct=_safe_div(wins * 100, played),
+            )
+        )
     summaries.sort(key=lambda s: s.matches, reverse=True)
-    return summaries
+    total = len(summaries)
+    if limit is not None:
+        summaries = summaries[offset : offset + limit]
+    return summaries, total
 
 
 def get_team_detail(db: Session, team_id: int) -> schemas.TeamDetail | None:
@@ -459,7 +789,7 @@ def get_team_detail(db: Session, team_id: int) -> schemas.TeamDetail | None:
         .order_by(Match.match_date_start.desc())
         .limit(RECENT_MATCHES_LIMIT)
     ).scalars().all()
-    recent_matches = [_hydrate_match_summary(db, m) for m in recent]
+    recent_matches = _hydrate_match_summaries(db, list(recent))
 
     return schemas.TeamDetail(
         **summary.model_dump(),
@@ -509,7 +839,15 @@ def search_players(
         .having(func.count(func.distinct(PlayerMatchStat.match_id)) > 0)
     )
     if search:
-        stmt = stmt.where(Player.name.ilike(f"%{search}%"))
+        # Both name forms are searched. Matching only the scorecard name means a
+        # player cannot be found by the name the product itself displays --
+        # "Joe Root" returned nothing while "JE Root" worked.
+        stmt = stmt.where(
+            or_(
+                Player.name.ilike(f"%{search}%"),
+                Player.display_name.ilike(f"%{search}%"),
+            )
+        )
 
     all_rows = db.execute(stmt).all()
     all_rows = sorted(all_rows, key=lambda r: r.matches, reverse=True)
@@ -520,6 +858,7 @@ def search_players(
     # cheap, but building them for all ~9,400 players to serve 25 would not be.
     reference = dataset_latest_date(db)
     last_played = _last_played_map(db, gender)
+    countries = _player_country_map(db, gender)
     page_players = {
         p.identifier: p
         for p in db.execute(
@@ -530,11 +869,17 @@ def search_players(
     items = [
         schemas.PlayerSummary(
             identifier=r.identifier,
-            name=(page_players[r.identifier].display_name if r.identifier in page_players
-                  and page_players[r.identifier].display_name else r.name),
+            name=preferred_name(
+                r.name,
+                page_players[r.identifier].display_name
+                if r.identifier in page_players
+                else None,
+            ),
             scorecard_name=r.name,
             gender=r.gender,
             matches=r.matches,
+            country=countries.get(r.identifier, (None, None))[0],
+            country_code=countries.get(r.identifier, (None, None))[1],
             status=(
                 player_status(page_players[r.identifier], last_played.get(r.identifier), reference)
                 if r.identifier in page_players
@@ -603,13 +948,18 @@ def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | No
         .order_by(Match.match_date_start.desc())
         .limit(RECENT_MATCHES_LIMIT)
     ).scalars().all()
-    recent_matches = [_hydrate_match_summary(db, m) for m in recent]
+    recent_matches = _hydrate_match_summaries(db, list(recent))
 
+    country, country_code = _player_country_map(db, player.gender).get(
+        player.identifier, (None, None)
+    )
     return schemas.PlayerDetail(
         identifier=player.identifier,
         name=player.display_name or player.name,
         scorecard_name=player.name,
         gender=player.gender,
+        country=country,
+        country_code=country_code,
         teams=[_team_ref(t) for t in teams],
         bio=schemas.PlayerBio(
             date_of_birth=player.date_of_birth,
@@ -759,7 +1109,9 @@ def icc_team_rank_types(db: Session) -> list[str]:
     return sorted(t for (t,) in db.execute(select(IccTeamRanking.rank_type).distinct()))
 
 
-def get_icc_player_ranking(db: Session, rank_type: str) -> schemas.IccRankingTable | None:
+def get_icc_player_ranking(
+    db: Session, rank_type: str, limit: int | None = None, offset: int = 0
+) -> schemas.IccRankingTable | None:
     rank_date = db.execute(
         select(func.max(IccPlayerRanking.rank_date)).where(
             IccPlayerRanking.rank_type == rank_type
@@ -767,20 +1119,30 @@ def get_icc_player_ranking(db: Session, rank_type: str) -> schemas.IccRankingTab
     ).scalar_one_or_none()
     if not rank_date:
         return None
-    rows = db.execute(
-        select(IccPlayerRanking)
-        .where(IccPlayerRanking.rank_type == rank_type, IccPlayerRanking.rank_date == rank_date)
-        .order_by(IccPlayerRanking.position)
-    ).scalars().all()
+    scoped = (
+        IccPlayerRanking.rank_type == rank_type,
+        IccPlayerRanking.rank_date == rank_date,
+    )
+    total = db.execute(
+        select(func.count()).select_from(IccPlayerRanking).where(*scoped)
+    ).scalar_one()
+    stmt = select(IccPlayerRanking).where(*scoped).order_by(IccPlayerRanking.position)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
+    rows = db.execute(stmt).scalars().all()
     return schemas.IccRankingTable(
         rank_type=rank_type,
         rank_date=rank_date,
         fetched_at=rows[0].fetched_at if rows else None,
+        total=total,
+        limit=limit if limit is not None else total,
+        offset=offset,
         rows=[
             schemas.IccRankingRow(
                 position=r.position,
                 player_name=r.player_name,
                 country=r.country,
+                country_code=flags.country_code(r.country, "international"),
                 points=r.points,
                 career_best=r.career_best,
                 player_identifier=r.player_identifier,
@@ -790,21 +1152,32 @@ def get_icc_player_ranking(db: Session, rank_type: str) -> schemas.IccRankingTab
     )
 
 
-def get_icc_team_ranking(db: Session, rank_type: str) -> schemas.IccTeamRankingTable | None:
+def get_icc_team_ranking(
+    db: Session, rank_type: str, limit: int | None = None, offset: int = 0
+) -> schemas.IccTeamRankingTable | None:
     rank_date = db.execute(
         select(func.max(IccTeamRanking.rank_date)).where(IccTeamRanking.rank_type == rank_type)
     ).scalar_one_or_none()
     if not rank_date:
         return None
-    rows = db.execute(
-        select(IccTeamRanking)
-        .where(IccTeamRanking.rank_type == rank_type, IccTeamRanking.rank_date == rank_date)
-        .order_by(IccTeamRanking.position)
-    ).scalars().all()
+    scoped = (
+        IccTeamRanking.rank_type == rank_type,
+        IccTeamRanking.rank_date == rank_date,
+    )
+    total = db.execute(
+        select(func.count()).select_from(IccTeamRanking).where(*scoped)
+    ).scalar_one()
+    stmt = select(IccTeamRanking).where(*scoped).order_by(IccTeamRanking.position)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
+    rows = db.execute(stmt).scalars().all()
     return schemas.IccTeamRankingTable(
         rank_type=rank_type,
         rank_date=rank_date,
         fetched_at=rows[0].fetched_at if rows else None,
+        total=total,
+        limit=limit if limit is not None else total,
+        offset=offset,
         rows=[
             schemas.IccTeamRankingRow(
                 position=r.position, team_name=r.team_name, points=r.points, team_id=r.team_id
@@ -937,10 +1310,15 @@ def _comparison_side(
         totals.display_name = comp.display_name
         by_competition.append(totals)
 
+    country, country_code = _player_country_map(db, player.gender).get(
+        identifier, (None, None)
+    )
     return schemas.ComparisonSide(
         identifier=identifier,
         name=player.display_name or player.name,
         scorecard_name=player.name,
+        country=country,
+        country_code=country_code,
         status=player_status(player, last_played, reference),
         teams=[_team_ref(t) for t in teams],
         bio=schemas.PlayerBio(
@@ -1051,22 +1429,50 @@ def get_player_comparison(
     )
 
 
-def _hydrate_match_summary(db: Session, m: Match) -> schemas.MatchSummary:
-    comp = db.execute(
-        select(Competition).where(Competition.competition_id == m.competition_id)
-    ).scalar_one()
-    team_ids = [tid for tid in (m.team1_id, m.team2_id, m.winner_team_id) if tid is not None]
-    teams_by_id = {
+def _hydrate_match_summaries(db: Session, matches: list[Match]) -> list[schemas.MatchSummary]:
+    """Hydrate a whole page of matches in two queries, not two per match.
+
+    The per-match version issued one query for the competition and one for the
+    sides, so a 25-row match list was 51 round trips and a 100-row one was 201.
+    Each was individually cheap - both tables are small and SQLAlchemy's identity
+    map absorbs the repeats within a session - which is exactly why it survived:
+    the cost is per row, so it only becomes visible at the page sizes the API
+    already allows.
+    """
+    if not matches:
+        return []
+    comp_ids = {m.competition_id for m in matches}
+    comps = {
+        c.competition_id: c
+        for c in db.execute(
+            select(Competition).where(Competition.competition_id.in_(comp_ids))
+        ).scalars().all()
+    }
+    team_ids = {
+        tid
+        for m in matches
+        for tid in (m.team1_id, m.team2_id, m.winner_team_id)
+        if tid is not None
+    }
+    teams = {
         t.team_id: t
         for t in db.execute(select(Team).where(Team.team_id.in_(team_ids))).scalars().all()
     } if team_ids else {}
-    return _match_summary(
-        m,
-        comp,
-        teams_by_id.get(m.team1_id),
-        teams_by_id.get(m.team2_id),
-        teams_by_id.get(m.winner_team_id),
-    )
+    return [
+        _match_summary(
+            m,
+            comps[m.competition_id],
+            teams.get(m.team1_id),
+            teams.get(m.team2_id),
+            teams.get(m.winner_team_id),
+        )
+        for m in matches
+    ]
+
+
+def _hydrate_match_summary(db: Session, m: Match) -> schemas.MatchSummary:
+    """One match. Prefer `_hydrate_match_summaries` for a list."""
+    return _hydrate_match_summaries(db, [m])[0]
 
 
 def list_matches(
@@ -1078,11 +1484,26 @@ def list_matches(
     search: str | None,
     limit: int,
     offset: int,
+    competition_type: str | None = None,
 ) -> tuple[list[schemas.MatchSummary], int]:
+    """A match list, optionally confined to one competition or one type.
+
+    Unlike the aggregate queries, an unscoped call here really does mean every
+    competition: a match list is a list of events, not a summed figure, so
+    mixing internationals and franchise cricket corrupts nothing. The type
+    filter exists so a client that has put itself into one family can keep the
+    list consistent with the rest of what it is showing, not because the
+    figures would otherwise be wrong.
+    """
     stmt = select(Match).where(Match.gender == gender)
+    # A specific key is already narrower than any type, so it wins.
     if competition_key:
         stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id).where(
             Competition.key == competition_key
+        )
+    elif competition_type:
+        stmt = stmt.join(Competition, Competition.competition_id == Match.competition_id).where(
+            Competition.type == competition_type
         )
     if team_id:
         stmt = stmt.where((Match.team1_id == team_id) | (Match.team2_id == team_id))
@@ -1097,7 +1518,7 @@ def list_matches(
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = stmt.order_by(Match.match_date_start.desc()).limit(limit).offset(offset)
     items = db.execute(stmt).scalars().all()
-    return [_hydrate_match_summary(db, m) for m in items], total
+    return _hydrate_match_summaries(db, list(items)), total
 
 
 def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
@@ -1118,6 +1539,11 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
         .order_by(PlayerMatchStat.team_id, PlayerMatchStat.runs_scored.desc())
     ).scalars().all()
 
+    # The flag earns its place most on a franchise scorecard, where one XI holds
+    # several nationalities; on an international it agrees with the team header,
+    # which is the point -- it is the same fact, not a second one.
+    countries = _player_country_map(db, match.gender)
+
     return schemas.MatchDetail(
         **summary.model_dump(),
         toss_winner=_team_ref(toss_winner),
@@ -1128,6 +1554,8 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
             schemas.MatchPerformer(
                 player_name=p.player_name,
                 player_identifier=p.player_identifier,
+                country=countries.get(p.player_identifier or "", (None, None))[0],
+                country_code=countries.get(p.player_identifier or "", (None, None))[1],
                 team_id=p.team_id,
                 runs_scored=p.runs_scored,
                 balls_faced=p.balls_faced,
@@ -1141,3 +1569,194 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
             for p in performers
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Player directory
+# ---------------------------------------------------------------------------
+
+# What a directory row can be ordered by. Kept as a mapping rather than accepting
+# an arbitrary column name so the API can validate against it and the UI can
+# render exactly the options that exist.
+PLAYER_SORTS = {
+    "matches": "matches",
+    "runs": "runs",
+    "batting_average": "batting_average",
+    "strike_rate": "strike_rate",
+    "wickets": "wickets",
+    "bowling_average": "bowling_average",
+    "economy": "economy",
+    "form": "form_delta",
+}
+
+# Ascending is right for these: a lower bowling average or economy is better.
+PLAYER_SORTS_ASCENDING = {"bowling_average", "economy"}
+
+# You cannot rank a player on a discipline they didn't perform. Sorting by
+# economy without this puts batters who bowled six balls and conceded nothing at
+# the top with an economy of 0.00, which is not the best bowling in the dataset
+# -- it is the absence of bowling. Each sort declares what participation it
+# requires, and rows without it are excluded from that ordering rather than
+# being ranked as though a missing figure were a perfect one.
+# ...and merely requiring "more than zero" is not enough: two balls bowled for
+# no run is still an economy of 0.00 at the top of the table. A rate needs a
+# sample before it means anything, so a sort on one applies a default
+# qualification the caller can raise or explicitly lower.
+DEFAULT_QUALIFY_BALLS_FACED = 200
+DEFAULT_QUALIFY_BALLS_BOWLED = 300
+
+SORT_REQUIRES = {
+    "runs": "balls_faced",
+    "batting_average": "balls_faced",
+    "strike_rate": "balls_faced",
+    "wickets": "balls_bowled",
+    "bowling_average": "balls_bowled",
+    "economy": "balls_bowled",
+}
+
+
+def browse_players(
+    db: Session,
+    gender: str,
+    *,
+    search: str | None = None,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+    team_id: int | None = None,
+    min_matches: int = 1,
+    min_balls_faced: int = 0,
+    min_balls_bowled: int = 0,
+    status: str | None = None,
+    form_state: str | None = None,
+    sort_by: str = "matches",
+    limit: int = 25,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """The player directory: aggregates, status and form in one row per player.
+
+    Scoped like every other aggregate -- an unqualified request is
+    internationals, not "everything summed together" (see _ranking_scope).
+
+    Sorting and filtering happen after the GROUP BY, in Python, for the same
+    reason the rankings do: batting average needs a divide-by-zero guard that is
+    awkward in SQL. That makes this O(players in scope) per call, which is fine
+    at this dataset's size and is the first thing to revisit if it grows.
+    """
+    from .analytics import leaderboard as form_board
+
+    scope_type = _ranking_scope(competition_key, competition_type)
+
+    batting = {
+        r["player_identifier"]: r
+        for r in _batting_aggregate_rows(
+            db, gender, competition_key, scope_type, team_id=team_id
+        )
+    }
+    bowling = {
+        r["player_identifier"]: r
+        for r in _bowling_aggregate_rows(
+            db, gender, competition_key, scope_type, team_id=team_id
+        )
+    }
+
+    # Form comes from the cached board so the directory and the leaderboards
+    # can't disagree, and so the directory doesn't pay to recompute it.
+    form_rows, _ = form_board.leaderboard_page(
+        db,
+        gender=gender,
+        competition_key=competition_key,
+        competition_type=scope_type,
+        limit=100_000,
+        offset=0,
+    )
+    form_by_player = {r["player_identifier"]: r for r in form_rows}
+
+    reference = dataset_latest_date(db)
+    last_played = _last_played_map(db, gender)
+    players = {
+        p.identifier: p
+        for p in db.execute(select(Player).where(Player.gender == gender)).scalars()
+    }
+
+    needle = (search or "").strip().lower()
+    rows: list[dict] = []
+    for identifier, bat in batting.items():
+        player = players.get(identifier)
+        if player is None:
+            continue
+
+        bowl = bowling.get(identifier, {})
+        matches = bat["matches"]
+        if matches < min_matches:
+            continue
+
+        display = preferred_name(player.name, player.display_name)
+        if needle and needle not in (display or "").lower() and needle not in (player.name or "").lower():
+            continue
+
+        state = player_status(player, last_played.get(identifier), reference)
+        if status and state.state != status:
+            continue
+
+        form_row = form_by_player.get(identifier)
+        if form_state and (not form_row or form_row["state"] != form_state):
+            continue
+
+        rows.append(
+            {
+                "identifier": identifier,
+                "name": display,
+                "scorecard_name": player.name,
+                "image_url": player.image_url,
+                "nationality": player.nationality,
+                "date_of_birth": player.date_of_birth,
+                "matches": matches,
+                "balls_faced": bat["balls_faced"],
+                "balls_bowled": bowl.get("balls_bowled", 0),
+                "runs": bat["runs"],
+                "batting_average": bat["average"],
+                "strike_rate": bat["strike_rate"],
+                "wickets": bowl.get("wickets", 0),
+                "bowling_average": bowl.get("average"),
+                "economy": bowl.get("economy"),
+                "status": state,
+                "form_state": form_row["state"] if form_row else None,
+                "form_label": form_row["label"] if form_row else None,
+                "form_delta": form_row["delta_percent"] if form_row else None,
+                "form_confidence": form_row["confidence"] if form_row else None,
+            }
+        )
+
+    # Qualification, applied after the rows are built so the thresholds can read
+    # the aggregated figures.
+    required = SORT_REQUIRES.get(sort_by)
+    faced_floor, bowled_floor = min_balls_faced, min_balls_bowled
+    if required == "balls_faced" and min_balls_faced == 0:
+        faced_floor = DEFAULT_QUALIFY_BALLS_FACED
+    if required == "balls_bowled" and min_balls_bowled == 0:
+        bowled_floor = DEFAULT_QUALIFY_BALLS_BOWLED
+    rows = [
+        r
+        for r in rows
+        if r["balls_faced"] >= faced_floor and r["balls_bowled"] >= bowled_floor
+    ]
+
+    field = PLAYER_SORTS.get(sort_by, "matches")
+    ascending = field in PLAYER_SORTS_ASCENDING
+    # Identifier first as a stable tiebreak, so paging never repeats or skips a
+    # row when two players share a figure. Missing values sort last in both
+    # directions -- a player with no bowling average is not the best bowler.
+    rows.sort(key=lambda r: r["identifier"])
+    if ascending:
+        rows.sort(key=lambda r: (r[field] is None, r[field] if r[field] is not None else 0))
+    else:
+        # The "is not None" flag has to invert with the sort direction. Reusing
+        # the ascending key under reverse=True would sort missing values to the
+        # TOP -- a form-sorted directory would open with the players who have no
+        # form verdict at all.
+        rows.sort(
+            key=lambda r: (r[field] is not None, r[field] if r[field] is not None else 0),
+            reverse=True,
+        )
+
+    return rows[offset : offset + limit], len(rows)

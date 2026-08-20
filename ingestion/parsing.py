@@ -33,6 +33,52 @@ class PlayerMatchStat:
     runs_conceded: int = 0
 
 
+def _first_fielder(wicket: dict) -> str | None:
+    """The fielder credited with a dismissal, if Cricsheet names one.
+
+    Only the first is taken. A catch or stumping has exactly one; a run out can
+    name two, and which of them threw does not bear on any question asked here.
+    """
+    fielders = wicket.get("fielders") or []
+    for f in fielders:
+        name = f.get("name") if isinstance(f, dict) else f
+        if name:
+            return name
+    return None
+
+
+@dataclass
+class Delivery:
+    """One ball, kept whole.
+
+    The aggregate stats above are derived from these, but the two are stored
+    side by side rather than one from the other: §5's Tier B list -- phase
+    splits, dot-ball rates, batting position, chasing -- all need the ball back,
+    and re-deriving an aggregate from deliveries at read time would put a scan
+    of ~4.9M rows on a page request (§28 forbids exactly that).
+    """
+
+    innings: int          # 1-based, so batting first vs chasing is readable
+    seq: int              # 0-based within the innings; the stable sort key
+    over: int             # 0-based, for powerplay / middle / death
+    ball: int             # 1-based within the over, extras included
+    batting_team: str
+    batter: str | None
+    bowler: str | None
+    non_striker: str | None
+    runs_batter: int = 0
+    runs_extras: int = 0
+    runs_total: int = 0
+    non_boundary: bool = False
+    wides: int = 0
+    noballs: int = 0
+    byes: int = 0
+    legbyes: int = 0
+    wicket_kind: str | None = None
+    player_out: str | None = None
+    fielder: str | None = None
+
+
 @dataclass
 class ParsedMatch:
     match_id: str
@@ -43,6 +89,13 @@ class ParsedMatch:
     season: str | None
     event_name: str | None
     match_number: int | None
+    # Cricsheet's event.stage / event.group. Sparse - stage on ~5% of matches,
+    # group on ~11% - but stage is what names a Final, and a tournament's
+    # winner cannot be sourced without it. Inferring "the last match of the
+    # event was the final" would be wrong wherever a third-place play-off
+    # follows the final, or where coverage of the event is partial.
+    event_stage: str | None
+    event_group: str | None
     venue: str | None
     city: str | None
     match_date_start: str | None
@@ -53,6 +106,13 @@ class ParsedMatch:
     toss_winner: str | None
     toss_decision: str | None
     winner: str | None
+    # The side that took a tied match on a tiebreak (super over, boundary
+    # count, bowl-out). Cricsheet reports it as `outcome.eliminator` and NOT
+    # as `outcome.winner`, so a match like the 2019 World Cup final parses as
+    # {"result": "tie"} with no winner at all. England won that World Cup; a
+    # tournament page reading only `winner` would show its final as having
+    # nobody win it. 60 matches here carry one.
+    eliminator: str | None
     win_by_runs: int | None
     win_by_wickets: int | None
     outcome_result: str | None
@@ -60,6 +120,7 @@ class ParsedMatch:
     teams: list[str] = field(default_factory=list)
     players: dict[str, str] = field(default_factory=dict)  # name -> registry id
     player_match_stats: list[PlayerMatchStat] = field(default_factory=list)
+    deliveries: list[Delivery] = field(default_factory=list)
 
 
 def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
@@ -84,6 +145,10 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
         season=str(info.get("season")) if info.get("season") is not None else None,
         event_name=event.get("name"),
         match_number=event.get("match_number"),
+        event_stage=event.get("stage"),
+        # Cricsheet types this inconsistently: "A" for a letter group, 2 (an
+        # int) for a numbered one. Stored as text so both survive.
+        event_group=str(event["group"]) if event.get("group") is not None else None,
         venue=info.get("venue"),
         city=info.get("city"),
         match_date_start=dates[0] if dates else None,
@@ -94,6 +159,7 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
         toss_winner=(info.get("toss") or {}).get("winner"),
         toss_decision=(info.get("toss") or {}).get("decision"),
         winner=winner,
+        eliminator=outcome.get("eliminator"),
         win_by_runs=by.get("runs"),
         win_by_wickets=by.get("wickets"),
         outcome_result=outcome_result,
@@ -110,9 +176,18 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
         for name in names:
             stats[name] = PlayerMatchStat(player_name=name, team=team)
 
-    for innings in raw.get("innings", []):
+    deliveries: list[Delivery] = []
+
+    # `innings` is 1-based and counts in the order Cricsheet lists them, which
+    # IS the order they were played -- that is what makes chasing derivable.
+    for innings_number, innings in enumerate(raw.get("innings", []), start=1):
+        batting_team = innings.get("team")
+        # Position within the innings, not within the over: a wide or no-ball
+        # adds a delivery, so (over, ball) is not unique and cannot be a key.
+        seq = 0
         for over in innings.get("overs", []):
-            for delivery in over.get("deliveries", []):
+            over_number = over.get("over", 0)
+            for ball_number, delivery in enumerate(over.get("deliveries", []), start=1):
                 runs = delivery.get("runs", {})
                 extras = delivery.get("extras") or {}
                 wickets = delivery.get("wickets") or []
@@ -125,10 +200,19 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
                     s = stats[batter_name]
                     s.runs_scored += batter_runs
                     s.balls_faced += 1
-                    if batter_runs == 4:
-                        s.fours += 1
-                    elif batter_runs == 6:
-                        s.sixes += 1
+                    # A four is a BOUNDARY, not "the batter took four runs".
+                    # Cricsheet marks all-run fours and overthrow-assisted ones
+                    # with runs.non_boundary, precisely so the two can be told
+                    # apart; counting on the run total alone overstates
+                    # boundaries. Validated against published figures: Joe Root
+                    # came out at 1,523 Test fours against ESPNcricinfo's 1,515,
+                    # and the flag appears on real deliveries in the archives
+                    # (10 of 14,557 four/six deliveries in the PSL set).
+                    if not runs.get("non_boundary"):
+                        if batter_runs == 4:
+                            s.fours += 1
+                        elif batter_runs == 6:
+                            s.sixes += 1
 
                 bowler_name = delivery.get("bowler")
                 if bowler_name in stats:
@@ -150,5 +234,36 @@ def parse_match(match_id: str, competition: str, raw: dict) -> ParsedMatch:
                     if dismissed_name in stats and wicket.get("kind") not in NOT_OUT_KINDS:
                         stats[dismissed_name].dismissals += 1
 
+                # Only the first wicket on a ball is stored. Two dismissals off
+                # one delivery is possible (a run out on a no-ball that is also
+                # a stumping is not, but run-out plus retired is) and vanishingly
+                # rare; the aggregate counters above still see every one.
+                first_wicket = wickets[0] if wickets else {}
+                deliveries.append(
+                    Delivery(
+                        innings=innings_number,
+                        seq=seq,
+                        over=over_number,
+                        ball=ball_number,
+                        batting_team=batting_team,
+                        batter=batter_name,
+                        bowler=bowler_name,
+                        non_striker=delivery.get("non_striker"),
+                        runs_batter=batter_runs,
+                        runs_extras=runs.get("extras", 0),
+                        runs_total=runs.get("total", 0),
+                        non_boundary=bool(runs.get("non_boundary")),
+                        wides=extras.get("wides", 0),
+                        noballs=extras.get("noballs", 0),
+                        byes=extras.get("byes", 0),
+                        legbyes=extras.get("legbyes", 0),
+                        wicket_kind=first_wicket.get("kind"),
+                        player_out=first_wicket.get("player_out"),
+                        fielder=_first_fielder(first_wicket),
+                    )
+                )
+                seq += 1
+
     match.player_match_stats = list(stats.values())
+    match.deliveries = deliveries
     return match
