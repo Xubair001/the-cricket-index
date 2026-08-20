@@ -139,8 +139,36 @@ YOUTH_WORST_AGE = 38
 # role, because an opener IS a batter; the position only says where they bat.
 OPENERS_WANTED = 2
 
-# Below this a player has not played enough in the scope to be picked on it.
+# Below this a player has not played enough in the scope to be picked on it at
+# all. An absolute floor, applied in every scope.
 MIN_MATCHES = 8
+
+# An ALL-TIME side needs more than that, and the floor cannot be a fixed number.
+#
+# A fixed 20 was the obvious fix for the thin-sample problem and it silently
+# empties a whole scope: **no player has more than 14 women's Tests in this
+# dataset**, because it holds 24 of them in total. At a floor of 20 the women's
+# Test XI returns nobody - and that XI is currently one of the best this product
+# produces (Perry, Knight, Healy, Ecclestone, Sciver-Brunt), because when every
+# player has 8 to 14 matches the comparison is level.
+#
+# So the floor is a fraction of what a LONG career in this scope looks like,
+# taken as the 90th percentile of match counts there. Measured:
+#
+#     men's Tests    p90  54  ->  floor 18   (299 eligible)
+#     men's ODIs     p90  77  ->  floor 25   (~640 eligible)
+#     men's T20Is    p90  42  ->  floor 14   (~1700 eligible)
+#     PSL            p90  46  ->  floor 15   (~160 eligible)
+#     women's ODIs   p90  54  ->  floor 18   (~220 eligible)
+#     women's Tests  p90   8  ->  floor  5   (pool intact)
+#
+# `pool='current'` keeps the absolute floor instead. It asks "who do we pick
+# next", the pool is already restricted to players active within a year, and a
+# newcomer with eight caps is a legitimate answer to that question where they are
+# not a legitimate answer to "the best there has ever been".
+ALL_TIME_FLOOR_FRACTION = 1 / 3
+ALL_TIME_FLOOR_PERCENTILE = 0.90
+ALL_TIME_FLOOR_MIN = 5
 
 # What the selector still cannot guarantee. Handedness and bowling type moved
 # OFF this list when the ICC squad feed was read for them, but only partly:
@@ -192,6 +220,10 @@ class Pick:
     # every other surface does - never from players.nationality.
     country: str | None = None
     country_code: str | None = None
+    # The weights actually used for THIS player, renormalised over the
+    # components they have. A retired player carries no form term at all rather
+    # than a neutral stand-in, so the shape is per pick and is reported (§30).
+    applied_weights: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -245,6 +277,9 @@ class Selection:
     cutoff_date: str | None = None
     # The weights actually applied, so the blend is checkable on the page.
     weights: dict = field(default_factory=dict)
+    # Matches a player needs in this scope to be eligible. Scope-relative for an
+    # all-time side, so it is reported rather than assumed.
+    eligibility_floor: int = MIN_MATCHES
     # Which of §18's objectives this side answers, and what that changed.
     objective: str = "overall"
     objective_label: str = ""
@@ -295,8 +330,23 @@ def _keepers(db: Session, gender: str, competition_key, competition_type) -> dic
     return out
 
 
+def _all_time_floor(match_counts: dict[str, int]) -> int:
+    """How much cricket an all-time side asks for, relative to this scope.
+
+    A third of what a long career here looks like, where "long" is the 90th
+    percentile of match counts. Scope-relative because an absolute floor empties
+    scopes that are simply short - see ALL_TIME_FLOOR_FRACTION for the numbers.
+    """
+    counts = sorted(match_counts.values())
+    if not counts:
+        return MIN_MATCHES
+    p90 = counts[min(len(counts) - 1, int(len(counts) * ALL_TIME_FLOOR_PERCENTILE))]
+    return max(ALL_TIME_FLOOR_MIN, round(p90 * ALL_TIME_FLOOR_FRACTION))
+
+
 def _career_standing(
-    db: Session, gender, competition_key, competition_type, summary=None
+    db: Session, gender, competition_key, competition_type, summary=None,
+    floor: int | None = None,
 ) -> dict[str, float]:
     """Percentile of a player's whole record in the scope, within their discipline.
 
@@ -305,26 +355,118 @@ def _career_standing(
     well now". Pooled by discipline for the same reason the Index is -- a
     bowler's mean impact is 1.08 par units against a batter's 0.64, so a single
     pool would rank discipline rather than merit.
+
+    The mean is SHRUNK toward the pool, and that is the whole correctness of this
+    function
+    ------------------------------------------------------------------------
+    An unshrunk mean lets sample size buy the top of the board, and it did.
+    Measured over the men's Test scope before this: **Steve Waugh scored 98.1 on
+    eight matches and Brian Lara 100.0 on seventeen**, while Rahul Dravid sat at
+    56.3 on eighty and James Anderson at 72.6 on a hundred and eighty-two. The
+    all-time Test XI it produced had Ben Duckett, Axar Patel (15 matches) and
+    Pragyan Ojha in it, and traded off Muttiah Muralitharan. The PSL side took
+    Saqib Mahmood on eight matches and left out Mohammad Rizwan on a hundred and
+    two -- which is the exact failure `config.SELECTION_WEIGHTS` was written to
+    prevent.
+
+    So each mean is pulled toward its pool's mean in proportion to how little
+    cricket it rests on, the same empirical-Bayes device `assess` uses on the
+    form window. The constant is **fitted per (scope x discipline) rather than
+    chosen**, because a guess here is a guess about how noisy cricket is:
+
+        K = within-player variance / between-player variance
+
+    which is the number of matches at which a player's own mean and the pool's
+    carry equal weight. Measured on men's Tests that comes out 15.4 for batters,
+    9.3 for all-rounders and 7.5 for bowlers - a batter's per-match output is
+    less noisy relative to the spread between batters, so a batter's mean earns
+    trust faster. Values I would have guessed (40, 50) are far too aggressive and
+    would have flattened real differences; this is why it is fitted.
+
+    `career_var` is carried on the summary for exactly this. Recomputing it here
+    would mean rebuilding the 107 MB timeline map the summary exists to discard.
     """
     if summary is None:
         summary = form_mod.scope_summary(
             db, gender=gender, competition_key=competition_key,
             competition_type=competition_type,
         )
-    pools: dict[str, list[tuple[str, float]]] = {}
+    if floor is None:
+        floor = MIN_MATCHES
+
+    pools: dict[str, list[tuple[str, int, float, float]]] = {}
     for pid, n in summary.match_count.items():
-        if n < MIN_MATCHES:
+        if n < floor:
             continue
         faced, bowled = summary.balls[pid]
         role = explorer.discipline(faced, bowled)
-        pools.setdefault(role, []).append((pid, summary.career_mean[pid]))
+        pools.setdefault(role, []).append(
+            (pid, n, summary.career_mean[pid], summary.career_var.get(pid, 0.0))
+        )
 
     out: dict[str, float] = {}
     for rows in pools.values():
-        scores = pi._percentiles([v for _p, v in rows])
-        for (pid, _v), pct in zip(rows, scores):
-            out[pid] = pct
+        out.update(_shrunk_percentiles(rows))
     return out
+
+
+def _shrunk_percentiles(
+    rows: list[tuple[str, int, float, float]],
+) -> dict[str, float]:
+    """Percentile the volume-shrunk means of one discipline pool.
+
+    `rows` is (identifier, matches, mean, variance). Returns identifier ->
+    percentile.
+    """
+    if not rows:
+        return {}
+    means = [mean for _pid, _n, mean, _var in rows]
+    pool_mean = sum(means) / len(means)
+
+    # Within-player variance, estimated only on players with enough matches for
+    # their own variance to be a stable estimate. A 2-match player's variance is
+    # noise and would drag the pooled figure around.
+    stable = [var for _pid, n, _mean, var in rows if n >= _VARIANCE_MIN_MATCHES]
+    within = sum(stable) / len(stable) if stable else None
+
+    # Between-player variance, corrected for the sampling noise each observed
+    # mean carries: var(observed means) = var(true means) + within/n. Skipping
+    # the correction overstates the spread between players and so understates
+    # the shrinkage, which is the direction that leaves the bug in.
+    k = 0.0
+    if within is not None and len(rows) > 1:
+        observed = sum((mean - pool_mean) ** 2 for mean in means) / (len(means) - 1)
+        noise = sum(within / n for _pid, n, _mean, _var in rows) / len(rows)
+        between = observed - noise
+        if between > _MIN_BETWEEN_VARIANCE:
+            k = within / between
+        else:
+            # The pool is indistinguishable from noise, so nobody's own mean is
+            # evidence of anything. Shrink hard rather than rank noise.
+            k = _MAX_SHRINKAGE_MATCHES
+    k = min(k, _MAX_SHRINKAGE_MATCHES)
+
+    adjusted = [
+        (pid, (n * mean + k * pool_mean) / (n + k) if k else mean)
+        for pid, n, mean, _var in rows
+    ]
+    scores = pi._percentiles([value for _pid, value in adjusted])
+    return {pid: pct for (pid, _value), pct in zip(adjusted, scores)}
+
+
+# A player needs this many matches before their OWN variance is used to estimate
+# the pool's within-player spread. Below it the estimate is noise.
+_VARIANCE_MIN_MATCHES = 20
+
+# Below this, the spread between players cannot be told from sampling noise and
+# the fitted K would explode. Guards a divide by almost-zero.
+_MIN_BETWEEN_VARIANCE = 1e-6
+
+# Ceiling on the fitted constant. A K above this shrinks every player in the
+# pool to the same figure, which is not a ranking. Only reached where a pool is
+# genuinely indistinguishable from noise, and in that case flattening it is the
+# honest outcome.
+_MAX_SHRINKAGE_MATCHES = 60
 
 
 # What `pool` may be. 'all_time' is the original behaviour and stays the
@@ -448,7 +590,15 @@ def select_side(
         offset=0,
     )
     index_of = {r.player_identifier: r for r in rated}
-    career = _career_standing(db, gender, competition_key, competition_type, summary)
+    # An all-time side asks for a real record; a current squad does not, because
+    # it is already restricted to players still in the picture.
+    eligibility_floor = (
+        _all_time_floor(summary.match_count) if pool == "all_time" else MIN_MATCHES
+    )
+    career = _career_standing(
+        db, gender, competition_key, competition_type, summary,
+        floor=eligibility_floor,
+    )
     keepers = _keepers(db, gender, competition_key, competition_type)
     sourced = scout._sourced_attributes(db)
     openers = explorer.openers(db, gender, competition_key, competition_type)
@@ -526,7 +676,7 @@ def select_side(
     candidates: list[Pick] = []
     considered = 0
     for pid, matches, bf, bb in rows:
-        if matches < MIN_MATCHES:
+        if matches < eligibility_floor:
             continue
         considered += 1
         if eligible_now is not None and pid not in eligible_now:
@@ -559,12 +709,31 @@ def select_side(
         # player past a doubling an identical form term and so could not tell
         # the strongest movers apart. 50 is neutral, used where the verdict is
         # too thin to place.
-        form_pct = verdict.form_score if verdict.form_score is not None else 50.0
-        quality = (
-            weights["career"] * career.get(pid, 50.0)
-            + weights["index"] * rating.index
-            + weights["form"] * form_pct
+        # Components a player actually HAS, renormalised over them - never an
+        # absent component substituted with a middling value.
+        #
+        # Form is absent for most of an all-time pool: 55% of the Test pool and
+        # 58% of the PSL pool have no form verdict, because they have retired.
+        # Handing them the neutral 50 while an active player scores 95 is a
+        # structural 6.8-point penalty for not currently playing, applied inside
+        # a side explicitly picked across all time. That is worth more than the
+        # gap between several picks, and it is the same mistake
+        # `performance_index` refuses when it drops absent components and
+        # renormalises the rest rather than scoring them zero.
+        parts = {
+            "career": career.get(pid, 50.0),
+            "index": rating.index,
+        }
+        if verdict.form_score is not None:
+            parts["form"] = verdict.form_score
+        live = {name: weights[name] for name in parts}
+        total_weight = sum(live.values()) or 1.0
+        quality = sum(
+            (weight / total_weight) * parts[name] for name, weight in live.items()
         )
+        applied_weights = {
+            name: round(weight / total_weight, 4) for name, weight in live.items()
+        }
         # An objective's preference term rides on top of quality rather than
         # replacing it, so "youngest XI" still means the best young side. 50 is
         # neutral, which is what an unknown age scores.
@@ -601,6 +770,7 @@ def select_side(
                 form_delta=round(verdict.delta_ratio * 100, 1) if verdict.delta_ratio is not None else None,
                 form_score=verdict.form_score,
                 form_display=verdict.delta_display,
+                applied_weights=applied_weights,
                 form_state=verdict.state,
                 recent_mean=verdict.recent_mean,
                 selection_score=round(score, 2),
@@ -613,7 +783,10 @@ def select_side(
         )
 
     candidates.sort(key=lambda p: -p.selection_score)
-    picks, tradeoffs = _fill_shape(candidates, size, shape)
+    # `wanted` is the shape SCALED to `size`, which is what was actually filled.
+    # Reporting the unscaled XI shape instead made a XV page state a shape
+    # summing to ten, contradicting the fifteen names printed under it.
+    picks, tradeoffs, wanted = _fill_shape(candidates, size, shape)
     return Selection(
         scope=competition_key or competition_type or "international",
         gender=gender,
@@ -621,15 +794,16 @@ def select_side(
         team_id=team_id,
         team_name=None,
         picks=picks,
-        shape=dict(shape),
+        shape=dict(wanted),
         unavailable=UNAVAILABLE,
-        notes=_notes(picks, size),
+        notes=_notes(picks, size, wanted),
         pool=pool,
         pool_size=len(candidates),
         pool_considered=considered,
         reference_date=anchor,
         cutoff_date=cutoff,
         weights=dict(weights),
+        eligibility_floor=eligibility_floor,
         objective=objective,
         objective_label=spec["label"],
         objective_detail=spec["detail"],
@@ -641,7 +815,7 @@ def select_side(
 
 def _fill_shape(
     candidates: list[Pick], size: int, shape: dict[str, int]
-) -> tuple[list[Pick], list[TradeOff]]:
+) -> tuple[list[Pick], list[TradeOff], dict[str, int]]:
     """Fill the required roles first, then the remaining places on merit.
 
     Taking the top `size` by score instead reliably returns a side with six
@@ -718,7 +892,7 @@ def _fill_shape(
     for p in opening:
         p.reason += " Opens."
 
-    return chosen, _tradeoffs(candidates, chosen, taken, blocked, size)
+    return chosen, _tradeoffs(candidates, chosen, taken, blocked, size), wanted
 
 
 # How many omitted players to report. Enough to see the shape of the decision
@@ -773,9 +947,28 @@ def _tradeoffs(
     return out
 
 
-def _notes(picks: list[Pick], size: int) -> list[str]:
+def _notes(picks: list[Pick], size: int, wanted: dict[str, int] | None = None) -> list[str]:
     """What the selector could not guarantee about this side."""
     notes = []
+    # A quota the pool could not fill. Silent before, so a XV of women's Tests
+    # reported a 4-bowler shape and fielded 2 with nothing saying why.
+    if wanted:
+        short = {
+            role: (n, sum(1 for p in picks if p.slot == role))
+            for role, n in wanted.items()
+        }
+        missing = {r: v for r, v in short.items() if v[1] < v[0]}
+        if missing:
+            notes.append(
+                "The pool could not fill every role: "
+                + ", ".join(
+                    f"{got} of {want} {role}{'s' if want != 1 else ''}"
+                    for role, (want, got) in sorted(missing.items())
+                )
+                + ". The remaining places went to the best players available "
+                "whatever their role, rather than to a worse player of the right "
+                "one."
+            )
     if not any(p.is_wicketkeeper for p in picks):
         notes.append(
             "No wicketkeeper could be identified in this scope, so this side has none. "
@@ -789,7 +982,7 @@ def _notes(picks: list[Pick], size: int) -> list[str]:
         )
     if len(picks) < size:
         notes.append(
-            f"Only {len(picks)} players clear the minimum of {MIN_MATCHES} matches in this scope."
+            f"Only {len(picks)} players clear the match minimum in this scope."
         )
 
     # Balance is REPORTED, never selected for. Coverage of hand and bowling

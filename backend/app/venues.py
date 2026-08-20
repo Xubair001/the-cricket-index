@@ -65,6 +65,55 @@ ALIASES: dict[str, str] = {
     # under the correct one, so without this the ground's own records are the
     # minority of its history.
     "daren sammy national cricket stadium": "Darren Sammy National Cricket Stadium",
+
+    # ---- Added after a same-city sweep, each checked against a source -------
+    #
+    # The containment report cannot see any of these: they are renames,
+    # abbreviations and word-order swaps, which share no substring with the name
+    # they belong to. Between them 700+ matches were filed on a duplicate ground.
+    #
+    # Sponsorship and rebranding. Verified: the Abu Dhabi ground is published as
+    # both "Sheikh Zayed Stadium" and "Zayed Cricket Stadium" (155 matches split
+    # 120/35), and Johannesburg's is "New Wanderers Stadium" precisely to
+    # distinguish it from the historical Old Wanderers, which this dataset does
+    # not hold (98 split 57/41).
+    "zayed cricket stadium": "Sheikh Zayed Stadium",
+    "new wanderers stadium": "The Wanderers Stadium",
+    # Cairns: "Bundaberg Rum Stadium" was Cazaly's Stadium under a naming-rights
+    # deal from 2001 to 2003, which is exactly when these two matches were
+    # played.
+    "bundaberg rum stadium": "Cazaly's Stadium",
+    # Pearland, Texas: Moosa Stadium under a sponsored name.
+    "choice moosa stadium": "Moosa Cricket Stadium",
+
+    # Acronyms and expansions of the same body's name. The WACA takes its name
+    # from the initials of the Western Australian Cricket Association, so these
+    # are one ground written two ways - 50 matches split 38/12.
+    "w a c a ground": "Western Australia Cricket Association Ground",
+    "waca ground": "Western Australia Cricket Association Ground",
+    "vra cricket ground": "VRA Ground",
+    # Nagpur's OLD ground, in Civil Lines. Deliberately NOT merged with
+    # "Vidarbha Cricket Association Stadium, Jamtha", which is the newer ground
+    # a few kilometres away - see the note in DISTINCT_DESPITE_SIMILARITY.
+    "vidarbha c a ground": "Vidarbha Cricket Association Ground",
+
+    # Fuller and shorter forms of one name.
+    "sher e bangla national cricket stadium": "Shere Bangla National Stadium",
+    "sardar patel (gujarat) stadium": "Sardar Patel Stadium",
+    "punjab cricket association is bindra stadium": "Punjab Cricket Association Stadium",
+    "grange cricket club": "Grange Cricket Club Ground",
+    "vassil levski national sports academy": "National Sports Academy",
+    "tafawa balewa square (tbs) cricket oval": "Tafawa Balewa Square Cricket Oval",
+
+    # Bangi, Malaysia: the same sponsor pair written in both orders, splitting
+    # the ground 40/37.
+    "ysd ukm cricket oval": "UKM-YSD Cricket Oval",
+
+    # Kigali: a FULL STOP where every other row has a comma, so the trailing
+    # ", Rwanda" is not stripped and 181 matches split 104/77. Not a rename at
+    # all - a typo in the source that comma-collapse cannot reach, because
+    # splitting on a full stop would break "R.Premadasa" and "W.A.C.A.".
+    "gahanga international cricket stadium. rwanda": "Gahanga International Cricket Stadium",
 }
 
 # Ground names that genuinely exist in more than one place. For these ONLY, the
@@ -85,6 +134,11 @@ CITY_QUALIFIED = {
     "county ground",
     "national stadium",      # Karachi and Hamilton, Bermuda
     "gymkhana club ground",  # Nairobi and Dar-es-Salaam
+    # Found by the cross-city check below, not by reading names: India has
+    # several Nehru Stadiums and this dataset holds four of them - Kochi,
+    # Guwahati, Pune and Margao. Merged they were one ground with eleven matches
+    # in four cities, which is the same failure "County Ground" describes.
+    "nehru stadium",
 }
 
 # Names that LOOK like aliases of a shorter name but are separate grounds.
@@ -97,9 +151,53 @@ DISTINCT_DESPITE_SIMILARITY = {
     # clearest reason substring similarity is reported and never applied.
     "arbab niaz stadium",
     "niaz stadium",
+
+    # ---- Checked and deliberately NOT merged --------------------------------
+    #
+    # Every one of these looked like an alias and is not. They are listed so a
+    # future sweep cannot quietly fold them together, and because two of them
+    # were caught only by checking a source against an instinct that said merge.
+    #
+    # Darwin: Wikipedia is explicit that Marrara Cricket Ground "should not be
+    # confused with the nearby Marrara Oval (TIO Stadium)". Two grounds inside
+    # one sporting complex.
+    "marrara stadium",
+    "marrara cricket ground",
+    # Townsville: Tony Ireland Stadium and Riverway Stadium are separate venues,
+    # both used for cricket in the same series.
+    "riverway stadium",
+    "tony ireland stadium",
+    # Nagpur: the Jamtha STADIUM is the newer ground, several kilometres from the
+    # Civil Lines GROUND. "Stadium" and "Ground" is the only thing telling them
+    # apart, which is why the abbreviation alias above points at the Ground and
+    # this one is pinned.
+    "vidarbha cricket association stadium",
+    # Potchefstroom: Senwes Park and the university's own No 1 ground.
+    "north west cricket stadium",
+    "north-west university no1 ground",
+    # Queenstown: too little to go on. One match under "Davies Park" against ten
+    # under "John Davies Oval", and nothing found that says they are the same
+    # ground, so they stay apart. Reported by the sweep rather than merged.
+    "davies park",
+    "john davies oval",
 }
 
 _WHITESPACE = re.compile(r"\s+")
+# Characters that carry no identity in a ground name. Used only for the
+# comparison key, never for display.
+_PUNCTUATION = re.compile(r"[.\-'\u2019&]")
+
+
+# The three tables above are written in readable lower case with spaces, because
+# that is how a human checks them. Matching happens on the punctuation-stripped
+# key, so each is reindexed once here rather than normalised at every lookup.
+def _key_of(name: str) -> str:
+    return _PUNCTUATION.sub("", name.lower()).replace(" ", "")
+
+
+_ALIAS_BY_KEY = {_key_of(k): v for k, v in ALIASES.items()}
+_CITY_QUALIFIED_KEYS = {_key_of(k) for k in CITY_QUALIFIED}
+_DISTINCT_KEYS = {_key_of(k) for k in DISTINCT_DESPITE_SIMILARITY}
 
 
 def base_name(venue: str | None) -> str | None:
@@ -114,6 +212,29 @@ def base_name(venue: str | None) -> str | None:
     return head or None
 
 
+def _lookup_key(name: str) -> str:
+    r"""The form two spellings of one ground are compared on.
+
+    Case, internal punctuation and spacing are stripped, because a ground being
+    written with or without full stops is not two grounds. This is a
+    normalisation rather than an alias, and it has to be, because the variants
+    are a CLASS rather than a list. Measured over this dataset it merges:
+
+        R Premadasa Stadium (148) with R.Premadasa Stadium (25)
+        M Chinnaswamy Stadium (14) with M.Chinnaswamy Stadium (5)
+        Vidarbha C.A. Ground with Vidarbha CA Ground
+
+    Colombo's ground was the sharpest: a sixth of its history sat under the
+    spelling with full stops, so a venue page keyed on the raw column showed 148
+    of its 173 matches and looked complete.
+
+    Deliberately NOT a substring or fuzzy rule - it only removes characters that
+    carry no identity. "Niaz Stadium" and "Arbab Niaz Stadium" still differ here,
+    which is the property that keeps two grounds 1,000km apart separate.
+    """
+    return _PUNCTUATION.sub("", name.lower()).replace(" ", "")
+
+
 def canonical(venue: str | None, city: str | None = None) -> str | None:
     """The canonical display name for a raw venue string.
 
@@ -126,11 +247,20 @@ def canonical(venue: str | None, city: str | None = None) -> str | None:
     name = base_name(venue)
     if not name:
         return None
-    key = name.lower()
-    if key not in DISTINCT_DESPITE_SIMILARITY:
-        name = ALIASES.get(key, name)
-        key = name.lower()
-    if key in CITY_QUALIFIED and city:
+    # Normalise the DISPLAY form as well as the lookup, or a punctuation variant
+    # resolves to the same ground and then labels it differently, putting two
+    # rows in the ground list with one key between them. Only eight raw
+    # spellings here contain a full stop and every one is initials, so turning
+    # "R.Premadasa Stadium" into "R Premadasa Stadium" is safe - and it matches
+    # how this product already writes initials elsewhere ("JE Root").
+    name = _WHITESPACE.sub(" ", name.replace(".", " ")).strip()
+    # Punctuation-insensitive throughout, so a spelling that differs only by a
+    # full stop resolves to the same ground and to the same alias entry.
+    key = _lookup_key(name)
+    if key not in _DISTINCT_KEYS:
+        name = _ALIAS_BY_KEY.get(key, name)
+        key = _lookup_key(name)
+    if key in _CITY_QUALIFIED_KEYS and city:
         return f"{name} ({city.strip()})"
     return name
 

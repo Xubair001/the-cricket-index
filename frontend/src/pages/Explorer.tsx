@@ -3,6 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary, VenueOption } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
+import { ExplorerScatter } from '../components/ExplorerScatter'
+import { competitionLabel } from '../competitions'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
@@ -326,6 +328,35 @@ export function Explorer() {
           <span className="tnum">{data.filters.min_balls}</span> balls minimum
           {data.filters.min_balls > 0 && ' - rate columns are meaningless below a volume floor'}
         </p>
+      )}
+
+      {/* The chart sits ABOVE the table, because it answers a different
+          question and answering it first is the point: the table ranks, the
+          scatter shows the shape of the field. A reader who only ever sees a
+          sorted column cannot tell an accumulator from an aggressor. */}
+      {data && data.items.length >= 4 && (
+        <ExplorerScatter
+          kind={kind}
+          gender={apiGender}
+          query={{
+            competition: competition || undefined,
+            competition_type: competition ? undefined : competitionType ?? undefined,
+            opposition_team_id: opposition ? Number(opposition) : undefined,
+            date_from: dateFrom || undefined,
+            date_to: dateTo || undefined,
+            min_innings: minInnings ? Number(minInnings) : undefined,
+            min_balls: minBalls ? Number(minBalls) : undefined,
+            role: role || undefined,
+            venue: venue || undefined,
+          }}
+          scopeLabel={
+            competition
+              ? `${competitionLabel(competition)} cricket`
+              : competitionType === 'domestic_league'
+                ? 'franchise cricket'
+                : 'international cricket'
+          }
+        />
       )}
 
       <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">

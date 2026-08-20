@@ -77,8 +77,12 @@ export function Panel({
     >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-ink">{title}</h2>
-          {blurb && <p className="mt-1 max-w-prose text-xs leading-relaxed text-muted">{blurb}</p>}
+          {/* `u-panel` and `u-note`, not ad-hoc size classes. Every panel in
+              the app goes through here, so the scale propagates rather than
+              being re-picked per page - which is how three different heading
+              sizes ended up on adjacent cards. */}
+          <h2 className="u-panel">{title}</h2>
+          {blurb && <p className="u-note mt-1">{blurb}</p>}
         </div>
         {aside}
       </header>
@@ -88,6 +92,32 @@ export function Panel({
 }
 
 /* ── Page furniture ───────────────────────────────────────── */
+
+/**
+ * A heading that groups several panels, with its own explanatory line.
+ *
+ * Exists because the alternative is every page inventing this: a flex row, a
+ * bottom border, a hand-picked heading size and a caption class. Three pages had
+ * three different versions sitting on the same scroll.
+ */
+export function SectionHeading({
+  title,
+  note,
+  aside,
+}: {
+  title: ReactNode
+  note?: ReactNode
+  aside?: ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border-default pb-2">
+      <h2 className="u-section">{title}</h2>
+      {note && <p className="u-note text-xs">{note}</p>}
+      {aside}
+    </div>
+  )
+}
+
 
 export function PageHeader({
   eyebrow,
@@ -104,8 +134,8 @@ export function PageHeader({
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         {eyebrow && <p className="u-eyebrow mb-2">{eyebrow}</p>}
-        <h1 className="u-display text-title text-ink">{title}</h1>
-        {blurb && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">{blurb}</p>}
+        <h1 className="u-title">{title}</h1>
+        {blurb && <p className="u-note mt-2 max-w-2xl">{blurb}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

@@ -13,8 +13,8 @@ import { ParMeter } from '../components/ParMeter'
 import { SkeletonRows } from '../components/LoadingSpinner'
 import { Provenance, Uncertain } from '../components/ui'
 import { PlayerName } from '../components/PlayerName'
-import { NewsRow } from '../components/NewsItem'
-import { change, score } from '../format'
+import { NewsRow, SourceChip } from '../components/NewsItem'
+import { change, score, timeAgo } from '../format'
 
 /**
  * The landing page.
@@ -44,19 +44,80 @@ import { change, score } from '../format'
  * capped at four stories. It is a way out to the sources, not the product.
  */
 
-const ACTIONS = [
-  { label: 'Find a Player', to: 'players', hint: 'Search and filter the full register' },
-  { label: 'Compare Players', to: 'compare', hint: 'Up to four careers side by side' },
-  { label: 'Explore Rankings', to: 'rankings', hint: 'Computed from ball-level aggregates' },
-  { label: 'ICC Rankings', to: 'icc-rankings', hint: 'Official published ratings' },
-  // Shipped: squad lists come from the ICC scorecard feed, so this is no longer
-  // "soon". The franchise gap is real but belongs ON the page as a caveat - a
-  // disabled button claimed the feature did not exist, when what is limited is
-  // its coverage.
+/*
+ * The hero's actions, split into one PRIMARY and the rest.
+ *
+ * Five equally-weighted bordered pills gave a reader no idea where to start, and
+ * a landing page whose calls to action are all the same weight has none. Finding
+ * a player is the entry point every other surface hangs off - a profile links to
+ * form, splits, comparison and the boards - so it takes the solid treatment and
+ * everything else steps back to a quieter one.
+ */
+const PRIMARY_ACTION = {
+  label: 'Find a player',
+  to: 'players',
+  hint: 'Search and filter the full register',
+}
+
+const SECONDARY_ACTIONS = [
+  { label: 'Compare', to: 'compare', hint: 'Up to four careers side by side' },
+  { label: 'Build a Best XI', to: 'best-xi', hint: 'Picked to a role shape, with the trade-offs shown' },
+  { label: 'Rankings', to: 'rankings', hint: 'Computed from ball-level aggregates' },
+  { label: 'ICC rankings', to: 'icc-rankings', hint: 'Official published ratings, kept separate' },
+]
+
+/*
+ * What this product can actually answer, on the landing page.
+ *
+ * Everything below the hero used to be three form boards, so a first-time
+ * reader could not tell that Scout, Best XI, venue intelligence, tournaments or
+ * availability existed at all - they were reachable only from a collapsed
+ * sidebar group. Each card leads with the QUESTION it answers rather than the
+ * feature name, which is Section 2's first rule applied to navigation: if nobody
+ * can name the cricket question a thing answers, it should not be there.
+ */
+const CAPABILITIES = [
   {
-    label: 'Find Available Players',
+    to: 'scout',
+    question: 'Who fits this brief?',
+    label: 'Scout',
+    detail:
+      'State a need - format, role, hand, age, form - and get ranked candidates. Constraints the data cannot honour are named on screen, not dropped.',
+  },
+  {
+    to: 'best-xi',
+    question: 'Who are the best eleven?',
+    label: 'Best XI',
+    detail:
+      'A side filled to a role shape, for one of seven objectives, with the highest-rated player left out and the constraint that left them out.',
+  },
+  {
+    to: 'analytics/venues',
+    question: 'What kind of cricket does this ground produce?',
+    label: 'Venue intelligence',
+    detail:
+      'Scoring and wicket character per format, and who wins batting first, derived from the toss across 408 grounds.',
+  },
+  {
+    to: 'tournaments',
+    question: 'Who won it, and how?',
+    label: 'Tournaments',
+    detail:
+      'World Cups and global events by edition: the table, every fixture, the leading run-scorers and wicket-takers.',
+  },
+  {
+    to: 'performance-index',
+    question: 'Who is playing the best cricket?',
+    label: 'Performance Index',
+    detail:
+      'A rating with every component shown, its weight, and what it was measured against. Never a bare number.',
+  },
+  {
     to: 'availability',
-    hint: 'From announced international squads; the fixture feed carries no franchise cricket',
+    question: 'Who is committed in this window?',
+    label: 'Availability',
+    detail:
+      'Commitments from announced squads, with the share of the window actually announced above the results.',
   },
 ]
 
@@ -250,6 +311,19 @@ function FormBoard({
  * shell - an ingestion that has not run yet is not a thing the reader needs to
  * see on the landing page, and the news page itself says so properly.
  */
+/**
+ * The press strip: one lead story with a real image, three secondary rows.
+ *
+ * Section 8 forbids turning this page into a news feed, and the constraint is
+ * respected in placement and cap rather than by keeping it ugly: it sits BELOW
+ * every computed board, holds four stories, and every headline leaves the site.
+ * What changed is that four 64px thumbnails in an undifferentiated list read as
+ * filler, and a lead story with the space to be legible reads as a way out to
+ * the sources - which is what it is.
+ *
+ * Deliberately still not a figure on this page: nothing here feeds any number
+ * above it, and the header says so.
+ */
 function NewsStrip({
   articles,
   loading,
@@ -260,31 +334,83 @@ function NewsStrip({
   slug: string
 }) {
   if (!loading && articles.length === 0) return null
+  const [lead, ...rest] = articles
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-card">
-      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border-subtle px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-ink">In the cricket press</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            From the publishers' own feeds. Nothing here feeds any figure on this page.
-          </p>
-        </div>
+    <section>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-default pb-2">
+        <h2 className="u-display text-title text-ink">In the cricket press</h2>
         <Link to={`/${slug}/news`} className="text-xs text-analytic-ink hover:underline">
-          All news →
+          All news &rarr;
         </Link>
-      </header>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-dim">
+        From four publishers' own feeds, linked out rather than reproduced. Nothing here feeds any
+        figure on this page.
+      </p>
 
       {loading ? (
-        <SkeletonRows rows={4} className="p-4" />
+        <div className="mt-4 rounded-xl border border-border-subtle bg-surface shadow-card">
+          <SkeletonRows rows={4} className="p-4" />
+        </div>
       ) : (
-        <ul className="divide-y divide-border-subtle">
-          {articles.map((a) => (
-            <NewsRow key={a.article_id} article={a} eager />
-          ))}
-        </ul>
+        <div className="mt-4 grid gap-3 lg:grid-cols-5">
+          {lead && <LeadStory article={lead} />}
+          {rest.length > 0 && (
+            <ul className="divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-card lg:col-span-2">
+              {rest.map((a) => (
+                <NewsRow key={a.article_id} article={a} />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </section>
+  )
+}
+
+/** The lead story, given the space to be read rather than scanned past. */
+function LeadStory({ article }: { article: NewsArticleSummary }) {
+  const image = article.image
+  return (
+    <a
+      href={article.url}
+      target="_blank"
+      rel="noopener noreferrer external"
+      className="group flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-card transition-colors hover:border-border-strong lg:col-span-3"
+    >
+      {image?.url ? (
+        // `url` is the hero rendition, not `thumb_url`: this is the one place on
+        // the page with room for it, and the list rows beside it still use the
+        // small one. Lazy, because it sits well below the fold.
+        <img
+          src={image.url}
+          alt={image.alt_text ?? ''}
+          loading="lazy"
+          className="aspect-[16/8] w-full bg-sunken object-cover"
+        />
+      ) : (
+        <div className="aspect-[16/8] w-full bg-sunken" aria-hidden />
+      )}
+      <div className="flex flex-1 flex-col gap-2 p-4">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <SourceChip publisher={article.publisher} />
+          <span className="tnum text-[11px] text-dim">{timeAgo(article.published_at)}</span>
+        </div>
+        <h3 className="text-base font-semibold leading-snug text-ink group-hover:text-analytic-ink">
+          {article.title}
+        </h3>
+        {article.standfirst && (
+          <p className="line-clamp-2 text-sm leading-relaxed text-muted">{article.standfirst}</p>
+        )}
+        {/* A literal escape, not `&nearr;`: JSX resolves named entities through
+            Babel's table, which has `&rarr;` but not this one, so the entity
+            rendered as text on the page. */}
+        <span aria-hidden className="mt-auto pt-1 text-xs text-dim">
+          Read at {article.publisher} {'\u2197'}
+        </span>
+      </div>
+    </a>
   )
 }
 
@@ -349,34 +475,112 @@ export function Home() {
   ]
 
   return (
-    <div className="space-y-8">
-      <section>
-        <p className="u-eyebrow">
-          {slug === 'men' ? "Men's" : "Women's"} cricket · derived from ball-by-ball
-        </p>
-        <h1 className="u-display mt-3 max-w-3xl text-display text-ink">
-          Understand cricket beyond the scorecard.
-        </h1>
-        <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted">
-          Discover players, analyse performance, compare talent and track form - with the workings
-          shown for every figure.
-        </p>
+    <div className="space-y-10">
+      {/* ---- Hero ------------------------------------------------------ */}
+      <section className="relative overflow-hidden rounded-2xl border border-border-subtle bg-surface px-5 py-8 shadow-card sm:px-8 sm:py-10">
+        {/* A single, very quiet field wash. The one decorative element on the
+            page, and it is a token gradient rather than a colour, so it
+            re-themes with everything else. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.55]"
+          style={{
+            background:
+              'radial-gradient(120% 90% at 88% -10%, var(--color-analytic-dim) 0%, transparent 62%)',
+          }}
+        />
+        <div className="relative">
+          <p className="u-eyebrow">
+            {slug === 'men' ? "Men's" : "Women's"} cricket · derived from ball-by-ball
+          </p>
+          <h1 className="u-display mt-3 max-w-3xl text-display text-ink">
+            Understand cricket beyond the scorecard.
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted">
+            A decision-support platform, not a scores site. It answers who to pick and why, and it
+            shows the workings for every figure - including the ones it cannot compute.
+          </p>
 
-        <div className="mt-6 flex flex-wrap gap-2">
-          {ACTIONS.map((a) => (
+          <div className="mt-6 flex flex-wrap items-center gap-2.5">
             <Link
-              key={a.label}
-              to={`/${slug}/${a.to}`}
-              title={a.hint}
-              className="rounded-lg border border-border-default bg-surface px-4 py-2 text-sm font-medium text-ink shadow-card transition-colors hover:border-border-strong hover:bg-elevated"
+              to={`/${slug}/${PRIMARY_ACTION.to}`}
+              title={PRIMARY_ACTION.hint}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-analytic px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-analytic"
             >
-              {a.label}
+              {PRIMARY_ACTION.label}
+              <span aria-hidden>&rarr;</span>
+            </Link>
+            {SECONDARY_ACTIONS.map((a) => (
+              <Link
+                key={a.label}
+                to={`/${slug}/${a.to}`}
+                title={a.hint}
+                className="rounded-lg border border-border-default bg-surface px-3.5 py-2.5 text-sm font-medium text-muted transition-colors hover:border-border-strong hover:bg-elevated hover:text-ink"
+              >
+                {a.label}
+              </Link>
+            ))}
+          </div>
+
+          {/* The dataset's scale, in the hero rather than buried below the
+              boards. It is what makes the claim above checkable, and at the
+              foot it was read by nobody. */}
+          <dl className="mt-8 flex flex-wrap gap-x-8 gap-y-3 border-t border-border-subtle pt-5">
+            {kpis.map(([label, value]) => (
+              <div key={label}>
+                <dd className="u-display tnum text-xl text-ink">
+                  {value === undefined ? '-' : value.toLocaleString()}
+                </dd>
+                <dt className="u-eyebrow mt-0.5">{label}</dt>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* ---- What it answers ------------------------------------------- */}
+      <section>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-default pb-2">
+          <h2 className="u-display text-title text-ink">What you can ask it</h2>
+          <p className="text-xs text-dim">Every surface states its own coverage and limits.</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {CAPABILITIES.map((c) => (
+            <Link
+              key={c.to}
+              to={`/${slug}/${c.to}`}
+              className="group flex flex-col gap-1.5 rounded-xl border border-border-subtle bg-surface p-4 shadow-card transition-colors hover:border-border-strong hover:bg-elevated focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-analytic"
+            >
+              <span className="u-eyebrow text-analytic-ink">{c.label}</span>
+              <span className="text-[15px] font-semibold leading-snug text-ink">
+                {c.question}
+              </span>
+              <span className="text-xs leading-relaxed text-muted">{c.detail}</span>
+              <span
+                aria-hidden
+                className="mt-auto pt-1 text-xs text-dim transition-colors group-hover:text-analytic-ink"
+              >
+                Open &rarr;
+              </span>
             </Link>
           ))}
         </div>
       </section>
 
-      <ParScale />
+      {/* ---- Form boards ---------------------------------------------- */}
+      <section>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-default pb-2">
+          <h2 className="u-display text-title text-ink">Who has changed</h2>
+          <p className="max-w-xl text-xs leading-relaxed text-dim">
+            Form is measured against each player's own baseline, so these boards say{' '}
+            <em>changed</em>, not <em>best</em>. For who is playing the best cricket outright, see
+            the Performance Index.
+          </p>
+        </div>
+        <div className="mt-4">
+          <ParScale />
+        </div>
+      </section>
 
       <div className="grid gap-5 lg:grid-cols-3">
         <FormBoard
@@ -412,18 +616,7 @@ export function Home() {
           Fetched on its own so an ICC outage cannot blank the boards above. */}
       <IccMovementStrip gender={apiGender} slug={slug} />
 
-      {/* The dataset's size. Present because it sets the scale of everything
-          above, small because it is not the product. */}
-      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border-subtle bg-border-subtle shadow-card sm:grid-cols-5">
-        {kpis.map(([label, value]) => (
-          <div key={label} className="bg-surface px-4 py-3">
-            <div className="u-display tnum text-lg text-ink">
-              {value === undefined ? '-' : value.toLocaleString()}
-            </div>
-            <div className="u-eyebrow mt-0.5">{label}</div>
-          </div>
-        ))}
-      </section>
+      {/* The dataset's scale now sits in the hero, where it is actually read. */}
 
       <NewsStrip articles={news} loading={loading} slug={slug} />
 

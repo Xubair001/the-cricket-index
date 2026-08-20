@@ -7,6 +7,8 @@ instead of keeping a second copy of that list that drifts; `/par` exists because
 every impact score in the product is computed against these.
 """
 
+import dataclasses
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -84,6 +86,37 @@ def list_venues(
             entry["city"] = city
     out = sorted(grouped.values(), key=lambda e: (-e["matches"], e["venue"]))
     return [schemas.VenueOption(**e) for e in out]
+
+
+@router.get("/ground-character", response_model=list[schemas.GroundCharacter])
+def ground_character(
+    gender: str = Query(pattern="^(male|female)$"),
+    competition: str = Query(description="one competition key; required"),
+    min_matches: int = Query(default=1, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[schemas.GroundCharacter]:
+    """Every ground in one competition, on the two axes that describe a pitch.
+
+    Declared before `/venues/{venue_name:path}`, which would otherwise swallow
+    the path.
+
+    `competition` is REQUIRED rather than optional. A ground hosting Tests and
+    T20Is has two characters and one figure describes neither, so there is no
+    sensible unscoped answer to give - and defaulting to one silently would be
+    the "unscoped means everything" mistake §6 exists to prevent.
+    """
+    key = validation.check_competition_key(db, competition)
+    if not key:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown competition '{validation.echo(competition)}'",
+        )
+    rows = venue_mod.character(db, gender=gender, competition_key=key)
+    return [
+        schemas.GroundCharacter(**dataclasses.asdict(g))
+        for g in rows
+        if g.matches >= min_matches
+    ]
 
 
 @router.get("/venues/{venue_name:path}", response_model=schemas.VenueProfile)

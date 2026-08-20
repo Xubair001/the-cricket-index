@@ -1146,6 +1146,23 @@ export interface IccMovementReport {
   notes: string[]
 }
 
+/* ── Ground character (Section 20) ────────────────────────────── */
+
+export interface GroundCharacter {
+  venue: string
+  city: string | null
+  matches: number
+  /** 1.0 = typical scoring for this format. Above means a batting ground. */
+  scoring_index: number | null
+  /** 1.0 = typical balls per wicket. Above means wickets are harder to take. */
+  wicket_index: number | null
+  bat_first_win_pct: number | null
+  decided_matches: number
+  /** False below the match count at which these rates describe a ground rather
+   *  than a handful of games. Marked, never withheld. */
+  reliable: boolean
+}
+
 /* ── Team strength profile (Section 19) ───────────────────────── */
 
 export interface StrengthDimension {

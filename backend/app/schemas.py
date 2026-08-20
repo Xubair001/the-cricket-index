@@ -718,6 +718,29 @@ class VenueFormatStats(BaseModel):
     reliable: bool
 
 
+class GroundCharacter(BaseModel):
+    """One ground on the two axes that describe a pitch, within one competition.
+
+    Both are ratios against the competition's OWN par, because a raw runs per
+    wicket says nothing without the format: 31 is a low Test figure and a very
+    high T20I one. As an index a ground is comparable with every other ground in
+    the same competition, which is the only comparison that means anything.
+    """
+
+    venue: str
+    city: str | None = None
+    matches: int
+    """1.0 = typical scoring for this format. Above means a batting ground."""
+    scoring_index: float | None = None
+    """1.0 = typical balls per wicket. Above means wickets are harder to take."""
+    wicket_index: float | None = None
+    bat_first_win_pct: float | None = None
+    decided_matches: int
+    """False below the match count at which these rates describe a ground rather
+    than a handful of games. Marked, never withheld."""
+    reliable: bool
+
+
 class VenueProfile(BaseModel):
     venue: str
     city: str | None
@@ -870,6 +893,10 @@ class SelectionPick(PlayerCountry):
     form_delta: float | None
     form_score: float | None = None
     form_display: str | None = None
+    """The weights actually used for THIS player, renormalised over the
+    components they have. A retired player carries no form term rather than a
+    neutral stand-in, so the shape differs per pick and is reported."""
+    applied_weights: dict[str, float] = {}
     form_state: str | None
     recent_mean: float | None
     selection_score: float
@@ -925,6 +952,11 @@ class SelectedSide(BaseModel):
     reference_date: str | None = None
     cutoff_date: str | None = None
     weights: dict[str, float] = {}
+    """Matches a player needs in this scope to be considered. Scope-relative for
+    an all-time side: a fixed floor empties scopes that are simply short - no
+    player has more than 14 women's Tests here - so it is a fraction of what a
+    long career in this scope looks like, and is reported rather than assumed."""
+    eligibility_floor: int = 8
     """Which of §18's objectives this side answers. The same heading means a
     different side depending on it, so it is always reported."""
     objective: str = "overall"

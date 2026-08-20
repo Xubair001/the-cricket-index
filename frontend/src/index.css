@@ -65,6 +65,22 @@
   --text-title--line-height: 1.15;
   --text-title--letter-spacing: -0.018em;
 
+  /* The two rungs BETWEEN a page title and body text, which the scale was
+   * missing. Without them every page invented its own: panel headings appeared
+   * as `text-sm font-semibold`, `text-base font-semibold` and `text-[15px]
+   * font-semibold` on three surfaces that sit next to each other, so a reader
+   * got no consistent signal about what level of the page they were on.
+   *
+   * `section` groups panels ("Who has changed"); `panel` heads a single card.
+   * Fixed rather than fluid: a heading inside a card must not resize while the
+   * table under it does not. */
+  --text-section: 1.25rem;
+  --text-section--line-height: 1.25;
+  --text-section--letter-spacing: -0.014em;
+  --text-panel: 0.9375rem;
+  --text-panel--line-height: 1.3;
+  --text-panel--letter-spacing: -0.006em;
+
   /* ── Surfaces - light ──────────────────────────────────────────
    * A cool grey-blue paper rather than a warm cream. Cream is the reflex
    * choice for anything that wants to feel like a printed record, and it
@@ -282,6 +298,54 @@ body {
   font-family: var(--font-display);
   font-stretch: 112%;
   font-weight: 620;
+}
+
+/* One utility per rung of the scale, so a heading is chosen by the level it
+ * occupies rather than by picking a size. Every one sets family, size, weight
+ * and colour together: the previous ad-hoc classes set size and weight only,
+ * which is how display-face titles ended up next to body-face ones. */
+.u-title {
+  font-family: var(--font-display);
+  font-stretch: 112%;
+  font-weight: 620;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+
+.u-section {
+  font-family: var(--font-display);
+  font-stretch: 112%;
+  font-weight: 620;
+  font-size: var(--text-section);
+  line-height: var(--text-section--line-height);
+  letter-spacing: var(--text-section--letter-spacing);
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+
+/* A card's own heading. Body face, not display: at this size the display face's
+ * expanded width fights the table under it rather than framing it. */
+.u-panel {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--text-panel);
+  line-height: var(--text-panel--line-height);
+  letter-spacing: var(--text-panel--letter-spacing);
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+
+/* Explanatory text under a heading. One size and colour everywhere, because
+ * these lines carry the product's honesty devices and must not look like an
+ * afterthought on one page and a caption on another. */
+.u-note {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--color-muted);
+  max-width: 68ch;
 }
 
 /* Small caps-style eyebrow used on section headers and column labels. */

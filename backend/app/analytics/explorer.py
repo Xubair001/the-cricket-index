@@ -61,7 +61,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Integer, Select, String, func, select
+from sqlalchemy import Integer, Select, String, and_, false as sa_false, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import cache
@@ -135,24 +135,74 @@ def _opponent_id():
     )
 
 
-def raw_venues_for(db: Session, canonical_name: str) -> list[str]:
-    """Every raw venue string that normalises to this ground.
+def raw_venue_pairs(db: Session, canonical_name: str) -> list[tuple[str, str | None]]:
+    """Every raw (venue, city) pair that normalises to this ground.
 
     Normalisation is a Python rule (comma-collapse plus a curated alias table),
     so it cannot be expressed as a WHERE clause on the raw column. Resolving the
     ground to its raw spellings first is what makes "matches at Sharjah" mean
     all 122 rather than the 115 filed under the commonest spelling.
+
+    Returns PAIRS, and that is the correctness of it
+    ------------------------------------------------
+    This used to return venue strings alone, under a comment noting that "the
+    city is part of their identity - County Ground alone is eight different
+    English grounds". Dropping the city then defeated exactly that: a filter of
+    `venue IN ('County Ground', 'County Ground, Bristol')` matches the bare
+    string wherever it appears, so Bristol's page also served Taunton, Hove,
+    Derby, Chelmsford and Northampton.
+
+    Measured over this dataset before the fix: **14 ground profiles over-counted
+    and 405 match-rows were attributed to the wrong ground.** Two raw strings are
+    ambiguous - "County Ground" (six English grounds here) and "National Stadium"
+    (Karachi and Hamilton, Bermuda) - which is precisely the set
+    `venues.CITY_QUALIFIED` exists to name.
+
+    Use `venue_condition` to turn these into a WHERE clause; a plain `IN` on the
+    venue column reintroduces the bug.
     """
     wanted = canonical_key(canonical_name)
     if not wanted:
         return []
-    # (venue, city) pairs, because a few ground names exist in more than one
-    # place and the city is part of their identity -- "County Ground" alone is
-    # eight different English grounds.
     rows = db.execute(
         select(Match.venue, Match.city).distinct().where(Match.venue.is_not(None))
     ).all()
-    return sorted({v for v, c in rows if canonical_key(v, c) == wanted})
+    return sorted(
+        {(v, c) for v, c in rows if canonical_key(v, c) == wanted},
+        key=lambda pair: (pair[0], pair[1] or ""),
+    )
+
+
+def venue_condition(pairs: list[tuple[str, str | None]]):
+    """A WHERE clause matching exactly the given (venue, city) pairs.
+
+    `city IS NULL` has to be tested with `IS`, not `=`, so this cannot be a
+    tuple-valued IN. Where every pair for a raw spelling belongs to this ground
+    the city test is redundant, but it is applied anyway: the cost is nothing and
+    a conditional shortcut here is how the original bug got in.
+    """
+    if not pairs:
+        # An unknown ground matches nothing rather than everything. A filter
+        # that silently stops filtering is the failure Phase 1's gate names.
+        return sa_false()
+    return or_(
+        *[
+            and_(
+                Match.venue == venue,
+                Match.city.is_(None) if city is None else Match.city == city,
+            )
+            for venue, city in pairs
+        ]
+    )
+
+
+def raw_venues_for(db: Session, canonical_name: str) -> list[str]:
+    """Deprecated: the raw spellings without their cities.
+
+    Kept only for callers that genuinely want the list of spellings for display.
+    Never use it to build a filter - see `raw_venue_pairs`.
+    """
+    return sorted({venue for venue, _city in raw_venue_pairs(db, canonical_name)})
 
 
 def _scoped(stmt: Select, f: ExplorerFilters, db: Session | None = None) -> Select:
@@ -172,10 +222,9 @@ def _scoped(stmt: Select, f: ExplorerFilters, db: Session | None = None) -> Sele
     if f.date_to:
         stmt = stmt.where(Match.match_date_start <= f.date_to)
     if f.venue and db is not None:
-        raws = raw_venues_for(db, f.venue)
-        # An unknown ground matches nothing rather than everything -- a filter
-        # that silently stops filtering is the failure Phase 1's gate names.
-        stmt = stmt.where(Match.venue.in_(raws or [""]))
+        # Pairs, not bare venue strings: see `raw_venue_pairs`. Filtering on the
+        # venue alone merged six different County Grounds into one.
+        stmt = stmt.where(venue_condition(raw_venue_pairs(db, f.venue)))
     return stmt
 
 

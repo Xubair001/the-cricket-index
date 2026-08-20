@@ -286,6 +286,7 @@ def best_side(
         reference_date=result.reference_date,
         cutoff_date=result.cutoff_date,
         weights=result.weights,
+        eligibility_floor=result.eligibility_floor,
         objective=result.objective,
         objective_label=result.objective_label,
         objective_detail=result.objective_detail,

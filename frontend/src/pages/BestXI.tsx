@@ -47,8 +47,16 @@ const SIZES = [
  * there has been" and useless for "who do we pick next".
  */
 const POOLS = [
-  { value: 'all_time', label: 'All time', hint: 'Everyone who has played enough in this competition, retired players included.' },
-  { value: 'current', label: 'Current squad', hint: 'Only players still in the picture, weighted towards recent evidence. This is the one to pick a next squad from.' },
+  {
+    value: 'current',
+    label: 'Current squad',
+    hint: 'Only players still in the picture - last appearance in this scope within a year, and no sourced retirement. This is the one to pick a next squad from, and the page default.',
+  },
+  {
+    value: 'all_time',
+    label: 'All time',
+    hint: 'Everyone with enough of a record in this competition, retired players included. Answers "the best there has been", not "who do we pick".',
+  },
 ]
 
 /*
@@ -116,7 +124,17 @@ export function BestXI() {
   const requestedCompetition = params.get('competition') ?? ''
   const size = Number(params.get('size') ?? 11)
   const teamId = params.get('team') ?? ''
-  const pool = params.get('pool') === 'current' ? 'current' : 'all_time'
+  // The PAGE defaults to the current squad; the API still defaults to all-time.
+  //
+  // Two different requirements. A reader who opens "Best XI" is almost always
+  // asking who to pick next, and landing on a side containing Shane Warne and
+  // Muttiah Muralitharan reads as the product ignoring that they retired. But
+  // the API default has to stay `all_time`, because links already shared carry
+  // no `pool` parameter and must keep returning the side they returned before.
+  //
+  // So the page sends its intent explicitly rather than relying on the default,
+  // and `?pool=all_time` still selects the all-time side.
+  const pool = params.get('pool') === 'all_time' ? 'all_time' : 'current'
   const objective = params.get('objective') || 'overall'
 
   const { competitions } = useScope()
@@ -210,7 +228,7 @@ export function BestXI() {
           <span className={fieldLabelClass}>Pick from</span>
           <select
             value={pool}
-            onChange={(e) => update({ pool: e.target.value === 'current' ? 'current' : '' })}
+            onChange={(e) => update({ pool: e.target.value === 'all_time' ? 'all_time' : '' })}
             className={fieldClass}
             title={POOLS.find((p) => p.value === pool)?.hint}
           >

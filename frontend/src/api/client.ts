@@ -45,6 +45,7 @@ import type {
   PlayerSplits,
   TeamStrengthProfile,
   IccMovementReport,
+  GroundCharacter,
 } from './types'
 
 // `boolean` is in the value union because FastAPI query flags are real params,
@@ -249,6 +250,22 @@ export const api = {
 
   // One ground's character (§20). The name is canonical, and may carry a
   // parenthesised city for the handful that exist in several places.
+  /**
+   * Every ground in ONE competition on the two axes that describe a pitch.
+   * `competition` is required: a ground hosting Tests and T20Is has two
+   * characters and one figure describes neither.
+   */
+  groundCharacter: (
+    gender: ApiGender,
+    competition: string,
+    params: { min_matches?: number } = {},
+  ) =>
+    getJson<GroundCharacter[]>('/api/analytics/ground-character', {
+      gender,
+      competition,
+      ...params,
+    }),
+
   venueProfile: (venue: string, gender: ApiGender, competition?: string) =>
     getJson<VenueProfile>(`/api/analytics/venues/${encodeURIComponent(venue)}`, {
       gender,

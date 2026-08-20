@@ -54,6 +54,10 @@ from . import config
 # Split types this module can actually compute.
 AVAILABLE = ("phase", "situation", "venue", "opposition", "competition")
 
+# Packs (venue, city) into one GROUP BY key. A character that cannot occur in
+# either column, so unpacking is unambiguous.
+_VENUE_CITY_SEPARATOR = "\x1f"
+
 # Declared so the API can report them as absent-with-a-reason rather than
 # silently offering a shorter list than §12 promises.
 UNAVAILABLE = {
@@ -210,7 +214,17 @@ def _group_expression(split: str, competition_key: str | None):
         ]
 
     if split == "venue":
-        return Match.venue, None, None
+        # Grouped on venue AND city, not the venue alone. Six different English
+        # grounds are all called "County Ground" and two are "National Stadium",
+        # so grouping on the raw column merges them: players here have up to 37
+        # appearances spread across six County Grounds, reported as one row.
+        # The pair is packed into one expression because this is a GROUP BY key,
+        # and unpacked when the label is resolved.
+        return (
+            Match.venue + _VENUE_CITY_SEPARATOR + func.coalesce(Match.city, ""),
+            None,
+            None,
+        )
     if split == "opposition":
         return func.iif(
             Delivery.batting_team_id == Match.team1_id, Match.team2_id, Match.team1_id
@@ -300,7 +314,11 @@ def compute(
     # Names for the splits whose bucket key is an id or a raw string.
     if split == "venue":
         for b in rows:
-            b.label = canonical(b.key) or b.key
+            venue, _, city = b.key.partition(_VENUE_CITY_SEPARATOR)
+            # `canonical` takes the city so a shared ground name is qualified -
+            # "County Ground (Bristol)" rather than six rows all reading
+            # "County Ground".
+            b.label = canonical(venue, city or None) or venue
     elif split == "opposition":
         names = dict(db.execute(select(Team.team_id, Team.name)).all())
         for b in rows:

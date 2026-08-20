@@ -2063,3 +2063,316 @@ port to compare against the instance already serving 8001 - and a hardcoded
 target silently proxies to whichever process got there first:
 
     VITE_API_TARGET=http://127.0.0.1:8009 npm run dev -- --port 5174
+
+### Best XI was ranking sample size, and three separate things caused it
+
+Found by reading the all-time men's Test XI rather than the code. It contained
+**Ben Duckett, Axar Patel (15 matches) and Pragyan Ojha**, and it *traded off*
+Muttiah Muralitharan. The PSL side took Saqib Mahmood on 8 matches and left out
+Mohammad Rizwan on 102 - the exact failure `SELECTION_WEIGHTS` was written to
+prevent. The women's ODI XI took Holly Colvin on 11 matches beside players on 40
+to 120.
+
+The aggregates underneath were verified correct first, against published career
+records, so the defect had to be in the weighting:
+
+    Stuart Broad   ours 167 Tests / 604 wkts / avg 27.68   published identical
+    Alastair Cook  ours 161 Tests / 12,472 runs / 45.35    published identical
+    James Anderson ours 682 wkts / avg 26.41               published 704 / 26.45
+    R Ashwin       ours 532 wkts / avg 24.12               published 537 / 24.00
+
+Broad's and Cook's whole careers fall inside the window, and both reproduce
+exactly; Anderson and Ashwin differ only by the matches Cricsheet is missing.
+
+**1. `_career_standing` percentiled an unshrunk mean.** So sample size bought
+the top of the board: Steve Waugh scored 98.1 on **8 matches** and Brian Lara
+100.0 on **17**, while Rahul Dravid sat at 56.3 on 80 and James Anderson at 72.6
+on 182. Correlation of standing with match count was r = 0.43, i.e. a long career
+earned almost nothing.
+
+Each mean is now shrunk toward its pool's mean, the empirical-Bayes device
+`assess` already uses on the form window. The constant is **fitted per (scope x
+discipline), not chosen**: K = within-player variance / between-player variance,
+which is the number of matches at which a player's own mean and the pool's carry
+equal weight. Measured on men's Tests that is **15.4 for batters, 9.3 for
+all-rounders, 7.5 for bowlers**. Worth knowing: the values that *looked* right
+when eyeballing the board were 45 to 60, four times too aggressive, which is
+exactly why it is fitted rather than tuned until the output pleases.
+
+The between-player term must be corrected for sampling noise -
+`var(observed means) = var(true) + within/n` - because skipping that overstates
+the spread between players and so understates the shrinkage, which is the
+direction that leaves the bug in.
+
+**2. `MIN_MATCHES = 8` is too low for an all-time side, and a fixed floor breaks
+a scope.** The obvious fix, a floor of 20, silently empties one: **no player has
+more than 14 women's Tests here**, because the dataset holds 24 of them. At 20
+that XI returns nobody - and it is one of the best sides this product produces
+(Perry, Knight, Healy, Ecclestone, Sciver-Brunt), precisely because when everyone
+has 8 to 14 matches the comparison is level.
+
+So the all-time floor is **a third of what a long career in this scope looks
+like**, taken as the p90 of match counts: 18 for men's Tests, 26 for men's ODIs,
+14 for men's T20Is, 15 for the PSL, 5 for women's Tests. `pool='current'` keeps
+the absolute floor of 8, because it asks "who do we pick next", the pool is
+already restricted to players active within a year, and a newcomer with eight
+caps is a legitimate answer to that and not to "the best there has ever been".
+The floor is returned as `eligibility_floor` and stated on the page.
+
+**3. A retired player was scored 50 for form, which is a penalty for having
+retired.** `form_score` is None for anyone without a current verdict, and the
+neutral 50 was substituted. Measured: **55% of the all-time Test pool and 58% of
+the PSL pool have no form verdict**, and form carries 15%, so an active player on
+95 gained 6.8 points over a retired one purely for still playing - inside a side
+explicitly picked across all time. That is more than the gap between several
+picks.
+
+Each player is now scored on the components they actually have, renormalised over
+them, which is what `performance_index` already does for absent components. A
+retired player carries career and index at 0.65/0.35; an active one carries all
+three. `applied_weights` reports the shape per pick.
+
+After all three: the all-time Test XI is Sangakkara, Head, Pietersen, Smith,
+Williamson, Vettori, Jansen, Cummins, Warne, Muralitharan, Ajmal, and the PSL
+side has Fakhar Zaman, Rashid Khan and Shaheen Afridi in it.
+
+**Two smaller fixes found while checking.** `shape` reported the unscaled XI
+shape, so a XV page stated a shape summing to ten above fifteen names; it now
+reports the scaled shape `_fill_shape` actually filled. And a role quota the pool
+cannot fill was silent - a women's Test XV asked for four bowlers, fielded two,
+and said nothing - so `_notes` now names it.
+
+**The page defaults to `pool='current'`; the API still defaults to `all_time`.**
+Two different requirements. A reader opening "Best XI" is almost always asking
+who to pick next, and a side containing Warne and Muralitharan reads as the
+product ignoring that they retired. But the API default has to stay `all_time`,
+because links already shared carry no `pool` and must keep resolving to the side
+they returned before. So the page sends its intent explicitly.
+
+### The venue city qualification was defeated at the query
+
+`CITY_QUALIFIED` exists because "County Ground" is several English grounds and
+"National Stadium" is Karachi and Hamilton. `canonical_key` honours it. The
+queries did not: `explorer.raw_venues_for` resolved the raw spellings using the
+city and then **returned the venue strings alone**, under a comment stating that
+"the city is part of their identity". Every caller then filtered
+`Match.venue IN (...)`, which matches a bare name wherever it appears.
+
+Measured before the fix: **14 ground profiles over-counted and 405 match-rows
+were attributed to the wrong ground.** County Ground (Bristol) served Taunton,
+Hove, Derby, Chelmsford and Northampton as well; National Stadium (Karachi)
+included two Bermuda matches.
+
+`raw_venue_pairs` now returns (venue, city) pairs and `venue_condition` builds
+the WHERE clause, shared by the venue profile and the explorers so the two cannot
+drift. `city IS NULL` needs `IS` rather than `=`, so it cannot be a tuple-valued
+`IN`.
+
+The same flaw existed in the **venue split**, which grouped on the raw column, so
+six County Grounds collapsed into one row for players with up to 37 appearances
+across them. It now groups on the pair and labels through `canonical(venue,
+city)`, which qualifies the name.
+
+Verified after: 591 venue profiles across both genders, zero anomalies, and every
+profile's match count equals its listing's. 408 canonical grounds from 636 raw
+(venue, city) pairs, and the API's per-ground totals sum to all 10,105 matches
+that carry a venue, so nothing is lost in normalisation.
+
+### What the verification pass confirmed was already right
+
+Worth recording so it is not re-litigated:
+
+- **Form verdicts are correct.** Kohli's last ten internationals are 74, 65, 5,
+  124, 23, 93, 65, 102, 135, 74 - 760 runs at 76.0 against England, New Zealand,
+  South Africa and Australia. "In form, 99.9, 3.0x baseline" is right.
+- **The opposition adjustment works.** Full members are 35% of the qualifying
+  population and 52% of the top 25, so the board favours harder opposition by
+  1.48x rather than ranking by weakness. Multipliers order sensibly: India 1.179,
+  England 1.084, Australia 1.035, Bangladesh 0.967, Bhutan 0.758, Malta 0.645.
+- **Associates on the in-form board are not a bug.** Namgay Thinley's 100 off 47
+  plus wickets is a genuine purple patch, already discounted by a ~0.76
+  multiplier, and the par-units column beside it carries the absolute standard.
+  Form means *changed*; the Index means *best*.
+- **`pool='current'` leaks nobody.** Checked against the database across four
+  scopes: zero picks with a last appearance before the cutoff, a retirement date
+  or a date of death.
+- **Every team survives every team endpoint.** 212 teams x 3 endpoints = 636
+  requests, zero non-404 errors and zero out-of-range figures.
+
+### The homepage leads with what it can answer, not with three boards
+
+The landing page was a hero, one par explainer, three form boards and a news
+list, all at the same visual weight. Two concrete problems: five identically
+styled pills gave a reader nowhere to start, and Scout, Best XI, venue
+intelligence, tournaments and availability were reachable only from a collapsed
+sidebar group, so a first-time reader could not tell they existed.
+
+Now: one primary action against quieter secondaries; the dataset's scale in the
+hero where it is actually read rather than at the foot; a **"What you can ask
+it"** grid whose six cards lead with the *question* each surface answers, which
+is §2's first rule applied to navigation; and real section headings so the page
+has a rhythm instead of a stack of equal cards.
+
+The news strip keeps §8's constraint and stops keeping it ugly. It still sits
+below every computed board, still holds four stories, still links out - but four
+64px thumbnails in an undifferentiated list read as filler, so it is now one lead
+story with room to be legible plus three rows. The header still says nothing
+there feeds any figure on the page.
+
+One implementation note: JSX resolves named entities through Babel's table,
+which has `&rarr;` but **not** `&nearr;` - that one rendered as literal text on
+the page. Use an escape for anything outside the common set.
+
+### The venue alias report could not see the aliases that mattered
+
+`venues.unresolved_candidates` compares names by CONTAINMENT, so it reports
+"Grange Cricket Club" against "Grange Cricket Club Ground" and misses every
+rename, sponsorship name, acronym and word-order swap - which is most of them,
+because those share no substring with the name they belong to.
+
+Sweeping same-city pairs by distinctive token and by acronym instead found
+**700+ matches filed on a duplicate ground record**, and the largest were the
+best-known grounds in the dataset:
+
+    Sheikh Zayed Stadium        120 + Zayed Cricket Stadium              35
+    Shere Bangla National       225 + Sher-e-Bangla National              1
+    Gahanga International       104 + "Gahanga International ... . Rwanda" 77
+    R Premadasa Stadium         148 + R.Premadasa Stadium                25
+    The Wanderers Stadium        41 + New Wanderers Stadium              57
+    UKM-YSD Cricket Oval         40 + YSD-UKM Cricket Oval               37
+    WA Cricket Association Gd    38 + W.A.C.A. Ground                    12
+
+Kigali's is not a rename at all: one row has a **full stop where every other has
+a comma**, so ", Rwanda" is never stripped. It cannot be fixed by splitting on a
+full stop, because that breaks "R.Premadasa" and "W.A.C.A." - so it is an alias.
+
+Two generic fixes rather than a longer list of aliases:
+
+- **The lookup key is punctuation-insensitive.** Case, full stops, hyphens and
+  apostrophes are stripped for comparison, because a ground written with or
+  without full stops is not two grounds and the variants are a class rather than
+  a list. Only eight raw spellings here contain a full stop and every one is
+  initials, so the DISPLAY name is normalised the same way - "R.Premadasa
+  Stadium" becomes "R Premadasa Stadium", matching how this product already
+  writes initials. Normalising the key alone would have merged the group and then
+  labelled it two different ways, putting two rows in the list with one key.
+- **"Niaz Stadium" and "Arbab Niaz Stadium" still differ** under that rule, which
+  is the property that keeps two grounds 1,000km apart separate. The
+  normalisation only removes characters that carry no identity; it is not fuzzy.
+
+**Two merges were rejected because a source contradicted the instinct**, and both
+are now pinned in `DISTINCT_DESPITE_SIMILARITY`:
+
+- Darwin's **Marrara Cricket Ground and Marrara Stadium (TIO)** are two grounds
+  inside one sporting complex. Wikipedia says so explicitly.
+- Townsville's **Tony Ireland Stadium and Riverway Stadium** are separate venues,
+  both used for cricket in the same series.
+
+Also pinned: Nagpur's Civil Lines **Ground** against the Jamtha **Stadium**,
+Potchefstroom's Senwes Park against the university's No 1 ground, and
+Queenstown's Davies Park against John Davies Oval, where nothing was found either
+way and one match is not enough to merge on.
+
+**And one wrong merge already in the data: "Nehru Stadium".** India has several,
+and this dataset holds four - Kochi, Guwahati, Pune and Margao - pooled into one
+ground of eleven matches across four cities. Found by the cross-city check, not
+by reading names, and fixed by adding it to `CITY_QUALIFIED` alongside County
+Ground and National Stadium.
+
+Result: **636 raw (venue, city) pairs to 394 canonical grounds**, all 10,105
+matches with a venue accounted for, and 572 venue profiles across both genders
+with zero anomalies.
+
+`backend/scripts/validate_venues.py` makes this repeatable, which §29 asks for.
+Four checks, each of which caught something real: cross-city merges (found Nehru
+Stadium), same-city rename and acronym candidates (found the 700 matches),
+no-match-lost, and a regression check that the pinned-apart grounds still
+resolve separately - because two of those entries exist only because a source
+overruled a guess.
+
+#### Australian grounds are the sharpest case, and the handover is the proof
+
+Sponsorship renaming is constant there. The WACA merged from three spellings to
+50 matches ending **2017-12**, and Perth Stadium begins **2018-01** - a clean
+handover with no overlap, which is strong evidence the two are correctly kept
+apart rather than one ground written two ways. Cairns' "Bundaberg Rum Stadium"
+was Cazaly's Stadium under a naming-rights deal from 2001 to 2003, which is
+exactly when its two matches were played.
+
+The figures then read as cricket: the MCG's T20I bat-first win rate is 36.8%
+against the SCG's 63.6%, and the SCG's Test runs-per-wicket is 36.04 against the
+MCG's 29.75.
+
+### Ground character is the question a single ground page cannot answer
+
+`/api/analytics/ground-character` puts every ground in ONE competition on two
+axes at once, because "how does this ground compare with the others we will play
+on" needs the population and a ground page only has one row of it.
+
+Both axes are indices against the competition's **own** par, with the datum at
+1.00 - the same device the par meter uses everywhere else. A raw runs-per-wicket
+of 31 is a low Test figure and a very high T20I one, so only the index is
+comparable. `competition` is therefore **required**, not optional: a ground
+hosting Tests and T20Is has two characters and one figure describes neither, and
+defaulting silently would be the "unscoped means everything" mistake §6 exists
+to prevent.
+
+It produces real cricket. Men's Tests: the WACA at 1.096 scoring and 0.959
+wickets (fast scoring, wickets fall), Edgbaston 1.092 and 0.90, against Dubai at
+0.882 and 1.13 and Sheikh Zayed at 0.926 and 1.119 with batting first winning
+88.9% - a slow surface where the toss decides a great deal.
+
+Colour on the chart carries the bat-first record and uses the **semantic**
+positive/negative pair rather than a categorical one, because unlike role or team
+"batting first wins more often" has a direction. Grounds below the reliability
+threshold are drawn faded rather than dropped, so a thin ground is visible as
+thin.
+
+### The scatter is the chart a leaderboard cannot replace
+
+`ExplorerScatter` plots average against strike rate for batting, and average
+against economy for bowling. A column sorted by average says who scores most per
+dismissal; it cannot say that two batters averaging 45 are different cricketers
+if one strikes at 75 and the other at 140, which is the first thing a selector
+wants.
+
+Three things it gets right that a naive version would not:
+
+- **It fetches its OWN field, ordered by matches.** Plotting the table's page
+  would put the reference lines at the median of the top 25 by whatever column
+  the reader sorted on - sorted by runs, every one of those is a high-volume
+  player and the "median strike rate" is the median of the heaviest scorers. It
+  asks for 100 rows under the same filters ordered by participation, which is the
+  one ordering that biases neither axis.
+- **Axis padding is proportional, not absolute.** A flat +/-5 is reasonable on
+  strike rate, which spans 119 to 179, and absurd on economy, which spans 2.5 to
+  4.5: it produced an axis running -2.61 to 9.11 with every point squashed into
+  the middle third, so the chart showed no separation in the dimension it exists
+  to show.
+- **The good quadrant is derived, not written.** Bowling inverts - low is better
+  on both axes - so the caption is generated from the metric. Hardcoding
+  "top-right" would have praised the worst bowlers on screen.
+
+Colour carries the inferred role, which is three values: the maximum the design
+system allows on an all-pairs form where every series can sit beside every other.
+
+### The type scale was missing its middle, so every page invented one
+
+There were tokens for the hero and the page title and nothing between, so panel
+headings appeared as `text-sm font-semibold`, `text-base font-semibold` and
+`text-[15px] font-semibold` on three surfaces sitting next to each other. A
+reader got no consistent signal about what level of the page they were on.
+
+`--text-section` and `--text-panel` fill the gap, and each rung now has one
+utility that sets family, size, weight and colour together - the ad-hoc classes
+set size and weight only, which is how display-face titles ended up beside
+body-face ones. `u-note` is the explanatory line under a heading, one size and
+colour everywhere, because those lines carry this product's honesty devices and
+must not look like a caption on one page and an afterthought on another.
+
+Applied through `Panel`, `PageHeader` and a new `SectionHeading` rather than page
+by page, so it propagates. Fixed rather than fluid below the title: a heading
+inside a card must not resize while the table under it does not.
+
+One JSX note found while building: named entities resolve through Babel's table,
+which has `&rarr;` but **not** `&nearr;` - that one rendered as literal text.

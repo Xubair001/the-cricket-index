@@ -57,7 +57,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Competition, Match, PlayerMatchStat
 from ..venues import canonical, canonical_key
-from . import config
+from . import config, explorer as explorer_mod
 
 # Below this a ground's rates are noise; they are returned but flagged so the UI
 # can mark them rather than presenting four matches as a ground's character.
@@ -102,11 +102,17 @@ def _safe(n: float, d: float, places: int = 2) -> float | None:
     return round(n / d, places) if d else None
 
 
-def _raw_strings(db: Session, wanted_key: str) -> list[str]:
-    rows = db.execute(
-        select(Match.venue, Match.city).distinct().where(Match.venue.is_not(None))
-    ).all()
-    return sorted({v for v, c in rows if canonical_key(v, c) == wanted_key})
+def _raw_pairs(db: Session, wanted_key: str) -> list[tuple[str, str | None]]:
+    """The raw (venue, city) pairs that normalise to this ground.
+
+    Pairs rather than venue strings, because filtering on the venue alone pulls
+    in every ground that shares a bare name: "County Ground" is six English
+    grounds here and "National Stadium" is Karachi and Hamilton, and profiles
+    built on a venue-only filter over-counted 405 match-rows across 14 grounds.
+    Shared with the explorers via `explorer.raw_venue_pairs`, which is the same
+    resolver, so the two can never drift apart.
+    """
+    return explorer_mod.raw_venue_pairs(db, wanted_key)
 
 
 def profile(
@@ -123,9 +129,10 @@ def profile(
     wanted = canonical_key(venue_name)
     if not wanted:
         return None
-    raws = _raw_strings(db, wanted)
-    if not raws:
+    pairs = _raw_pairs(db, wanted)
+    if not pairs:
         return None
+    at_ground = explorer_mod.venue_condition(pairs)
 
     # Per-competition batting aggregates at this ground.
     stmt = (
@@ -141,7 +148,7 @@ def profile(
         )
         .join(Match, Match.match_id == PlayerMatchStat.match_id)
         .join(Competition, Competition.competition_id == Match.competition_id)
-        .where(Match.venue.in_(raws), Match.gender == gender)
+        .where(at_ground, Match.gender == gender)
         .group_by(Competition.key)
     )
     if competition_key:
@@ -176,7 +183,7 @@ def profile(
         )
         wicket_index = round(ground_bpw / par_bpw, 3) if ground_bpw and par_bpw else None
 
-        toss = _toss_record(db, raws, gender, key)
+        toss = _toss_record(db, at_ground, gender, key)
         formats.append(
             VenueFormat(
                 competition_key=key,
@@ -197,16 +204,16 @@ def profile(
 
     span = db.execute(
         select(func.min(Match.match_date_start), func.max(Match.match_date_start)).where(
-            Match.venue.in_(raws), Match.gender == gender
+            at_ground, Match.gender == gender
         )
     ).one()
     total = db.execute(
         select(func.count()).select_from(Match).where(
-            Match.venue.in_(raws), Match.gender == gender
+            at_ground, Match.gender == gender
         )
     ).scalar_one()
     city = db.execute(
-        select(Match.city).where(Match.venue.in_(raws), Match.city.is_not(None)).limit(1)
+        select(Match.city).where(at_ground, Match.city.is_not(None)).limit(1)
     ).scalar_one_or_none()
 
     return VenueProfile(
@@ -215,12 +222,12 @@ def profile(
         matches=total,
         first_match=span[0],
         last_match=span[1],
-        raw_spellings=raws,
+        raw_spellings=sorted({venue for venue, _city in pairs}),
         formats=formats,
     )
 
 
-def _toss_record(db: Session, raws: list[str], gender: str, competition_key: str) -> dict:
+def _toss_record(db: Session, at_ground, gender: str, competition_key: str) -> dict:
     """Bat-first and toss outcomes at a ground.
 
     Who batted first is derived from the toss, which is what makes this Tier A:
@@ -238,7 +245,7 @@ def _toss_record(db: Session, raws: list[str], gender: str, competition_key: str
         )
         .join(Competition, Competition.competition_id == Match.competition_id)
         .where(
-            Match.venue.in_(raws),
+            at_ground,
             Match.gender == gender,
             Competition.key == competition_key,
         )
@@ -271,4 +278,150 @@ def _toss_record(db: Session, raws: list[str], gender: str, competition_key: str
     }
 
 
-__all__ = ["profile", "VenueProfile", "VenueFormat", "MIN_MATCHES_FOR_CHARACTER"]
+@dataclass
+class GroundCharacter:
+    """One ground's character in one competition, for cross-ground comparison."""
+
+    venue: str
+    city: str | None
+    matches: int
+    # Ratios against this competition's own par. 1.0 = typical for the format.
+    scoring_index: float | None
+    wicket_index: float | None
+    bat_first_win_pct: float | None
+    decided_matches: int
+    reliable: bool
+
+
+def character(
+    db: Session, *, gender: str, competition_key: str
+) -> list[GroundCharacter]:
+    """Every ground in one competition, on the two axes that describe a pitch.
+
+    A ground page answers "what kind of cricket does THIS ground produce". It
+    cannot answer the question a selector or a touring side actually asks first,
+    which is "which grounds produce which cricket" - and that needs every ground
+    on one scale at once. Computing it by fetching each profile in turn is 400
+    requests, so it is one pass here.
+
+    Both axes are ratios against the competition's own par, because a raw runs
+    per wicket is meaningless without knowing the format: 31 is a low Test figure
+    and a very high T20I one. Expressed as an index, a ground is directly
+    comparable with every other ground in the same competition, which is the
+    only comparison that means anything.
+
+    Scoped to ONE competition for that reason - a ground hosting Tests and T20Is
+    has two characters and one figure describes neither.
+    """
+    from . import impact as impact_mod
+
+    par = impact_mod.par_table(db)
+    p = par.lookup(competition_key, gender)
+
+    rows = db.execute(
+        select(
+            Match.venue,
+            Match.city,
+            func.count(func.distinct(PlayerMatchStat.match_id)),
+            func.sum(PlayerMatchStat.runs_scored),
+            func.sum(PlayerMatchStat.balls_faced),
+            func.sum(PlayerMatchStat.dismissals),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(
+            Match.gender == gender,
+            Competition.key == competition_key,
+            Match.venue.is_not(None),
+        )
+        .group_by(Match.venue, Match.city)
+    ).all()
+
+    # Fold the raw (venue, city) pairs into canonical grounds. Grouping in SQL
+    # cannot do this: the canonical name comes from a Python alias table, which
+    # is what makes the St Lucia ground one row rather than six.
+    folded: dict[str, dict] = {}
+    for venue, city, matches, runs, balls, dismissals in rows:
+        key = canonical_key(venue, city)
+        if key is None:
+            continue
+        bucket = folded.setdefault(
+            key,
+            {
+                "name": canonical(venue, city) or venue,
+                "city": city,
+                "matches": 0,
+                "runs": 0,
+                "balls": 0,
+                "dismissals": 0,
+            },
+        )
+        bucket["matches"] += matches or 0
+        bucket["runs"] += runs or 0
+        bucket["balls"] += balls or 0
+        bucket["dismissals"] += dismissals or 0
+        bucket["city"] = bucket["city"] or city
+
+    # Bat-first record per ground, from the toss, in one pass over the matches.
+    toss_rows = db.execute(
+        select(
+            Match.venue,
+            Match.city,
+            Match.toss_winner_team_id,
+            Match.toss_decision,
+            Match.team1_id,
+            Match.team2_id,
+            Match.winner_team_id,
+        )
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(
+            Match.gender == gender,
+            Competition.key == competition_key,
+            Match.venue.is_not(None),
+        )
+    ).all()
+    bat_first: dict[str, list[int]] = {}
+    for venue, city, toss_winner, decision, t1, t2, winner in toss_rows:
+        key = canonical_key(venue, city)
+        if key is None or not (toss_winner and decision and winner and t1 and t2):
+            continue
+        first = toss_winner if decision == "bat" else (t2 if toss_winner == t1 else t1)
+        tally = bat_first.setdefault(key, [0, 0])
+        tally[0 if winner == first else 1] += 1
+
+    out: list[GroundCharacter] = []
+    for key, b in folded.items():
+        ground_rate = _safe(b["runs"] * 100.0, b["balls"], 4)
+        scoring_index = (
+            round(ground_rate / p.scoring_rate, 3)
+            if ground_rate and p.scoring_rate else None
+        )
+        ground_bpw = _safe(b["balls"], b["dismissals"], 4)
+        par_bpw = (
+            (p.scoring_rate and p.runs_per_wicket)
+            and (p.runs_per_wicket / (p.scoring_rate / 100.0))
+            or None
+        )
+        wicket_index = round(ground_bpw / par_bpw, 3) if ground_bpw and par_bpw else None
+        wins, losses = bat_first.get(key, [0, 0])
+        decided = wins + losses
+        out.append(
+            GroundCharacter(
+                venue=b["name"],
+                city=b["city"],
+                matches=b["matches"],
+                scoring_index=scoring_index,
+                wicket_index=wicket_index,
+                bat_first_win_pct=round(100.0 * wins / decided, 1) if decided else None,
+                decided_matches=decided,
+                reliable=b["matches"] >= MIN_MATCHES_FOR_CHARACTER,
+            )
+        )
+    out.sort(key=lambda g: -g.matches)
+    return out
+
+
+__all__ = [
+    "profile", "character", "VenueProfile", "VenueFormat", "GroundCharacter",
+    "MIN_MATCHES_FOR_CHARACTER",
+]

@@ -549,6 +549,13 @@ class ScopeSummary:
     # the "good player" term selection weights against the Index's "playing well
     # now". Kept here so it comes from the same pass as the verdicts.
     career_mean: dict[str, float]
+    # Variance of that player's per-match values. Carried because a MEAN alone
+    # cannot be shrunk: `selection._career_standing` needs the within-player
+    # spread to work out how many matches it takes before a player's own mean
+    # beats the population's, and computing it there would mean rebuilding the
+    # 107 MB timeline map this reduction exists to throw away. One float per
+    # player. Zero where the player has a single match.
+    career_var: dict[str, float]
     balls: dict[str, tuple[int, int]]   # (faced, bowled), for role inference
     match_count: dict[str, int]
 
@@ -566,13 +573,21 @@ def _build_scope_summary(
     )
     verdicts: dict[str, FormVerdict] = {}
     career_mean: dict[str, float] = {}
+    career_var: dict[str, float] = {}
     balls: dict[str, tuple[int, int]] = {}
     match_count: dict[str, int] = {}
     for pid, timeline in timelines.items():
         if not timeline:
             continue
         verdicts[pid] = assess(db, pid, timeline=timeline)
-        career_mean[pid] = sum(m.value for m in timeline) / len(timeline)
+        values = [m.value for m in timeline]
+        mean = sum(values) / len(values)
+        career_mean[pid] = mean
+        career_var[pid] = (
+            sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+            if len(values) > 1
+            else 0.0
+        )
         balls[pid] = (
             sum(m.balls_faced for m in timeline),
             sum(m.balls_bowled for m in timeline),
@@ -585,7 +600,11 @@ def _build_scope_summary(
     # score on the board than in the directory.
     stamp_form_scores(verdicts.values())
     return ScopeSummary(
-        verdicts=verdicts, career_mean=career_mean, balls=balls, match_count=match_count
+        verdicts=verdicts,
+        career_mean=career_mean,
+        career_var=career_var,
+        balls=balls,
+        match_count=match_count,
     )
 
 

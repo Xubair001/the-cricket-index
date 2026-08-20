@@ -4,6 +4,9 @@ import { api } from '../api/client'
 import type { VenueOption, VenueProfile } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { useGender } from '../gender/useGender'
+import { useScope } from '../scope/scope'
+import { GroundCharacterChart } from '../components/GroundCharacterChart'
+import { competitionLabel } from '../competitions'
 import { rate } from '../format'
 import {
   Card,
@@ -11,6 +14,7 @@ import {
   PageHeader,
   Panel,
   Provenance,
+  SectionHeading,
   fieldClass,
   fieldLabelClass,
 } from '../components/ui'
@@ -99,6 +103,16 @@ export function VenueAnalytics() {
     }
   }, [selected, apiGender])
 
+  // The cross-ground chart needs ONE competition, because a ground hosting
+  // Tests and T20Is has two characters. Defaults to the competition with the
+  // most cricket in the current family rather than to a fixed key, so the
+  // Leagues switch does not open the chart on an empty international format.
+  const { competitions } = useScope()
+  const [charCompetition, setCharCompetition] = useState('')
+  useEffect(() => {
+    if (!charCompetition && competitions.length) setCharCompetition(competitions[0].key)
+  }, [competitions, charCompetition])
+
   function choose(venue: string) {
     const merged = new URLSearchParams(params)
     if (venue) merged.set('venue', venue)
@@ -112,6 +126,43 @@ export function VenueAnalytics() {
         eyebrow="Analytics"
         title="Venue Analytics"
         blurb="What kind of cricket a ground produces - how it scores, how hard wickets are to take, and whether batting first is worth it."
+      />
+
+      {/* The population view FIRST. "Which grounds produce which cricket" is
+          the question a reader has before they know which ground to open, and
+          the per-ground panels below cannot answer it. */}
+      <SectionHeading
+        title="Where every ground sits"
+        note="One competition at a time, because a ground that hosts two formats has two characters."
+        aside={
+          <label className="flex items-center gap-2">
+            <span className="u-eyebrow">Competition</span>
+            <select
+              value={charCompetition}
+              onChange={(e) => setCharCompetition(e.target.value)}
+              className="rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
+            >
+              {competitions.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        }
+      />
+
+      {charCompetition && (
+        <GroundCharacterChart
+          gender={apiGender}
+          competition={charCompetition}
+          competitionLabel={competitionLabel(charCompetition)}
+        />
+      )}
+
+      <SectionHeading
+        title="One ground in detail"
+        note="Every spelling of a ground contributes to one page, so a total here is its whole history."
       />
 
       <div className="max-w-xl">
@@ -135,7 +186,10 @@ export function VenueAnalytics() {
       {!selected && !loading && (
         <EmptyState
           title="Pick a ground"
-          hint={`${grounds.length.toLocaleString()} grounds, normalised from 593 raw venue strings - every spelling of a ground contributes to one page.`}
+          // Reads the live count rather than a number typed in once: the raw
+          // spelling total was hardcoded at 593 and is now 636, so the sentence
+          // had quietly become false.
+          hint={`${grounds.length.toLocaleString()} grounds in this scope, normalised from the source's own spellings - every spelling of a ground contributes to one page.`}
         />
       )}
 
