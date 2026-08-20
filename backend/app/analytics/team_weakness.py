@@ -94,11 +94,36 @@ class Facet:
     baseline_deliveries: int
     # Change against their own past, signed so that negative is always worse
     # regardless of whether the underlying figure is a rate or an economy.
+    # UNBOUNDED: a run rate can more than double on a thin sample. Measured
+    # across every competition and gender, 3 of 2,340 facet figures exceed 100%
+    # - Turkey's women's T20I middle overs reached 128.6% - so `delta_display`
+    # carries the wording a page should show and this stays the raw figure.
     delta_percent: float | None = None
     # Against everyone else in the scope, same sign convention.
     versus_peers_percent: float | None = None
     verdict: str = "unmeasured"
     note: str = ""
+
+    @property
+    def delta_display(self) -> str | None:
+        """The change in words, never a percentage over 100.
+
+        Same rule as `form.FormVerdict.delta_display`, for the same reason: past
+        a doubling a percentage stops reading as "more than doubled" and starts
+        reading as a broken figure. Nothing is clipped - `delta_percent` keeps
+        the exact value.
+        """
+        if self.delta_percent is None:
+            return None
+        magnitude = abs(self.delta_percent) / 100.0
+        if magnitude > 1.0:
+            multiple = 1.0 + magnitude if self.delta_percent > 0 else 1.0 / (1.0 + magnitude)
+            return (
+                f"{multiple:.1f}x their previous window"
+                if self.delta_percent > 0
+                else f"{multiple:.2f}x their previous window"
+            )
+        return f"{self.delta_percent:+.0f}% against their previous window"
 
 
 @dataclass

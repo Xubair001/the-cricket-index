@@ -69,6 +69,72 @@ XI_SHAPE = {
 }
 # The eleventh place is open -- best available, whatever the role.
 
+# §18's optimisation objectives. Each changes the side through the two levers
+# that actually decide it: the ROLE SHAPE the eleven is filled to, and the
+# WEIGHTING candidates are scored on. Nothing here is a separate algorithm - the
+# selector is the same shape-fill either way, which is what keeps every
+# objective explainable in the same terms.
+#
+# `bonus` names a preference term added on top of quality rather than replacing
+# it. It carries OBJECTIVE_BONUS_WEIGHT and the base weights are renormalised to
+# the remainder, so "youngest XI" still means "the best young side" and not "the
+# youngest eleven who have played eight matches".
+#
+# Youth is a SOFT preference for the reason every age filter here is soft: date
+# of birth covers about 42% of the register, so a hard one would discard the
+# majority. A player of unknown age scores the neutral 50 and is reported.
+OBJECTIVES: dict[str, dict] = {
+    "overall": {
+        "label": "Overall quality",
+        "detail": "Career standing, rating and current form, on the default weighting.",
+    },
+    "form": {
+        "label": "Current form",
+        "detail": "Leans hard on the recent window while keeping career standing in the mix.",
+        "weights": {"career": 0.25, "index": 0.30, "form": 0.45},
+    },
+    "batting": {
+        "label": "Batting strength",
+        "detail": "Six specialist batters instead of four, at the cost of a bowler.",
+        "shape": {"wicketkeeper": 1, "batter": 6, "allrounder": 2, "bowler": 2},
+    },
+    "bowling": {
+        "label": "Bowling strength",
+        "detail": "Five specialist bowlers instead of three, at the cost of a batter.",
+        "shape": {"wicketkeeper": 1, "batter": 3, "allrounder": 2, "bowler": 5},
+    },
+    "balance": {
+        "label": "Balance",
+        "detail": "An extra all-rounder, so the side has more ways to change a match.",
+        "shape": {"wicketkeeper": 1, "batter": 4, "allrounder": 3, "bowler": 3},
+    },
+    "youth": {
+        "label": "Youth",
+        "detail": (
+            "Prefers younger players among those of comparable standing. A soft "
+            "preference: date of birth is known for about 42% of the register, "
+            "and a player of unknown age is kept rather than dropped."
+        ),
+        "bonus": "youth",
+    },
+    "experience": {
+        "label": "Experience",
+        "detail": "Prefers the deepest records in this scope among comparable players.",
+        "bonus": "experience",
+    },
+}
+
+# How much of the score an objective's preference term takes. Deliberately a
+# minority share: at 0.5 a "youth" side stopped being a good side, and §18 asks
+# for the best XI *for an objective*, not the extreme of that objective.
+OBJECTIVE_BONUS_WEIGHT = 0.20
+
+# The age band the youth preference is measured across. A 19-year-old scores
+# 100, a 38-year-old scores 0, and it is linear between - chosen from the
+# observed range of ages in this register rather than as round numbers.
+YOUTH_BEST_AGE = 19
+YOUTH_WORST_AGE = 38
+
 # Openers are picked from the batters already selected rather than as an extra
 # role, because an opener IS a batter; the position only says where they bat.
 OPENERS_WANTED = 2
@@ -111,7 +177,9 @@ class Pick:
     opens: bool
     matches: int
     index: float | None          # Performance Index within the scope
-    form_delta: float | None     # % against their own baseline
+    form_delta: float | None     # % against their own baseline; unbounded
+    form_score: float | None     # 0-100 percentile of the move; the display figure
+    form_display: str | None     # the move in words, never a percentage over 100
     form_state: str | None
     recent_mean: float | None    # absolute standard, par units
     selection_score: float
@@ -124,6 +192,35 @@ class Pick:
     # every other surface does - never from players.nationality.
     country: str | None = None
     country_code: str | None = None
+
+
+@dataclass
+class TradeOff:
+    """A player good enough to be picked who was not, and the reason.
+
+    §18 requires this outright: "Show what was traded off - the highest-rated
+    player omitted, and the constraint that omitted them." Without it a side is
+    an assertion; with it a selector can see the decision they are being asked
+    to accept, which is what §2's rule 5 means by explainable.
+
+    Only players who out-score somebody actually picked appear here. A candidate
+    who scored below every pick was not traded off - they simply were not good
+    enough, and listing them would bury the real trade in noise.
+    """
+
+    player_identifier: str
+    player_name: str
+    role: str
+    selection_score: float
+    index: float | None
+    matches: int
+    country: str | None = None
+    country_code: str | None = None
+    # The constraint that kept them out, in the terms the selector applies it.
+    reason: str = ""
+    # Who holds the place they would have taken, and by how much less.
+    displaced: str | None = None
+    displaced_score: float | None = None
 
 
 @dataclass
@@ -148,6 +245,16 @@ class Selection:
     cutoff_date: str | None = None
     # The weights actually applied, so the blend is checkable on the page.
     weights: dict = field(default_factory=dict)
+    # Which of §18's objectives this side answers, and what that changed.
+    objective: str = "overall"
+    objective_label: str = ""
+    objective_detail: str = ""
+    # The best players left out, with the constraint that left them out (§18).
+    tradeoffs: list[TradeOff] = field(default_factory=list)
+    # Players whose age is unknown, where the objective depends on age. Reported
+    # for the same reason Scout reports it: date of birth covers ~42% of the
+    # register and a hard bound would discard the majority silently.
+    unknown_age: int = 0
 
 
 def _keepers(db: Session, gender: str, competition_key, competition_type) -> dict[str, int]:
@@ -304,6 +411,7 @@ def select_side(
     competition_type: str | None = None,
     team_id: int | None = None,
     pool: str = "all_time",
+    objective: str = "overall",
 ) -> Selection:
     """Pick a side of `size` within one scope.
 
@@ -311,9 +419,16 @@ def select_side(
     for this scope and shifts the weighting towards recent evidence. It answers
     a different question from the default: "who should we pick next", rather
     than "who was the best there has ever been".
+
+    `objective` is §18's optimisation target. It changes the role shape, the
+    weighting, or both - see OBJECTIVES - and the response reports which, because
+    the same heading means a different side depending on it.
     """
     if pool not in POOLS:
         pool = "all_time"
+    if objective not in OBJECTIVES:
+        objective = "overall"
+    spec = OBJECTIVES[objective]
     # One reduced, cached view of the scope, shared by career standing and every
     # per-player form verdict below. Calling `assess` per candidate without a
     # prefetched timeline issued a query each - 3,145 round trips and about nine
@@ -365,17 +480,52 @@ def select_side(
     if team_id is not None:
         stmt = stmt.where(PlayerMatchStat.team_id == team_id)
 
-    names = {
-        p.identifier: preferred_name(p.name, p.display_name)
-        for p in db.execute(select(Player)).scalars()
-    }
+    people = list(db.execute(select(Player)).scalars())
+    names = {p.identifier: preferred_name(p.name, p.display_name) for p in people}
     from .. import queries as _queries
 
     countries = _queries._player_country_map(db, gender)
 
+    # The objective's two levers, resolved before the loop so every candidate is
+    # scored the same way.
+    weights = spec.get("weights") or (
+        config.SELECTION_WEIGHTS_CURRENT if pool == "current"
+        else config.SELECTION_WEIGHTS
+    )
+    shape = spec.get("shape") or XI_SHAPE
+    bonus_kind = spec.get("bonus")
+
+    # Ages, for the youth objective only. Measured against the newest match in
+    # the DATASET rather than today, the same anchor `player_status` uses: a
+    # stale archive must not silently age every player out of a youth side.
+    ages: dict[str, int] = {}
+    unknown_age = 0
+    if bonus_kind == "youth":
+        as_of = _queries.dataset_latest_date(db)
+        reference = None
+        if as_of:
+            try:
+                reference = date.fromisoformat(as_of[:10])
+            except ValueError:
+                reference = None
+        if reference is not None:
+            for person in people:
+                if not person.date_of_birth:
+                    continue
+                try:
+                    born = date.fromisoformat(person.date_of_birth[:10])
+                except ValueError:
+                    continue
+                ages[person.identifier] = (reference - born).days // 365
+
+    rows = db.execute(stmt).all()
+    # The experience term is relative to the deepest record available in this
+    # scope, so it needs the maximum before any candidate is scored.
+    max_matches = max((m for _, m, _, _ in rows), default=0) if bonus_kind == "experience" else 0
+
     candidates: list[Pick] = []
     considered = 0
-    for pid, matches, bf, bb in db.execute(stmt).all():
+    for pid, matches, bf, bb in rows:
         if matches < MIN_MATCHES:
             continue
         considered += 1
@@ -403,21 +553,39 @@ def select_side(
         # Career standing, recent quality and current touch. §18 asks for a best
         # side that accounts for form; all three on a 0-100 scale so the weights
         # in `config` mean what they say.
-        form_pct = 50.0
-        if verdict.delta_ratio is not None:
-            # A delta of +/-100% maps to the ends of the scale, damped by how
-            # much cricket the verdict rests on.
-            moved = max(-1.0, min(1.0, verdict.delta_ratio)) * verdict.confidence
-            form_pct = 50.0 + moved * 50.0
-        w = (
-            config.SELECTION_WEIGHTS_CURRENT if pool == "current"
-            else config.SELECTION_WEIGHTS
+        # `form_score` is the verdict's percentile within this scope: bounded
+        # 0-100 by construction and calibrated against the population. It
+        # replaced a local clamp of the ratio to +/-100%, which handed every
+        # player past a doubling an identical form term and so could not tell
+        # the strongest movers apart. 50 is neutral, used where the verdict is
+        # too thin to place.
+        form_pct = verdict.form_score if verdict.form_score is not None else 50.0
+        quality = (
+            weights["career"] * career.get(pid, 50.0)
+            + weights["index"] * rating.index
+            + weights["form"] * form_pct
         )
-        score = (
-            w["career"] * career.get(pid, 50.0)
-            + w["index"] * rating.index
-            + w["form"] * form_pct
-        )
+        # An objective's preference term rides on top of quality rather than
+        # replacing it, so "youngest XI" still means the best young side. 50 is
+        # neutral, which is what an unknown age scores.
+        if bonus_kind is None:
+            score = quality
+        else:
+            preference = 50.0
+            if bonus_kind == "youth":
+                player_age = ages.get(pid)
+                if player_age is None:
+                    unknown_age += 1
+                else:
+                    span = YOUTH_WORST_AGE - YOUTH_BEST_AGE
+                    ratio = (YOUTH_WORST_AGE - player_age) / span
+                    preference = 100.0 * max(0.0, min(1.0, ratio))
+            elif bonus_kind == "experience":
+                # Against the deepest record in this scope, so the term means
+                # "experienced relative to who is available" rather than against
+                # an arbitrary match count.
+                preference = 100.0 * min(1.0, matches / max_matches) if max_matches else 50.0
+            score = (1.0 - OBJECTIVE_BONUS_WEIGHT) * quality + OBJECTIVE_BONUS_WEIGHT * preference
 
         candidates.append(
             Pick(
@@ -431,6 +599,8 @@ def select_side(
                 matches=matches,
                 index=rating.index,
                 form_delta=round(verdict.delta_ratio * 100, 1) if verdict.delta_ratio is not None else None,
+                form_score=verdict.form_score,
+                form_display=verdict.delta_display,
                 form_state=verdict.state,
                 recent_mean=verdict.recent_mean,
                 selection_score=round(score, 2),
@@ -443,7 +613,7 @@ def select_side(
         )
 
     candidates.sort(key=lambda p: -p.selection_score)
-    picks = _fill_shape(candidates, size)
+    picks, tradeoffs = _fill_shape(candidates, size, shape)
     return Selection(
         scope=competition_key or competition_type or "international",
         gender=gender,
@@ -451,7 +621,7 @@ def select_side(
         team_id=team_id,
         team_name=None,
         picks=picks,
-        shape=dict(XI_SHAPE),
+        shape=dict(shape),
         unavailable=UNAVAILABLE,
         notes=_notes(picks, size),
         pool=pool,
@@ -459,28 +629,40 @@ def select_side(
         pool_considered=considered,
         reference_date=anchor,
         cutoff_date=cutoff,
-        weights=dict(
-            config.SELECTION_WEIGHTS_CURRENT if pool == "current"
-            else config.SELECTION_WEIGHTS
-        ),
+        weights=dict(weights),
+        objective=objective,
+        objective_label=spec["label"],
+        objective_detail=spec["detail"],
+        tradeoffs=tradeoffs,
+        unknown_age=unknown_age,
     )
 
 
 
-def _fill_shape(candidates: list[Pick], size: int) -> list[Pick]:
+def _fill_shape(
+    candidates: list[Pick], size: int, shape: dict[str, int]
+) -> tuple[list[Pick], list[TradeOff]]:
     """Fill the required roles first, then the remaining places on merit.
 
     Taking the top `size` by score instead reliably returns a side with six
     openers and no keeper -- which is why selection is a shape and not a
     leaderboard.
+
+    Also records what that cost. §18 requires the highest-rated omitted player
+    and the constraint that omitted them, and the shape-fill is the only place
+    that knows: by the time a caller sees the eleven, the reason a better player
+    is missing has been discarded. So each candidate passed over is tagged with
+    the quota that was full when their turn came.
     """
     chosen: list[Pick] = []
     taken: set[str] = set()
+    # player_identifier -> the constraint that passed over them.
+    blocked: dict[str, str] = {}
 
     # Scale the shape with the squad: a XV is a XI plus cover, not a different
     # side, so the same proportions apply.
     scale = size / 11.0
-    wanted = {role: max(1, round(n * scale)) for role, n in XI_SHAPE.items()}
+    wanted = {role: max(1, round(n * scale)) for role, n in shape.items()}
 
     # Keeper first. Without one the side is invalid, and the best keeper is
     # rarely the best batter, so picking on merit alone would never take them.
@@ -498,12 +680,22 @@ def _fill_shape(candidates: list[Pick], size: int) -> list[Pick]:
             taken.add(c.player_identifier)
 
     for role in ("batter", "allrounder", "bowler"):
+        quota = wanted.get(role, 0)
         for c in candidates:
             if len(chosen) >= size:
                 break
             if c.player_identifier in taken or c.role != role:
                 continue
-            if sum(1 for p in chosen if p.slot == role) >= wanted[role]:
+            if sum(1 for p in chosen if p.slot == role) >= quota:
+                # Every remaining candidate in this role is blocked by the same
+                # full quota, so record it and stop walking the role.
+                for later in candidates:
+                    if later.player_identifier in taken or later.role != role:
+                        continue
+                    blocked.setdefault(
+                        later.player_identifier,
+                        f"the {quota} {role} place{'s' if quota != 1 else ''} were already filled",
+                    )
                 break
             c.slot = role
             c.reason = f"Best available {role} on standard and current form."
@@ -525,7 +717,60 @@ def _fill_shape(candidates: list[Pick], size: int) -> list[Pick]:
     opening = [p for p in chosen if p.opens][:OPENERS_WANTED]
     for p in opening:
         p.reason += " Opens."
-    return chosen
+
+    return chosen, _tradeoffs(candidates, chosen, taken, blocked, size)
+
+
+# How many omitted players to report. Enough to see the shape of the decision
+# rather than only its single sharpest instance.
+MAX_TRADEOFFS = 5
+
+
+def _tradeoffs(
+    candidates: list[Pick],
+    chosen: list[Pick],
+    taken: set[str],
+    blocked: dict[str, str],
+    size: int,
+) -> list[TradeOff]:
+    """The best players left out, and what left them out.
+
+    Only players who out-score somebody actually picked qualify. A candidate
+    below every pick was not traded off - they were not good enough - and
+    including them would bury the real trade in a list of also-rans.
+    """
+    if not chosen:
+        return []
+    weakest = min(chosen, key=lambda p: p.selection_score)
+    out: list[TradeOff] = []
+    for c in candidates:
+        if len(out) >= MAX_TRADEOFFS:
+            break
+        if c.player_identifier in taken:
+            continue
+        if c.selection_score <= weakest.selection_score:
+            # Candidates are score-ordered, so nobody after this one qualifies.
+            break
+        reason = blocked.get(
+            c.player_identifier,
+            f"the side was complete at {size} before their place came up",
+        )
+        out.append(
+            TradeOff(
+                player_identifier=c.player_identifier,
+                player_name=c.player_name,
+                role=c.role,
+                selection_score=c.selection_score,
+                index=c.index,
+                matches=c.matches,
+                country=c.country,
+                country_code=c.country_code,
+                reason=reason,
+                displaced=weakest.player_name,
+                displaced_score=weakest.selection_score,
+            )
+        )
+    return out
 
 
 def _notes(picks: list[Pick], size: int) -> list[str]:

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { IccRankingTable, IccTeamRankingTable } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
+import { IccMovementPanel } from '../components/IccMovement'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { PlayerName } from '../components/PlayerName'
@@ -243,6 +244,12 @@ export function IccRankings() {
               </div>
             )}
           </div>
+
+          {/* Section 8's "Latest ICC Movements". Only for player rankings:
+              the team endpoint has its own dated snapshots but a ten-side list
+              barely moves between two weekly publications, so a movement panel
+              there would be empty most weeks. */}
+          {discipline !== 'team' && <IccMovementPanel rankType={rankType} />}
 
           <p className="max-w-3xl text-xs leading-relaxed text-dim">
             ICC names people in full where this dataset uses the scorecard form, and publishes no

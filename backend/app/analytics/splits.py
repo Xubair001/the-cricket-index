@@ -57,8 +57,17 @@ AVAILABLE = ("phase", "situation", "venue", "opposition", "competition")
 # Declared so the API can report them as absent-with-a-reason rather than
 # silently offering a shorter list than §12 promises.
 UNAVAILABLE = {
-    "home_away": "Needs a venue-to-country mapping; canonicalising a ground's "
-                 "name is a different problem from knowing which country it is in.",
+    "home_away": "Needs a venue-to-country mapping, and this dataset has no "
+                 "country to read. Measured over all 636 distinct "
+                 "(venue, city) pairs, only 15 carry a segment that resolves to "
+                 "a country - 2.4%. Cricsheet gives a ground and a city (270 of "
+                 "them), never a country, so canonicalising a ground's name is a "
+                 "different problem from knowing which country it is in. "
+                 "Unblocking this is a data decision: a sourced ground-to-country "
+                 "list. It is deliberately not inferred from which side plays "
+                 "somewhere most often, because that resolves Sharjah and Dubai "
+                 "to Pakistan and India, which is exactly backwards for the "
+                 "neutral venues where the question matters most.",
     "bowling_type": "Needs a pace/spin source for each bowler, which exists in "
                     "neither Cricsheet nor Wikidata (Tier C).",
 }

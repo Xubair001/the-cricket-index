@@ -44,6 +44,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import events as events_mod
+from .analytics import tournament_edition
 from .models import Competition, Match, Player, PlayerMatchStat, Team
 from .names import preferred_name
 
@@ -464,3 +465,65 @@ def _notes(
         )
 
     return notes
+
+def get_edition(
+    db: Session,
+    slug: str,
+    season: str,
+    gender: str,
+    competition_type: str | None = None,
+):
+    """One edition of one tournament, in full.
+
+    The event-name folding stays here - it is the same `_group` pass the
+    tournament page uses, so an edition can never be assembled from a raw
+    `event_name` that the alias table would have merged. What comes back is the
+    set of match ids for that season, which `analytics.tournament_edition` turns
+    into a table, a fixture list and leaderboards.
+
+    Returns None for an unknown tournament OR an unknown season, deliberately
+    without distinguishing them: a season this dataset holds no matches for and
+    a season the tournament never had are the same 404 to a caller, and telling
+    them apart would mean asserting which editions exist, which this dataset
+    cannot do (see `_notes`).
+    """
+    grouped = _group(_event_rows(db, gender, competition_type))
+
+    match_key = None
+    for key, data in grouped.items():
+        if events_mod.slug(key[0]) == slug and len(data["sides"]) >= MIN_SIDES:
+            if match_key is None or len(data["matches"]) > len(grouped[match_key]["matches"]):
+                match_key = key
+    if match_key is None:
+        return None
+
+    data = grouped[match_key]
+    edition = data["editions"].get(season)
+    if not edition:
+        return None
+
+    name, g, ckey = match_key
+    cname, _ctype = data["competition"]
+    return tournament_edition.build(
+        db,
+        tournament_name=name,
+        tournament_slug=events_mod.slug(name),
+        season=season,
+        gender=g,
+        competition_key=ckey,
+        competition_name=cname,
+        match_ids=edition["matches"],
+    )
+
+
+def edition_seasons(
+    db: Session, slug: str, gender: str, competition_type: str | None = None
+) -> list[str]:
+    """The seasons a tournament has here, newest first. For validating a link."""
+    grouped = _group(_event_rows(db, gender, competition_type))
+    for key, data in grouped.items():
+        if events_mod.slug(key[0]) == slug and len(data["sides"]) >= MIN_SIDES:
+            return sorted(
+                (s for s in data["editions"] if s), reverse=True
+            )
+    return []

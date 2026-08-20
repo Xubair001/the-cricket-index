@@ -6,7 +6,7 @@ import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
-import { rate } from '../format'
+import { change, rate, score } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import { tableClass, tdNumClass, theadRowClass, trClass } from '../components/ui'
 
@@ -270,11 +270,14 @@ export function Players() {
                       {p.form_state ? (
                         <span
                           className={`tnum text-xs font-semibold ${FORM_TONE[p.form_state]}`}
-                          title={`${p.form_label} - confidence ${Math.round((p.form_confidence ?? 0) * 100)}%`}
+                          title={`${p.form_label} - ${
+                            p.form_display ?? change(p.form_delta)
+                          }, confidence ${Math.round((p.form_confidence ?? 0) * 100)}%`}
                         >
-                          {p.form_delta !== null
-                            ? `${p.form_delta > 0 ? '+' : ''}${p.form_delta.toFixed(0)}%`
-                            : p.form_label}
+                          {/* The bounded 0-100 score. The raw percentage it
+                              replaced has no ceiling and is not monotonic with
+                              sort_by=form, so the column contradicted the sort. */}
+                          {p.form_score !== null ? score(p.form_score) : p.form_label}
                         </span>
                       ) : (
                         <span className="text-xs text-dim" title="Not enough recent cricket in this scope">

@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { FormLeaderRow, FormLeaderboard } from '../api/types'
 import { ErrorMessage, SkeletonRows } from '../components/LoadingSpinner'
+import { change, score } from '../format'
 import { Pagination } from '../components/Pagination'
 import { ParMeter } from '../components/ParMeter'
 import { PlayerName } from '../components/PlayerName'
@@ -228,6 +229,9 @@ export function FormBoards() {
                 <th className={thClass}>Player</th>
                 <th className={thClass}>Standard</th>
                 <th className={thNumClass}>Level</th>
+                <th className={thNumClass} title="0-100. Percentile of the evidence-weighted move within this scope. Bounded, and ordered the same way this board is.">
+                  Form score
+                </th>
                 <th className={thNumClass}>Change</th>
                 <th className={thClass}>Trend</th>
                 <th className={thNumClass}>Evidence</th>
@@ -236,7 +240,7 @@ export function FormBoards() {
             <tbody>
               {loading && !data ? (
                 <tr>
-                  <td colSpan={7} className="p-4">
+                  <td colSpan={8} className="p-4">
                     <SkeletonRows rows={8} />
                   </td>
                 </tr>
@@ -244,10 +248,10 @@ export function FormBoards() {
                 data?.items.map((r, i) => {
                   const thin = r.confidence < THIN_CONFIDENCE
                   const belowPar = (r.recent_mean ?? 0) < 1
-                  const delta =
-                    r.delta_percent !== null
-                      ? `${r.delta_percent > 0 ? '+' : ''}${r.delta_percent.toFixed(0)}%`
-                      : '-'
+                  // The API words this so it is never a percentage over 100: a
+                  // ratio against a player's own baseline has no ceiling, and
+                  // past a doubling it is stated as a multiple instead.
+                  const delta = r.delta_display ?? change(r.delta_percent)
                   const trend = TREND_GLYPH[r.trend]
                   const evidence = `${r.recent_matches} recent vs ${r.baseline_matches} earlier matches`
 
@@ -282,8 +286,23 @@ export function FormBoards() {
                       >
                         {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '-'}
                       </td>
+                      {/* The headline figure. Bounded 0-100 and percentiled on
+                          the same quantity this board sorts by, so it cannot
+                          disagree with the row order the way the raw percentage
+                          beside it did. */}
+                      <td className={`${tdNumClass} font-semibold text-ink`}>
+                        {r.form_score === null ? (
+                          '-'
+                        ) : thin ? (
+                          <Uncertain reason={`Confidence ${Math.round(r.confidence * 100)}% - ${evidence}`}>
+                            {score(r.form_score)}
+                          </Uncertain>
+                        ) : (
+                          score(r.form_score)
+                        )}
+                      </td>
                       <td
-                        className={`tnum px-3 py-2.5 text-right font-semibold ${
+                        className={`tnum px-3 py-2.5 text-right ${
                           board.tone === 'positive' ? 'text-positive-ink' : 'text-negative-ink'
                         }`}
                       >
@@ -334,12 +353,17 @@ export function FormBoards() {
       <Provenance>
         Each player is compared with their own preceding twelve months in this scope, never with
         other players - that is what makes “in form” mean <em>changed</em> rather than{' '}
-        <em>good</em>. Boards are ordered on par units gained rather than on the percentage,
-        because a player improving from poor to below-average can post a bigger percentage than one
-        playing the best cricket in the world. Every performance is weighted by the strength of the
-        side it came against, fitted per era. Internationals and franchise cricket are never blended
-        into one figure. The last column is the evidence the verdict rests on - recent matches
-        against earlier ones - and a change marked with a dotted rule rests on a thin sample.
+        <em>good</em>. The <strong className="font-semibold text-muted">form score</strong> is a
+        percentile, out of 100, of the par units a player has gained against their own baseline,
+        weighted by how much cricket the verdict rests on - so it is bounded, and it orders the
+        board the same way the board is sorted. It replaced the raw change percentage as the
+        headline for both reasons: that figure has no ceiling, reaching +306% here, and it was not
+        monotonic with the sort, so the top row could read +198% above a row showing +48%. The
+        change is still shown beside it, worded as a multiple past a doubling. Every performance is
+        weighted by the strength of the side it came against, fitted per era. Internationals and
+        franchise cricket are never blended into one figure. The last column is the evidence the
+        verdict rests on - recent matches against earlier ones - and a figure marked with a dotted
+        rule rests on a thin sample.
       </Provenance>
     </div>
   )

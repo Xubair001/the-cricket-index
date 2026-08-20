@@ -41,6 +41,10 @@ import type {
   TeamType,
   VenueOption,
   VenueProfile,
+  TournamentEditionDetail,
+  PlayerSplits,
+  TeamStrengthProfile,
+  IccMovementReport,
 } from './types'
 
 // `boolean` is in the value union because FastAPI query flags are real params,
@@ -103,6 +107,27 @@ export const api = {
 
   // Form is a separate call from the profile on purpose: it is the expensive
   // half, and it answers a different question (Rule 3 -- form is not career).
+  /**
+   * One split for one player. Split type is a parameter, not a family of
+   * endpoints (Section 25).
+   *
+   * `competition` matters more here than elsewhere: phases are defined per
+   * competition and a Test has none, so asking for a phase split without one
+   * gets an `applies: false` and a reason rather than a number that looks like
+   * the T20 one and means something else.
+   */
+  playerSplits: (
+    identifier: string,
+    split: string,
+    gender: ApiGender,
+    params: { competition?: string } = {},
+  ) =>
+    getJson<PlayerSplits>(`/api/players/${encodeURIComponent(identifier)}/splits`, {
+      split,
+      gender,
+      ...params,
+    }),
+
   playerForm: (
     identifier: string,
     params: {
@@ -167,11 +192,18 @@ export const api = {
 
   matchDetail: (matchId: string) => getJson<MatchDetail>(`/api/matches/${encodeURIComponent(matchId)}`),
 
+  /**
+   * Compare 2 to 5 players (§13). Sent as one comma-separated `players` value,
+   * which is the form a shared or hand-written URL takes.
+   */
   comparePlayers: (
-    a: string,
-    b: string,
-    params: { competition?: string; competition_type?: string } = {}
-  ) => getJson<PlayerComparison>('/api/players/compare', { a, b, ...params }),
+    identifiers: string[],
+    params: { competition?: string; competition_type?: string } = {},
+  ) =>
+    getJson<PlayerComparison>('/api/players/compare', {
+      players: identifiers.join(','),
+      ...params,
+    }),
 
   // The explorers (§21). Every filter, sort and page is applied server-side -
   // the unfiltered population is ~5,400 players, and sorting a page of them in
@@ -247,6 +279,9 @@ export const api = {
       team_id?: number
       /** 'all_time' (default) or 'current'. Two different questions - see the API. */
       pool?: string
+      /** One of Section 18's optimisation objectives. Changes the role shape,
+       *  the weighting, or both - the response reports which. */
+      objective?: string
     } = {}
   ) => getJson<SelectedSide>('/api/rankings/best-xi', { gender, ...params }),
 
@@ -286,6 +321,14 @@ export const api = {
    */
   underrated: (rankType: string, params: { limit?: number } = {}) =>
     getJson<UnderratedTable>('/api/rankings/underrated', { rank_type: rankType, ...params }),
+
+  /**
+   * Movement in one ICC ranking since the previous published list.
+   * Deliberately not a trend - see the API for why a handful of snapshots
+   * cannot be drawn as a history.
+   */
+  iccMovement: (rankType: string) =>
+    getJson<IccMovementReport>(`/api/icc/movement/${encodeURIComponent(rankType)}`),
 
   iccRankTypes: () => getJson<{ players: string[]; teams: string[] }>('/api/icc/rank-types'),
 
@@ -335,6 +378,19 @@ export const api = {
   newsHealth: () => getJson<NewsHealth>('/api/news/health'),
 
   /** What has declined for a side against its own recent past (§19). */
+  /**
+   * A side's depth profile (Section 19). The other half of `teamWeakness`:
+   * that one asks what has declined against the side's own past, this asks how
+   * their depth compares to the sides that actually contest the competition.
+   *
+   * NOT `teamStrength` below, which is the opposition model's fitted difficulty
+   * rating over every side at once - a different question with a similar name.
+   */
+  teamStrengthProfile: (
+    teamId: number,
+    params: { competition?: string; window_matches?: number } = {},
+  ) => getJson<TeamStrengthProfile>(`/api/teams/${teamId}/strength`, params),
+
   teamWeakness: (teamId: number, competition?: string) =>
     getJson<TeamWeakness>(`/api/teams/${teamId}/weakness`, { competition }),
 
@@ -354,4 +410,24 @@ export const api = {
       gender,
       ...params,
     }),
+
+  /**
+   * One edition of one tournament.
+   *
+   * `season` is NOT encoded, because Cricsheet labels a tournament spanning a
+   * new year "2023/24" and the backend takes the season as a path segment for
+   * exactly that reason. Encoding the slash gives `2023%2F24`, which the router
+   * decodes back to two segments and then fails to match - so encoding it
+   * breaks the majority of editions rather than protecting anything.
+   */
+  tournamentEdition: (
+    slug: string,
+    season: string,
+    gender: ApiGender,
+    params: { competition_type?: string } = {},
+  ) =>
+    getJson<TournamentEditionDetail>(
+      `/api/tournaments/${encodeURIComponent(slug)}/editions/${season}`,
+      { gender, ...params },
+    ),
 }

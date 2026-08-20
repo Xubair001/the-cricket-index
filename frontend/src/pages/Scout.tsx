@@ -6,7 +6,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
 import { ParMeter } from '../components/ParMeter'
 import { useGender } from '../gender/useGender'
-import { percent, rate } from '../format'
+import { change, rate, score } from '../format'
 import {
   Card,
   EmptyState,
@@ -347,13 +347,16 @@ function CandidateRow({ c, slug }: { c: ScoutCandidate; slug: string }) {
       <span className="w-28 shrink-0" title="Recent output in par units - 1.00 is an average appearance">
         <ParMeter value={c.recent_mean ?? null} />
       </span>
+      {/* Bounded 0-100 rather than the raw ratio: the candidate score above is
+          built from this figure, and the percentage it replaced had no ceiling
+          so the two disagreed. */}
       <span
         className={`tnum w-16 shrink-0 text-right text-xs ${
-          (c.form_delta ?? 0) > 0 ? 'text-positive-ink' : 'text-muted'
+          (c.form_score ?? 50) > 50 ? 'text-positive-ink' : 'text-muted'
         }`}
-        title="Change against this player's own baseline"
+        title={`Form score out of 100 in this scope · ${c.form_display ?? change(c.form_delta)}`}
       >
-        {c.form_delta == null ? '-' : percent(c.form_delta)}
+        {c.form_score == null ? '-' : score(c.form_score)}
       </span>
       <span className="tnum w-14 shrink-0 text-right text-sm font-semibold text-ink" title="Scout score">
         {rate(c.score)}

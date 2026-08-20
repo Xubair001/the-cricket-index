@@ -109,8 +109,13 @@ class WeaknessFacet(BaseModel):
     recent_deliveries: int
     baseline_deliveries: int
     """Change against the side's OWN past, signed so negative is always worse
-    whether the underlying figure is a run rate or an economy conceded."""
+    whether the underlying figure is a run rate or an economy conceded.
+
+    UNBOUNDED: a run rate can more than double on a thin sample, and 3 of 2,340
+    measured facet figures exceed 100%. Show `delta_display` instead."""
     delta_percent: float | None = None
+    """The same change in words, never a percentage above 100."""
+    delta_display: str | None = None
     versus_peers_percent: float | None = None
     """'declined' | 'improved' | 'steady' | 'unmeasured'."""
     verdict: str
@@ -212,6 +217,126 @@ class TournamentLeader(BaseModel):
 class TournamentTitles(BaseModel):
     team: str
     titles: int
+
+
+class EditionStandingsRow(BaseModel):
+    """One side's line in an edition table.
+
+    Not an official points table. Points are the near-universal limited-overs
+    convention (2 for a win, 1 shared) applied to the matches this dataset
+    holds, and `standings_caveats` names any reason it will differ from the
+    published one.
+    """
+
+    team_id: int
+    team_name: str
+    country_code: str | None = None
+    """Group letter where the edition had groups, else null."""
+    group: str | None = None
+    played: int
+    won: int
+    lost: int
+    """A tie and an abandoned match both score one point and only one of them
+    means the sides finished level, so they are separate columns."""
+    tied: int
+    no_result: int
+    points: int
+    win_pct: float | None = None
+    runs_for: int
+    balls_faced: int
+    runs_against: int
+    balls_bowled: int
+    """Charges a side bowled out its FULL overs quota rather than the overs it
+    used, which is the actual rule. Null where the format has no quota."""
+    net_run_rate: float | None = None
+
+
+class EditionFixture(BaseModel):
+    match_id: str
+    match_date: str | None = None
+    stage: str | None = None
+    group: str | None = None
+    venue: str | None = None
+    city: str | None = None
+    team1_id: int | None = None
+    team1_name: str | None = None
+    team1_code: str | None = None
+    team2_id: int | None = None
+    team2_name: str | None = None
+    team2_code: str | None = None
+    winner_team_id: int | None = None
+    winner_name: str | None = None
+    """Set only for a tie settled on a super over, boundary count or bowl-out.
+    Cricsheet records that in `eliminator` and leaves `winner` null."""
+    eliminator_name: str | None = None
+    outcome_result: str | None = None
+    win_by_runs: int | None = None
+    win_by_wickets: int | None = None
+    """The result as a scorecard states it, assembled server-side."""
+    result_text: str
+    """The preferred display form where the name resolves to a player here, the
+    raw Cricsheet value otherwise. `player_of_match_scorecard` always holds the
+    raw form, so a reader can see both."""
+    player_of_match: str | None = None
+    player_of_match_scorecard: str | None = None
+    player_of_match_identifier: str | None = None
+    """Team totals from the ball record, so extras are included. Null where the
+    match has no deliveries stored."""
+    team1_score: str | None = None
+    team2_score: str | None = None
+
+
+class EditionLeader(BaseModel):
+    player_identifier: str
+    player_name: str
+    country_code: str | None = None
+    matches: int
+    runs: int | None = None
+    balls_faced: int | None = None
+    average: float | None = None
+    strike_rate: float | None = None
+    fifties: int | None = None
+    hundreds: int | None = None
+    highest: int | None = None
+    wickets: int | None = None
+    balls_bowled: int | None = None
+    runs_conceded: int | None = None
+    economy: float | None = None
+    bowling_average: float | None = None
+    best_innings: int | None = None
+    """Player-of-the-match awards in this edition. The nearest thing this data
+    holds to a player of the tournament, and not presented as that award."""
+    awards: int | None = None
+
+
+class TournamentEditionDetail(BaseModel):
+    tournament_name: str
+    tournament_slug: str
+    season: str | None = None
+    gender: Gender
+    competition_key: str
+    competition_name: str
+    matches: int
+    sides: int
+    first_date: str | None = None
+    last_date: str | None = None
+    champion_team_id: int | None = None
+    champion_name: str | None = None
+    runner_up_name: str | None = None
+    """False when this dataset does not hold the deciding match. Distinguishes
+    "we do not have the final" from "nobody won it"."""
+    has_final: bool = False
+    decided_by_tiebreak: bool = False
+    final_match_id: str | None = None
+    venues: list[str] = []
+    groups: list[str] = []
+    standings: list[EditionStandingsRow] = []
+    fixtures: list[EditionFixture] = []
+    top_run_scorers: list[EditionLeader] = []
+    top_wicket_takers: list[EditionLeader] = []
+    most_awards: list[EditionLeader] = []
+    standings_caveats: list[str] = []
+    notes: list[str] = []
 
 
 class TournamentDetail(TournamentSummary):
@@ -386,25 +511,46 @@ class ComparisonSide(PlayerCountry):
 
 
 class ComparisonMetric(BaseModel):
-    """One head-to-head row. `better` names the winning side, never a guess."""
+    """One row of a comparison, across 2 to 5 players.
+
+    `values` is positional against `PlayerComparison.sides`. `best_index` names
+    the winner and is null on a tie or where fewer than two players qualify -
+    never a guess, and never a highlight on one of two equal figures.
+    """
 
     key: str
     label: str
-    a: float | None
-    b: float | None
-    better: str | None                     # 'a' | 'b' | None (tie/insufficient)
+    values: list[float | None]
+    """Per player: whether they have enough cricket for this figure to be
+    comparable. A player below the threshold keeps their value - it is a fact
+    about them - but cannot win the row. Applied per player rather than to the
+    set, so one thin sample does not blank the row for everybody."""
+    qualified: list[bool]
+    best_index: int | None
     lower_is_better: bool
     format: str                            # 'int' | 'float' | 'none'
+    """What the qualification is measured on, and the minimum, so the UI can
+    say why a figure is greyed rather than just greying it."""
+    gate_field: str | None = None
+    gate_min: int | None = None
 
 
 class PlayerComparison(BaseModel):
+    """2 to 5 players within one competition scope (§13).
+
+    `sides` replaced an `a`/`b` pair: a two-player special case cannot express
+    "best of five" without the client re-deriving it, and `better: 'a' | 'b'`
+    had nowhere to put a third player. Everything positional - `values` on a
+    metric, `values` in a season row - indexes into `sides`.
+    """
+
     scope: str                             # competition key, or a competition type
     scope_label: str
     gender: Gender
-    a: ComparisonSide
-    b: ComparisonSide
+    sides: list[ComparisonSide]
     metrics: list[ComparisonMetric]
-    season_runs: list[dict]                # [{season, a, b}] for the trend chart
+    # [{season, values: [...]}], positional against `sides`.
+    season_runs: list[dict]
     season_wickets: list[dict]
 
 
@@ -719,7 +865,11 @@ class SelectionPick(PlayerCountry):
     opens: bool
     matches: int
     index: float | None
+    # Raw ratio against the player's own baseline, unbounded. Kept for
+    # traceability; `form_score` is the bounded figure to show.
     form_delta: float | None
+    form_score: float | None = None
+    form_display: str | None = None
     form_state: str | None
     recent_mean: float | None
     selection_score: float
@@ -727,6 +877,29 @@ class SelectionPick(PlayerCountry):
     # Sourced from ICC squads where present, else null. Never inferred.
     batting_style: str | None = None
     bowling_family: str | None = None
+
+
+class SelectionTradeOff(BaseModel):
+    """A player good enough to be picked who was not, and why (§18).
+
+    §18 requires the highest-rated omitted player and the constraint that
+    omitted them. Only players who out-score somebody actually picked appear -
+    a candidate below every pick was not traded off, they were not good enough.
+    """
+
+    player_identifier: str
+    player_name: str
+    role: str
+    selection_score: float
+    index: float | None = None
+    matches: int
+    country: str | None = None
+    country_code: str | None = None
+    """The constraint that kept them out, in the selector's own terms."""
+    reason: str = ""
+    """Who holds the place they would have taken, and that player's score."""
+    displaced: str | None = None
+    displaced_score: float | None = None
 
 
 class SelectedSide(BaseModel):
@@ -752,6 +925,17 @@ class SelectedSide(BaseModel):
     reference_date: str | None = None
     cutoff_date: str | None = None
     weights: dict[str, float] = {}
+    """Which of §18's objectives this side answers. The same heading means a
+    different side depending on it, so it is always reported."""
+    objective: str = "overall"
+    objective_label: str = ""
+    objective_detail: str = ""
+    """The best players left out, with the constraint that left them out."""
+    tradeoffs: list[SelectionTradeOff] = []
+    """Candidates whose age is unknown, where the objective depends on age.
+    Reported rather than dropped: date of birth covers about 42% of the
+    register, so a hard bound would discard the majority silently."""
+    unknown_age: int = 0
 
 
 class CommitmentRow(BaseModel):
@@ -805,7 +989,10 @@ class ScoutCandidate(PlayerCountry):
     bowling_family: str | None
     age: int | None
     index: float | None
+    # As on a selection pick: the raw ratio, with the bounded score beside it.
     form_delta: float | None
+    form_score: float | None = None
+    form_display: str | None = None
     form_state: str | None
     recent_mean: float | None
     committed_in_window: bool | None
@@ -874,6 +1061,112 @@ class SquadMember(PlayerCountry):
     # claim; the UI marks these rather than hiding them.
     role_confident: bool
     last_played: str | None
+
+
+class IccMover(BaseModel):
+    """One player's movement between two published ICC lists.
+
+    `places_gained` is signed so POSITIVE means improvement, despite position 1
+    being the top of the list. A board where the best mover shows the most
+    negative number is misread every time.
+    """
+
+    rank_type: str
+    player_name: str
+    player_identifier: str | None = None
+    country: str | None = None
+    country_code: str | None = None
+    position: int
+    previous_position: int
+    places_gained: int
+    points: int | None = None
+    previous_points: int | None = None
+    points_gained: int | None = None
+
+
+class IccNewEntry(BaseModel):
+    """A player in the current list who was not in the previous one.
+
+    Separate from the movers, never counted as one: a player absent from a list
+    has no published position, and inventing one to subtract from would
+    attribute a move the ICC never published.
+    """
+
+    rank_type: str
+    player_name: str
+    player_identifier: str | None = None
+    country: str | None = None
+    country_code: str | None = None
+    position: int
+    points: int | None = None
+
+
+class IccMovementReport(BaseModel):
+    """Movement in one ICC ranking since the previous published list (§8).
+
+    Not a ranking history: `snapshots` reports how many dated lists are held for
+    this ranking, and at the time of writing that is a handful spanning weeks
+    because the daily sync began recently and the ICC republishes about weekly.
+    Drawing a trend over that would present weeks as a career.
+    """
+
+    rank_type: str
+    current_date: str | None = None
+    previous_date: str | None = None
+    snapshots: int
+    compared: int = 0
+    risers: list[IccMover] = []
+    fallers: list[IccMover] = []
+    new_entries: list[IccNewEntry] = []
+    dropped_out: int = 0
+    notes: list[str] = []
+
+
+class StrengthDimension(BaseModel):
+    """One dimension of §19's strength profile.
+
+    `score` is a percentile against the CORE sides of the scope, not against the
+    average side - there are far more international teams than teams that play
+    regularly, so an average-based reference tells every established side it is
+    exceptional. Null where no peer figure could be built, never 50, which would
+    read as "exactly typical" for a side nobody could measure.
+    """
+
+    key: str
+    label: str
+    value: float | None = None
+    unit: str
+    score: float | None = None
+    peer_value: float | None = None
+    peer_sides: int
+    basis: str
+    """False where the window holds too few matches for the figure to describe
+    the side. Marked rather than withheld."""
+    reliable: bool = True
+
+
+class TeamStrengthProfile(BaseModel):
+    """A side's depth profile (§19), the other half of the weakness analysis.
+
+    Named `Profile` because `TeamStrengthTable` is already the opposition
+    model's fitted difficulty rating, which is a different thing entirely: that
+    answers "how hard is this side to face", this answers "where is this side
+    deep and where is it thin".
+    """
+
+    team_id: int
+    team_name: str
+    gender: Gender
+    team_type: str
+    competition_key: str | None = None
+    window_matches: int
+    matches_in_window: int
+    squad_size: int
+    first_match: str | None = None
+    last_match: str | None = None
+    dimensions: list[StrengthDimension] = []
+    notes: list[str] = []
+    unavailable: dict[str, str] = {}
 
 
 class SquadAnalysis(BaseModel):
@@ -958,6 +1251,14 @@ class FormVerdict(BaseModel):
     delta_ratio: float | None
     delta_absolute: float | None
     delta_percent: float | None
+    """0-100 and the figure to show. A percentile of the evidence-weighted move
+    within this scope, so it is bounded by construction and orders players the
+    same way the boards do. `delta_percent` is the raw ratio and is kept for
+    traceability, but it has no ceiling - see analytics/form.stamp_form_scores."""
+    form_score: float | None = None
+    """The change against baseline in words, never a percentage above 100: past
+    a doubling it is stated as a multiple instead."""
+    delta_display: str | None = None
     trend: str
     confidence: float
     explanation: str
@@ -991,6 +1292,11 @@ class FormLeaderRow(PlayerCountry):
     state: str
     label: str
     delta_percent: float | None
+    # Bounded 0-100 and monotonic with this board's ordering. The percentage
+    # above is unbounded and was previously the displayed figure, which meant
+    # the column and the sort disagreed.
+    form_score: float | None = None
+    delta_display: str | None = None
     trend: str
     confidence: float
     recent_matches: int
@@ -1032,6 +1338,9 @@ class DirectoryPlayer(PlayerCountry):
     form_state: str | None
     form_label: str | None
     form_delta: float | None
+    # 0-100. What the card shows, and what sort_by=form orders on.
+    form_score: float | None = None
+    form_display: str | None = None
     form_confidence: float | None
 
 

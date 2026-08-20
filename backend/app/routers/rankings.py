@@ -220,6 +220,9 @@ def best_side(
     # always did. 'current' answers a different question and says so in the
     # response rather than quietly changing what the same heading means.
     pool: str = Query(default="all_time", pattern="^(all_time|current)$"),
+    # §18's optimisation objectives. Validated against the analytics table
+    # rather than a regex, so adding one stays a single-file change.
+    objective: str = Query(default="overall"),
     db: Session = Depends(get_db),
 ) -> schemas.SelectedSide:
     """Best XI or XV for a scope (§18).
@@ -244,6 +247,14 @@ def best_side(
     if not key and not ctype:
         ctype = queries.DEFAULT_RANKING_COMPETITION_TYPE
 
+    if objective not in selection.OBJECTIVES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"unknown objective '{validation.echo(objective)}'; "
+                f"available: {sorted(selection.OBJECTIVES)}"
+            ),
+        )
     result = selection.select_side(
         db,
         gender=gender,
@@ -252,6 +263,7 @@ def best_side(
         competition_type=ctype,
         team_id=team_id,
         pool=pool,
+        objective=objective,
     )
     team_name = None
     if team_id is not None:
@@ -274,4 +286,9 @@ def best_side(
         reference_date=result.reference_date,
         cutoff_date=result.cutoff_date,
         weights=result.weights,
+        objective=result.objective,
+        objective_label=result.objective_label,
+        objective_detail=result.objective_detail,
+        tradeoffs=[schemas.SelectionTradeOff(**vars(t)) for t in result.tradeoffs],
+        unknown_age=result.unknown_age,
     )

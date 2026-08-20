@@ -1335,32 +1335,61 @@ def _comparison_side(
     )
 
 
+# 2 to 5, per §13. The upper bound is a readability limit rather than a
+# computational one: the comparison is a table with one column per player, and
+# past five the columns are too narrow to read on any realistic screen.
+MAX_COMPARISON_PLAYERS = 5
+
+
 def get_player_comparison(
-    db: Session, identifier_a: str, identifier_b: str,
+    db: Session, identifiers: list[str],
     competition_key: str | None, competition_type: str | None,
 ) -> schemas.PlayerComparison | str:
-    """Head-to-head between two players. Returns an error string if invalid.
+    """Compare 2 to 5 players. Returns an error string if the set is invalid.
 
-    Two rules are enforced rather than left to the caller:
-      * same gender -- men's and women's cricket share no identity anywhere
-        else in this app, and a cross-gender "who scored more" is not a
-        comparison anyone makes;
-      * one competition scope -- comparing an unscoped career total would sum
-        international and franchise runs, the exact blend Phase 2 removed.
+    §13 asks for 2-5 and §25 names the extension explicitly. The shape is a list
+    of sides with a list of values per metric, rather than the `a`/`b` pair it
+    replaced: a two-player special case cannot express "who is best of five"
+    without the client re-deriving it, and `better: 'a' | 'b'` has nowhere to put
+    a third player.
+
+    Three rules are enforced here rather than left to the caller:
+      * same gender - men's and women's cricket share no identity anywhere else
+        in this app, and a cross-gender "who scored more" is not a comparison
+        anyone makes;
+      * one competition scope - an unscoped career total would sum international
+        and franchise runs, the exact blend Phase 2 removed;
+      * no duplicates - the same player twice is a column of itself, and
+        silently de-duplicating would return fewer players than were asked for
+        without saying so.
     """
-    a = db.execute(select(Player).where(Player.identifier == identifier_a)).scalar_one_or_none()
-    b = db.execute(select(Player).where(Player.identifier == identifier_b)).scalar_one_or_none()
-    if a is None:
-        return f"player '{identifier_a}' not found"
-    if b is None:
-        return f"player '{identifier_b}' not found"
-    if a.identifier == b.identifier:
-        return "cannot compare a player with themselves"
-    if a.gender != b.gender:
+    if len(identifiers) < 2:
+        return "need at least two players to compare"
+    if len(identifiers) > MAX_COMPARISON_PLAYERS:
         return (
-            f"cannot compare across genders ('{a.name}' is {a.gender}, "
-            f"'{b.name}' is {b.gender})"
+            f"cannot compare more than {MAX_COMPARISON_PLAYERS} players at once "
+            f"({len(identifiers)} requested)"
         )
+    seen: set[str] = set()
+    for identifier in identifiers:
+        if identifier in seen:
+            return f"player '{identifier}' is listed twice"
+        seen.add(identifier)
+
+    players: list[Player] = []
+    for identifier in identifiers:
+        player = db.execute(
+            select(Player).where(Player.identifier == identifier)
+        ).scalar_one_or_none()
+        if player is None:
+            return f"player '{identifier}' not found"
+        players.append(player)
+
+    genders = {p.gender for p in players}
+    if len(genders) > 1:
+        detail = ", ".join(f"'{p.name}' is {p.gender}" for p in players)
+        return f"cannot compare across genders ({detail})"
+    gender = players[0].gender
 
     if not competition_key and not competition_type:
         competition_type = DEFAULT_RANKING_COMPETITION_TYPE
@@ -1368,40 +1397,65 @@ def get_player_comparison(
         competition_type = None
 
     reference = dataset_latest_date(db)
-    side_a = _comparison_side(db, a, competition_key, competition_type, reference)
-    side_b = _comparison_side(db, b, competition_key, competition_type, reference)
+    sides = [
+        _comparison_side(db, p, competition_key, competition_type, reference)
+        for p in players
+    ]
 
     metrics = []
     for key, label, lower_better, fmt, gate_field, gate_min in COMPARISON_METRICS:
-        va = getattr(side_a.totals, key, None) if side_a.totals else None
-        vb = getattr(side_b.totals, key, None) if side_b.totals else None
-        comparable = True
+        values = [
+            getattr(side.totals, key, None) if side.totals else None for side in sides
+        ]
+        # A rate needs a sample before it means anything, and the gate applies
+        # per player rather than to the set: one player short of the threshold
+        # makes THEIR figure incomparable, not the whole row. Their value is
+        # still returned - it is a fact about them - but it cannot win the row.
+        qualified = [True] * len(sides)
         if gate_field:
-            ga = getattr(side_a.totals, gate_field, 0) if side_a.totals else 0
-            gb = getattr(side_b.totals, gate_field, 0) if side_b.totals else 0
-            comparable = (ga or 0) >= gate_min and (gb or 0) >= gate_min
-        better = None
-        if comparable and va is not None and vb is not None and va != vb:
-            a_wins = va < vb if lower_better else va > vb
-            better = "a" if a_wins else "b"
+            for i, side in enumerate(sides):
+                have = getattr(side.totals, gate_field, 0) if side.totals else 0
+                qualified[i] = (have or 0) >= gate_min
+
+        contenders = [
+            (i, v) for i, v in enumerate(values) if v is not None and qualified[i]
+        ]
+        best_index = None
+        if len(contenders) > 1:
+            picker = min if lower_better else max
+            best_value = picker(v for _, v in contenders)
+            leaders = [i for i, v in contenders if v == best_value]
+            # A tie has no winner. Highlighting one of two equal figures would
+            # assert a difference that is not there.
+            if len(leaders) == 1:
+                best_index = leaders[0]
+
         metrics.append(
             schemas.ComparisonMetric(
-                key=key, label=label, a=va, b=vb,
-                better=better, lower_is_better=lower_better, format=fmt,
+                key=key,
+                label=label,
+                values=values,
+                qualified=qualified,
+                best_index=best_index,
+                lower_is_better=lower_better,
+                format=fmt,
+                gate_field=gate_field,
+                gate_min=gate_min if gate_field else None,
             )
         )
 
-    series_a = dict((s, (r, w)) for s, r, w in _season_series(
-        db, a.identifier, a.gender, competition_key, competition_type))
-    series_b = dict((s, (r, w)) for s, r, w in _season_series(
-        db, b.identifier, b.gender, competition_key, competition_type))
-    seasons = sorted(set(series_a) | set(series_b))
+    series = [
+        dict((season, (runs, wickets)) for season, runs, wickets in _season_series(
+            db, p.identifier, gender, competition_key, competition_type))
+        for p in players
+    ]
+    seasons = sorted({season for one in series for season in one})
 
     scope_label = competition_key or competition_type or "all"
     if competition_key:
         comp = db.execute(
             select(Competition).where(
-                Competition.key == competition_key, Competition.gender == a.gender
+                Competition.key == competition_key, Competition.gender == gender
             )
         ).scalar_one_or_none()
         if comp:
@@ -1414,17 +1468,16 @@ def get_player_comparison(
     return schemas.PlayerComparison(
         scope=competition_key or competition_type or "all",
         scope_label=scope_label,
-        gender=a.gender,
-        a=side_a,
-        b=side_b,
+        gender=gender,
+        sides=sides,
         metrics=metrics,
         season_runs=[
-            {"season": s, "a": series_a.get(s, (0, 0))[0], "b": series_b.get(s, (0, 0))[0]}
-            for s in seasons
+            {"season": season, "values": [one.get(season, (0, 0))[0] for one in series]}
+            for season in seasons
         ],
         season_wickets=[
-            {"season": s, "a": series_a.get(s, (0, 0))[1], "b": series_b.get(s, (0, 0))[1]}
-            for s in seasons
+            {"season": season, "values": [one.get(season, (0, 0))[1] for one in series]}
+            for season in seasons
         ],
     )
 
@@ -1586,7 +1639,12 @@ PLAYER_SORTS = {
     "wickets": "wickets",
     "bowling_average": "bowling_average",
     "economy": "economy",
-    "form": "form_delta",
+    # Sorts on the bounded score, not on `form_delta`. The raw ratio is a
+    # percentage against the player's own baseline, so ordering by it puts
+    # whoever had the worst baseline on top -- the same defect the form boards
+    # fixed by ranking on par units. The score is a percentile of that same
+    # evidence-weighted move, so this ordering now matches the boards'.
+    "form": "form_score",
 }
 
 # Ascending is right for these: a lower bowling average or economy is better.
@@ -1723,6 +1781,10 @@ def browse_players(
                 "form_state": form_row["state"] if form_row else None,
                 "form_label": form_row["label"] if form_row else None,
                 "form_delta": form_row["delta_percent"] if form_row else None,
+                # Bounded 0-100 and the figure the card shows. `form_delta`
+                # above is the raw ratio and has no ceiling.
+                "form_score": form_row["form_score"] if form_row else None,
+                "form_display": form_row["delta_display"] if form_row else None,
                 "form_confidence": form_row["confidence"] if form_row else None,
             }
         )

@@ -1791,3 +1791,275 @@ is what each is bounded by: a bulk archive ingest is bounded by writes to the
 one SQLite file and is worth not overlapping, whereas news fetching is bounded
 by four independent publishers' politeness delays, and serialising them spends
 the whole run waiting on the slowest while the other three idle.
+
+### A percentage with no ceiling is a broken column, and form had one
+
+`FormLeader.rank_score` documents why the boards are *ordered* on par units
+rather than on the percentage. What that left behind was a board ordered on one
+quantity and labelled with another, and the two do not agree. Measured over the
+711 men's international verdicts:
+
+    delta_percent |change|   p50 21.4  p75 36.9  p90 52.7  p99 131.2  MAX 306.1
+    over 100%                22 of 711 (3.1%)
+
+So the top row read **+197.6%** and the sixth read **+47.5%**, with rows in
+between higher than rows above them. There is no reading of that column which is
+not either "the sort is wrong" or "this number means something I cannot see".
+And +306.1% was Daniel Jackiel at 1.67 par units off a 0.28 baseline, printed
+above Virat Kohli's 2.63 par units.
+
+`form.stamp_form_scores` adds **`form_score`, a 0-100 percentile of
+`rank_score`** - the same device `performance_index` uses, for the same reason:
+it bounds a quantity with no natural ceiling without inventing a cap, and
+because it percentiles the *same* value the board sorts on, the column can no
+longer contradict the order. `delta_percent` stays in the payload for
+traceability (§30) and is no longer the headline anywhere.
+
+Four things about it that are load-bearing:
+
+- **One population, computed once.** The score is stamped inside
+  `_build_scope_summary`, which is the cached reduction that the boards, the
+  directory, Scout and Best XI all read their verdicts from. Percentiling per
+  consumer gave the same player a different score on the board than in the
+  directory - `form.leaderboard` therefore *looks up* its scores rather than
+  computing its own, and only falls back to stamping if a player is somehow
+  absent.
+- **A thin verdict scores None, not 50.** Below `LEADERBOARD_MIN_CONFIDENCE` the
+  verdict is excluded from the population and left unscored; 50 would read as
+  "exactly median" for a player nobody could place.
+- **`score_against_scope` exists for the single-player endpoint**, which assesses
+  one verdict outside any population. It percentiles the *value* against the
+  cached distribution rather than copying a precomputed score, so it stays
+  correct when the caller asks for a non-default window.
+- **The wording changes past a doubling, and nothing is clipped.**
+  `delta_display` says "3.0x their baseline" above +100% and "+16% against their
+  baseline" below it - so §11's required sentence still reads the way §11 writes
+  it, and no percentage over 100 is ever rendered.
+
+`scout.py` and `selection.py` now score form on `form_score` too, replacing a
+local clamp of the ratio to +/-1 that handed every player past a doubling an
+identical form term. And `queries.PLAYER_SORTS["form"]` sorts on the score, not
+on `form_delta`: ordering the directory by the raw ratio put whoever had the
+worst baseline on top, which is the defect the boards had already fixed.
+
+**Team weakness had the same latent bug and a men's-only measurement missed it.**
+An initial check over men's T20I sides found a maximum of 78.9% and concluded the
+facet deltas were naturally bounded. Swept across every competition and gender
+that is false: 3 of 2,340 exceed 100%, topping out at Turkey's women's T20I
+middle-over batting at **128.6%**. `Facet.delta_display` carries the wording.
+
+`backend/scripts/validate_percentages.py` is the guard. It sweeps 33 read paths
+and fails on any field the UI renders as a percentage or a 0-100 score that
+falls outside its range - and separately on any *raw* ratio that ships without a
+bounded companion, so a new board cannot reintroduce the problem. Two things
+about it: it treats an unreachable endpoint as a failure, so a stopped server
+cannot look like a clean run; and its own logic is tested against synthetic
+payloads, because the first version of this check never called its own walk
+function and passed everything.
+
+### A tournament edition is where the drill-down actually lives
+
+`tournaments.py` answers "which tournaments exist and who won them".
+`analytics/tournament_edition.py` answers everything a reader wants next: the
+table, every fixture, the leading run-scorers and wicket-takers of that edition,
+and who took the most player-of-the-match awards. The split follows §32 - the
+event-name folding stays in `tournaments.py` and never happens twice, so an
+edition can never be assembled from a raw Cricsheet spelling the alias table
+would have merged.
+
+Validated against published sources rather than by reading the code, which is
+how both of the bugs below were found.
+
+**The 2017 Champions Trophy reproduces exactly.** Both groups, every points
+total, England's +0.866 net run rate, Shikhar Dhawan's 338 runs and Hasan Ali's
+13 wickets. That edition is complete in this dataset (15 of 15 matches), so it
+is the clean end-to-end check. 2023's men's World Cup gives Mohammed Shami 24
+wickets, also exact.
+
+#### Two bugs the validation caught, both of which looked right
+
+- **A super over inflates every total it touches.** Cricsheet stores it as
+  further innings on the same match with no flag of its own, so summing innings
+  gave the 2019 World Cup final as **England 256/10 against New Zealand 256/9** -
+  each side's real 241 plus their 15-run super over. The innings number is the
+  only signal there is, so `_team_innings` drops anything past the second **when
+  the match has an overs limit**; a Test's third and fourth innings are the
+  match, not a tiebreak.
+- **A knockout match does not belong in a group table.** Counted in, the tied
+  2019 final gave England 10 played and 13 points against a published 9 and 12.
+  `KNOCKOUT_STAGES` enumerates all 35 values `matches.event_stage` actually
+  holds rather than pattern-matching "Final", the same call `venues.py` and
+  `events.py` make. An unrecognised spelling falls back to a small hint list and
+  is **reported in `standings_caveats`** either way, so the guess is visible.
+
+#### The table is honest about not being the published table
+
+Net run rate applies the **all-out rule** - a side bowled out is charged its full
+overs quota, not the overs it used - and excludes abandoned matches entirely.
+Skipping the first inflates every collapse; including the second rates a match
+with no result.
+
+Coverage is *detected*, not asserted. A round-robin gives every side the same
+number of matches, so an uneven `played` column is proof that matches are
+missing: the 2019 World Cup comes out with sides on 6 to 8 where all ten played
+9, and the note says so in those terms. Points are the near-universal 2-for-a-win
+convention and are labelled as a convention, with a caveat on any edition whose
+stages imply carry-over points.
+
+The Afghanistan withdrawal matters more here than anywhere else in the product,
+because on an edition page it changes the *leaderboard* rather than a total: the
+2024 men's T20 World Cup loses its actual leading run-scorer (Rahmanullah
+Gurbaz, 281) and a joint leading wicket-taker (Fazalhaq Farooqi, 17). Without
+the note that reads as this dataset disagreeing with every published source.
+
+#### The season is a `:path`, and percent-encoding does not help
+
+More than half the editions here are labelled `2023/24`. Starlette matches on
+the *decoded* path, so `2023%2F24` still arrives as two segments and misses the
+route - the same reason `/analytics/venues/{venue_name:path}` is a path. The
+frontend route is a splat and the client deliberately does **not** encode the
+season.
+
+### Compare is 2 to 5 players, and `a`/`b` could not express it
+
+§13 asks for 2-5 and §25 names the extension. The shape is now `sides: [...]`
+with `values: [...]` per metric and a `best_index`, because `better: 'a' | 'b'`
+has nowhere to put a third player and a client should not have to re-derive
+"best of five".
+
+Three details:
+
+- **The volume gate is per player, not per row.** MS Dhoni's 36 balls bowled give
+  him an ODI bowling average of 31.00 which is true, unmeaningful, and must not
+  win the row - while Rohit Sharma's 610 balls in the same row are perfectly
+  comparable. `qualified[]` marks the first without blanking the second, and
+  `gate_field`/`gate_min` travel so the UI can say *why* a figure is greyed.
+- **`best_index` is null on a tie.** Highlighting one of two equal figures
+  asserts a difference that is not there.
+- **`?a=&b=` is still accepted.** §27 makes every filter state a shareable URL,
+  so two-player links already sent have to keep resolving; they map onto the
+  front of `players`, and the page rewrites itself to the canonical
+  `?players=x,y` form.
+
+**The UI caps at four, and the limit is the design system's, not the data's.**
+`index.css` defines and CVD-validates exactly four categorical series, and
+identity on this page rests on colour across three charts. A fifth player would
+mean either an unvalidated hue or two players sharing one, and a comparison where
+two columns are the same colour is worse than a comparison of four. The cap is
+stated on the page rather than only enforced.
+
+### Best XI answers an objective, and says what that objective cost
+
+`selection.OBJECTIVES` implements §18's seven optimisation targets through the
+two levers that actually decide a side - the **role shape** it is filled to and
+the **weighting** candidates are scored on. There is no second algorithm; it is
+the same shape-fill either way, which is what keeps every objective explainable
+in the same terms. `youth` and `experience` add a preference term carrying
+`OBJECTIVE_BONUS_WEIGHT` (0.20) on top of quality rather than replacing it, so a
+youth side is still the best *young* side and not the youngest eleven who have
+played eight matches. Youth is soft, and players of unknown age are counted and
+reported rather than dropped - date of birth covers ~42% of the register.
+
+**§18's trade-off requirement is now met literally.** `_fill_shape` is the only
+place that knows why a better player is missing - by the time a caller sees the
+eleven, the reason has been discarded - so it tags each candidate passed over
+with the quota that was full when their turn came. Asking for bowling strength in
+Tests reports David Warner at 86.01 against Kumar Sangakkara's 85.13, out
+because the three batter places were already filled. Only players who out-score
+somebody actually picked appear: a candidate below every pick was not traded off,
+they were not good enough, and listing them buries the real trade.
+
+### The team page has both halves of §19, and one scope control
+
+`analytics/team_strength.py` is the strength profile beside the weakness
+analysis. Every dimension is a **depth** question rather than a quality one,
+because that is what §19 asks and what a squad page can answer that a
+leaderboard cannot: a side with one great batter and nine poor ones has excellent
+batting and no batting depth, and it is the second that decides a series.
+
+- Batting and bowling depth are the share of output from **outside the top
+  three** - the complement of the reliance figure `squad.py` already computes,
+  and scale-free, so a 3,000-run side and a 900-run side compare.
+- Experience is mean appearances **in this scope**. A player's 120 Test caps are
+  not experience of a T20 side.
+- Bench usage is **deliberately unscored**. A high number can mean healthy
+  rotation or an unsettled side and this data cannot tell them apart, so scoring
+  it would assert something unknown.
+
+Peers are the twelve sides with the most all-time cricket in the scope, and this
+is the third module to need that lesson - see `team_weakness._peer_rates` and
+`opposition.py` for the references that failed. Where fewer than three peers can
+be measured the score is **None**, never 50, which would read as "exactly
+typical" for a side nobody could place.
+
+**One competition selector drives both panels.** Each owning its own put two
+dropdowns on the team page and let them disagree: a reader saw depth over all
+international cricket beside a decline measured in T20Is, with nothing saying
+the two figures described different scopes.
+
+### ICC ranking movement is buildable; ranking history is not, yet
+
+§7 and §10 both list a ranking history, and `icc_player_rankings` is keyed on
+`rank_date`, so the schema has always supported one. The data does not: there are
+**six distinct snapshot dates spanning 2026-07-28 to 2026-08-17**, because the
+daily sync started recently and the ICC republishes roughly weekly. A trend chart
+over three weeks presents three weeks as a career, so `analytics/icc_movement.py`
+computes movement between the two most recent published lists instead - which is
+what §8 asks for under "Latest ICC Movements" - and reports `snapshots` so the
+page can say how deep the record is.
+
+Three traps, all found in the data:
+
+- **Each rank type has its OWN snapshot dates.** `test-batting` was last captured
+  2026-08-11 while `odiw-batting` was captured 2026-08-17. Resolving "the two
+  most recent dates" globally and applying them to every type returns nothing for
+  most of them, because it compares a men's Test list against a date only the
+  women's lists have.
+- **A player absent from the earlier list is a NEW ENTRY, not a riser.** Treating
+  them as having moved from 101st manufactures a position the ICC never
+  published. Same refusal `underrated.py` makes about absence from a ranked list.
+- **A negative position delta is an improvement.** `places_gained` is signed so
+  positive always means better, because a board where the best mover shows the
+  most negative number gets misread every time.
+
+`§8`'s **Available Talent section is deliberately still absent**, and that is not
+an oversight. `availability.py` exists precisely to refuse the claim that heading
+makes: 25 of 274 upcoming fixtures have an announced squad, so a list of
+"available players" would be an absence of evidence presented as a finding.
+
+### Two Performance Index components are off for coverage, not for absence
+
+The reasons in `performance_index.COMPONENTS` were stale and the table is served
+to explain itself, so a reader was being told something untrue:
+
+- **role** said "no playing role exists in any current source". A sourced role
+  exists for 2,295 of 9,511 players via the ICC squad feed. It stays off because
+  a role-peer percentile over a quarter of the register would rate only those
+  players and would systematically prefer whoever appears in the feed - the same
+  selection bias `selection.py` refuses when it reports balance instead of
+  selecting for it.
+- **availability** said "no available feed carries squad lists". 16,996 rows over
+  757 fixtures do. It stays off because only 25 of 274 upcoming fixtures have one
+  announced, so the component would score an absence of evidence for most
+  players.
+
+### Home/away stays unavailable, and the measurement is the reason
+
+`splits.UNAVAILABLE["home_away"]` now carries what was measured rather than a
+general statement. Over all **636 distinct (venue, city) pairs, only 15 carry a
+segment that resolves to a country - 2.4%**. Cricsheet gives a ground and a city
+(270 of them) and never a country, so this is a data decision - a sourced
+ground-to-country list - not a code one.
+
+It is deliberately **not** inferred from which side plays somewhere most often.
+That resolves Sharjah and Dubai to Pakistan and India, which is exactly backwards
+for the neutral venues where the question matters most.
+
+### The Vite dev proxy target is configurable
+
+`VITE_API_TARGET` overrides `http://127.0.0.1:8001`. More than one API can be up
+on this machine at once - a second checkout, or a reviewer running on a spare
+port to compare against the instance already serving 8001 - and a hardcoded
+target silently proxies to whichever process got there first:
+
+    VITE_API_TARGET=http://127.0.0.1:8009 npm run dev -- --port 5174

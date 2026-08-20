@@ -4,6 +4,8 @@ import { api } from '../api/client'
 import type { FormVerdict, PlayerDetail as PlayerDetailType } from '../api/types'
 import FormVerdictCard from '../components/FormVerdictCard'
 import { CompetitionBadge } from '../components/CompetitionBadge'
+import { competitionLabel } from '../competitions'
+import { PlayerSplitsPanel } from '../components/PlayerSplitsPanel'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { StatusBadge } from '../components/StatusBadge'
@@ -67,6 +69,16 @@ export function PlayerDetail() {
   const bio = player.bio
   const hasAnyBio = bio.date_of_birth || bio.birth_place || bio.nationality
 
+  // Which competition to slice the splits within. Deliberately the one this
+  // player has the most cricket in rather than a fixed default: phases are
+  // defined per competition and a Test has none, so defaulting a Test
+  // specialist to a limited-overs competition would open the panel on a split
+  // that reports itself inapplicable. `by_competition` is ordered by the API,
+  // so this picks by matches rather than trusting that order.
+  const splitScope = player.by_competition.length
+    ? player.by_competition.reduce((best, c) => (c.matches > best.matches ? c : best))
+    : null
+
   return (
     <div className="space-y-6">
       <div>
@@ -106,7 +118,7 @@ export function PlayerDetail() {
           ))}
         </p>
         <Link
-          to={`/${slug}/compare?a=${player.identifier}`}
+          to={`/${slug}/compare?players=${player.identifier}`}
           className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
         >
           Compare with another player &rarr;
@@ -200,6 +212,21 @@ export function PlayerDetail() {
           </section>
         ))}
       </div>
+
+      {/* Section 10 lists Opposition, Venue, Phase and Match Situation as
+          profile sections. The analytics for all four shipped with the
+          deliveries backfill; until now nothing on this page asked for them, so
+          a profile showed a career average and not the chasing average that
+          makes it worth reading. The competition defaults to the one the player
+          has most cricket in, because phases are defined per competition. */}
+      {splitScope && (
+        <PlayerSplitsPanel
+          identifier={player.identifier}
+          gender={player.gender === 'female' ? 'female' : 'male'}
+          competitionKey={splitScope.competition_key}
+          competitionLabel={`${competitionLabel(splitScope.competition_key)} cricket`}
+        />
+      )}
 
       <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
         <h2 className="border-b border-border-subtle px-4 py-3 text-sm font-semibold text-ink">

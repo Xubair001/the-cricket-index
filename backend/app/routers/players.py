@@ -11,25 +11,60 @@ router = APIRouter(prefix="/api/players", tags=["players"])
 
 @router.get("/compare", response_model=schemas.PlayerComparison)
 def compare_players(
-    a: str = Query(description="player identifier"),
-    b: str = Query(description="player identifier"),
+    players: list[str] | None = Query(
+        default=None,
+        description=(
+            "2 to 5 player identifiers. Repeat the parameter "
+            "(?players=x&players=y) or pass one comma-separated value."
+        ),
+    ),
+    a: str | None = Query(default=None, description="legacy: first player", deprecated=True),
+    b: str | None = Query(default=None, description="legacy: second player", deprecated=True),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> schemas.PlayerComparison:
-    """Head-to-head between two players within one competition scope.
+    """Compare 2 to 5 players within one competition scope (§13).
 
     Declared before /{identifier} so 'compare' isn't captured as an identifier.
+
+    `a` and `b` are still accepted, and that is not tidiness: §27 makes every
+    filter state a URL a scout can send to a colleague, so two-player links
+    already shared have to keep resolving. They map onto the front of `players`.
     """
+    identifiers: list[str] = []
+    for value in players or []:
+        # Accept both ?players=x&players=y and ?players=x,y. The second is what
+        # a hand-written or shared URL tends to look like.
+        identifiers += [part.strip() for part in value.split(",") if part.strip()]
+    if not identifiers:
+        identifiers = [x for x in (a, b) if x]
+
+    if len(identifiers) > queries.MAX_COMPARISON_PLAYERS:
+        # Bounded before any query runs: identifiers are caller-controlled and
+        # each one costs several aggregates.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"cannot compare more than {queries.MAX_COMPARISON_PLAYERS} "
+                f"players at once ({len(identifiers)} requested)"
+            ),
+        )
+    for identifier in identifiers:
+        if len(identifier) > validation.MAX_SEARCH_LENGTH:
+            raise HTTPException(
+                status_code=422,
+                detail=f"player identifier too long: '{validation.echo(identifier)}'",
+            )
+
     result = queries.get_player_comparison(
         db,
-        a,
-        b,
+        identifiers,
         validation.check_competition_key(db, competition),
         validation.check_competition_type(db, competition_type),
     )
     if isinstance(result, str):
-        # 404 for a missing player, 422 for a pairing that can't be compared.
+        # 404 for a missing player, 422 for a set that can't be compared.
         raise HTTPException(status_code=404 if "not found" in result else 422, detail=result)
     return result
 
@@ -125,16 +160,29 @@ def player_form(
     the profile endpoint because form is a different question from career
     record -- Rule 3 -- and is the expensive half.
     """
-    if queries.get_player_detail(db, identifier) is None:
+    player = queries.get_player_detail(db, identifier)
+    if player is None:
         raise HTTPException(status_code=404, detail=f"player '{validation.echo(identifier)}' not found")
 
+    comp_key = validation.check_competition_key(db, competition)
+    comp_type = validation.check_competition_type(db, competition_type)
     verdict = form.assess(
         db,
         identifier,
         recent_matches=recent or config.DEFAULT_RECENT_MATCHES,
         baseline_days=baseline_days or config.DEFAULT_BASELINE_DAYS,
-        competition_key=validation.check_competition_key(db, competition),
-        competition_type=validation.check_competition_type(db, competition_type),
+        competition_key=comp_key,
+        competition_type=comp_type,
+    )
+    # `assess` has no population to place the verdict against, so the bounded
+    # 0-100 score has to be computed here. Without this the profile page shows
+    # the unbounded percentage while every board shows the score.
+    verdict.form_score = form.score_against_scope(
+        db,
+        verdict,
+        gender=player.gender,
+        competition_key=comp_key,
+        competition_type=comp_type,
     )
     return schemas.FormVerdict(**verdict.as_dict())
 

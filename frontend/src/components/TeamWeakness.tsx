@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { TeamWeakness as Weakness } from '../api/types'
-import { useScope } from '../scope/scope'
 import { SkeletonRows } from './LoadingSpinner'
-import { rate } from '../format'
+import { change, rate } from '../format'
 
 /**
  * Team weakness analysis (Section 19).
@@ -41,19 +40,22 @@ function VerdictMark({ verdict }: { verdict: string }) {
   )
 }
 
-export function TeamWeaknessPanel({ teamId }: { teamId: number }) {
-  const { competitions } = useScope()
-  // Phases are defined per competition, so this needs one chosen. Default to
-  // the richest competition that HAS phases rather than to the first in the
-  // list, or a Test-playing side opens on a panel that can say nothing.
-  const withPhases = competitions.filter((c) => c.key !== 'tests')
-  const [competition, setCompetition] = useState('')
+/**
+ * `competition` is a prop rather than internal state, and one selector on the
+ * team page drives this panel and the strength profile together. Each owning its
+ * own dropdown put two on the page and let them disagree - a reader saw depth
+ * for all international cricket beside a decline measured in T20Is, with nothing
+ * saying the two figures described different scopes.
+ */
+export function TeamWeaknessPanel({
+  teamId,
+  competition,
+}: {
+  teamId: number
+  competition: string
+}) {
   const [data, setData] = useState<Weakness | null>(null)
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!competition && withPhases.length) setCompetition(withPhases[0].key)
-  }, [withPhases, competition])
 
   useEffect(() => {
     if (!competition) return
@@ -82,17 +84,6 @@ export function TeamWeaknessPanel({ teamId }: { teamId: number }) {
             themselves, not a position in a table.
           </p>
         </div>
-        <select
-          value={competition}
-          onChange={(e) => setCompetition(e.target.value)}
-          className="rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
-        >
-          {withPhases.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.display_name}
-            </option>
-          ))}
-        </select>
       </header>
 
       {loading ? (
@@ -123,17 +114,17 @@ export function TeamWeaknessPanel({ teamId }: { teamId: number }) {
                         : 'text-muted'
                   }`}
                 >
-                  {f.delta_percent === null
-                    ? '-'
-                    : `${f.delta_percent > 0 ? '+' : ''}${f.delta_percent.toFixed(0)}%`}
+                  {/* Worded by the API so it is never a percentage over 100.
+                      A run rate can more than double on a thin sample - Turkey's
+                      women's T20I middle overs reach 128.6% - and 3 of 2,340
+                      measured facet figures do. */}
+                  {f.delta_display ?? change(f.delta_percent)}
                 </span>
                 <span
                   className="tnum w-16 shrink-0 text-right font-mono text-[11px] text-dim"
                   title="Against the core sides of this competition over the same window"
                 >
-                  {f.versus_peers_percent === null
-                    ? '-'
-                    : `${f.versus_peers_percent > 0 ? '+' : ''}${f.versus_peers_percent.toFixed(0)}%`}
+                  {change(f.versus_peers_percent)}
                 </span>
               </li>
             ))}

@@ -32,10 +32,32 @@ import {
  * as an empty cell.
  */
 
-function EditionRow({ e, slug }: { e: TournamentEdition; slug: string }) {
+function EditionRow({
+  e,
+  slug,
+  tournamentSlug,
+}: {
+  e: TournamentEdition
+  slug: string
+  tournamentSlug: string
+}) {
   return (
     <tr className={trClass}>
-      <td className={`${tdClass} whitespace-nowrap font-medium`}>{e.season ?? '-'}</td>
+      <td className={`${tdClass} whitespace-nowrap font-medium`}>
+        {e.season ? (
+          // The season is NOT encoded: it can contain a slash ("2023/24") and
+          // the route takes it as a splat for that reason. Encoding it would
+          // break the majority of editions.
+          <Link
+            to={`/${slug}/tournaments/${tournamentSlug}/editions/${e.season}`}
+            className="text-ink hover:text-analytic-ink"
+          >
+            {e.season}
+          </Link>
+        ) : (
+          '-'
+        )}
+      </td>
       <td className={tdClass}>
         {e.winner_name ? (
           <span className="font-medium text-ink">{e.winner_name}</span>
@@ -62,16 +84,15 @@ function EditionRow({ e, slug }: { e: TournamentEdition; slug: string }) {
       <td className={`${tdClass} text-muted`}>{e.runner_up_name ?? '-'}</td>
       <td className={tdNumClass}>{count(e.sides)}</td>
       <td className={tdNumClass}>{count(e.matches)}</td>
-      <td className={`${tdClass} whitespace-nowrap text-xs text-dim`}>
-        {e.first_date ? (
+      <td className={`${tdClass} whitespace-nowrap text-xs text-dim`}>{e.first_date ?? '-'}</td>
+      <td className={`${tdClass} whitespace-nowrap`}>
+        {e.season && (
           <Link
-            to={`/${slug}/matches?search=${encodeURIComponent(e.season ?? '')}`}
-            className="hover:text-analytic-ink"
+            to={`/${slug}/tournaments/${tournamentSlug}/editions/${e.season}`}
+            className="text-xs text-analytic-ink hover:underline"
           >
-            {e.first_date}
+            Table &amp; fixtures &rarr;
           </Link>
-        ) : (
-          '-'
         )}
       </td>
     </tr>
@@ -164,11 +185,17 @@ export function TournamentDetail() {
               <th className={thNumClass}>Sides</th>
               <th className={thNumClass}>Matches</th>
               <th className={thClass}>From</th>
+              <th className={thClass}>Detail</th>
             </tr>
           </thead>
           <tbody>
             {data.editions_detail.map((e) => (
-              <EditionRow key={e.season ?? String(e.first_date)} e={e} slug={slug} />
+              <EditionRow
+                key={e.season ?? String(e.first_date)}
+                e={e}
+                slug={slug}
+                tournamentSlug={data.slug}
+              />
             ))}
           </tbody>
         </table>

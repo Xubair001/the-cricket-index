@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FormState, FormVerdict } from '../api/types'
+import { change, score } from '../format'
 
 /**
  * A form verdict with its workings attached.
@@ -106,7 +107,11 @@ export default function FormVerdictCard({
   const [showWorkings, setShowWorkings] = useState(false)
   const tone = TONE[verdict.state] ?? TONE.insufficient_data
   const lowConfidence = verdict.confidence < LOW_CONFIDENCE
+  // The headline is the bounded 0-100 score. `delta_percent` is the raw ratio
+  // against this player's own baseline and has no ceiling - it reached +306% in
+  // this dataset - so it is shown as the supporting move, worded by the API.
   const delta = verdict.delta_percent
+  const move = verdict.delta_display ?? change(delta)
 
   return (
     <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
@@ -121,10 +126,18 @@ export default function FormVerdictCard({
             >
               {verdict.label}
             </span>
+            {verdict.form_score !== null && (
+              <span
+                className={`tnum text-2xl font-semibold ${tone.fg}`}
+                title="Form score out of 100: where this move sits among every player in this scope"
+              >
+                {score(verdict.form_score)}
+                <span className="ml-0.5 text-sm font-normal text-muted">/100</span>
+              </span>
+            )}
             {delta !== null && (
-              <span className={`tnum text-2xl font-semibold ${tone.fg}`}>
-                {delta > 0 ? '+' : ''}
-                {delta.toFixed(0)}%
+              <span className="text-sm text-muted" title="Change against this player's own baseline">
+                {move}
               </span>
             )}
             <span className="text-lg text-muted" title={`Trend within the ${verdict.recent_window}`}>

@@ -3,11 +3,13 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { MatchSummary, TeamDetail as TeamDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
+import { TeamStrengthPanel } from '../components/TeamStrength'
 import { TeamWeaknessPanel } from '../components/TeamWeakness'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { StatCard } from '../components/StatCard'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useScope } from '../scope/scope'
 import { percent, rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import {
@@ -56,6 +58,18 @@ export function TeamDetail() {
   const { teamId = '' } = useParams()
   const [team, setTeam] = useState<TeamDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // One competition for both team-intelligence panels. Phases are defined per
+  // competition and Tests have none, so a Test-playing side must not default to
+  // Tests or the weakness panel opens on something it cannot measure.
+  const { competitions } = useScope()
+  const phaseCompetitions = competitions.filter((c) => c.key !== 'tests')
+  const [intelCompetition, setIntelCompetition] = useState('')
+  useEffect(() => {
+    if (!intelCompetition && phaseCompetitions.length) {
+      setIntelCompetition(phaseCompetitions[0].key)
+    }
+  }, [phaseCompetitions, intelCompetition])
 
   useEffect(() => {
     // Guards against a slower request for a previous team resolving after
@@ -185,7 +199,36 @@ export function TeamDetail() {
         </Panel>
       </div>
 
-      <TeamWeaknessPanel teamId={team.team_id} />
+      {/* Section 19 pairs these two: strength says where the side is deep,
+          weakness says what has declined against its own past. Strength first,
+          because a reader needs the shape of the side before the change in it.
+
+          ONE competition selector drives both. Each panel owning its own put two
+          dropdowns on the page and let them disagree, so a reader saw depth over
+          all international cricket beside a decline measured in T20Is. Phases
+          are defined per competition and Tests have none, so the default is the
+          richest competition that has them. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="u-eyebrow">Team intelligence</h2>
+        <label className="flex items-center gap-2">
+          <span className="u-eyebrow">Competition</span>
+          <select
+            value={intelCompetition}
+            onChange={(e) => setIntelCompetition(e.target.value)}
+            className="rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
+          >
+            {phaseCompetitions.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <TeamStrengthPanel teamId={team.team_id} competition={intelCompetition || undefined} />
+
+      <TeamWeaknessPanel teamId={team.team_id} competition={intelCompetition} />
 
       <Panel title="Recent Matches">
         {team.recent_matches.length === 0 ? (

@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { DashboardStats, FormLeaderRow, NewsArticleSummary } from '../api/types'
+import type {
+  DashboardStats,
+  FormLeaderRow,
+  IccMovementReport,
+  NewsArticleSummary,
+} from '../api/types'
 import { useGender } from '../gender/useGender'
+import type { ApiGender } from '../gender/useGender'
 import { ParMeter } from '../components/ParMeter'
 import { SkeletonRows } from '../components/LoadingSpinner'
 import { Provenance, Uncertain } from '../components/ui'
 import { PlayerName } from '../components/PlayerName'
 import { NewsRow } from '../components/NewsItem'
+import { change, score } from '../format'
 
 /**
  * The landing page.
@@ -39,7 +46,7 @@ import { NewsRow } from '../components/NewsItem'
 
 const ACTIONS = [
   { label: 'Find a Player', to: 'players', hint: 'Search and filter the full register' },
-  { label: 'Compare Players', to: 'compare', hint: 'Two careers side by side' },
+  { label: 'Compare Players', to: 'compare', hint: 'Up to four careers side by side' },
   { label: 'Explore Rankings', to: 'rankings', hint: 'Computed from ball-level aggregates' },
   { label: 'ICC Rankings', to: 'icc-rankings', hint: 'Official published ratings' },
   // Shipped: squad lists come from the ICC scorecard feed, so this is no longer
@@ -83,7 +90,8 @@ function ParScale() {
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="u-eyebrow">The unit on this page</p>
         <p className="text-xs text-muted">
-          Every board below is ordered on par units gained, not on the percentage.
+          Every board below is ordered on par units gained, and the form score beside each name
+          is a percentile of that same figure.
         </p>
       </div>
 
@@ -163,10 +171,9 @@ function FormBoard({
             // the red of a below-par delta cannot be separated (ΔE ~12 for
             // normal vision), and here they would sit in adjacent columns.
             const thin = r.confidence < 0.6
-            const deltaText =
-              r.delta_percent !== null
-                ? `${r.delta_percent > 0 ? '+' : ''}${r.delta_percent.toFixed(0)}%`
-                : '-'
+            // Worded by the API so it is never a percentage over 100 - a ratio
+            // against the player's own baseline has no ceiling.
+            const deltaText = r.delta_display ?? change(r.delta_percent)
             const confidenceNote = `Confidence ${Math.round(r.confidence * 100)}% - from ${
               r.recent_matches
             } recent and ${r.baseline_matches} earlier matches`
@@ -199,12 +206,21 @@ function FormBoard({
                     {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '-'}
                   </span>
 
+                  {/* The bounded 0-100 score, not the raw percentage. The
+                      strip is ordered on par units gained, and the percentage
+                      is not monotonic with that, so showing it here put a
+                      larger figure below a smaller one. */}
                   <span
                     className={`tnum w-14 shrink-0 text-right text-sm font-semibold ${
                       tone === 'positive' ? 'text-positive-ink' : 'text-negative-ink'
                     }`}
+                    title={`Form score ${score(r.form_score)}/100 in this scope · ${deltaText}`}
                   >
-                    {thin ? <Uncertain reason={confidenceNote}>{deltaText}</Uncertain> : deltaText}
+                    {thin ? (
+                      <Uncertain reason={confidenceNote}>{score(r.form_score)}</Uncertain>
+                    ) : (
+                      score(r.form_score)
+                    )}
                   </span>
                 </Link>
               </li>
@@ -215,7 +231,7 @@ function FormBoard({
 
       <footer className="border-t border-border-subtle px-4 py-2">
         <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-dim">
-          Trend · Player · Par · Change
+          Trend · Player · Par · Form score
         </p>
       </footer>
     </section>
@@ -389,6 +405,13 @@ export function Home() {
         />
       </div>
 
+      {/* Section 8's "Latest ICC Movements". Sits below the computed boards
+          because it is the one board here this project did NOT derive - it is
+          ICC's published list, unmodified, and the separation between a derived
+          figure and an official rating is the one Section 6 exists to protect.
+          Fetched on its own so an ICC outage cannot blank the boards above. */}
+      <IccMovementStrip gender={apiGender} slug={slug} />
+
       {/* The dataset's size. Present because it sets the scale of everything
           above, small because it is not the product. */}
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border-subtle bg-border-subtle shadow-card sm:grid-cols-5">
@@ -406,14 +429,112 @@ export function Home() {
 
       <Provenance>
         Form compares a player against their own preceding 12 months, scoped to international
-        cricket - never blended with franchise cricket. The percentage is the change against that
-        baseline; the meter beside it is the absolute standard against par. A dotted rule under a
-        change means confidence below 60%, from a thin sample. Every performance is weighted by the
-        strength of the side it came against, fitted from what every team concedes across the whole
-        fixture list - so runs against a weak attack count for less. Boards are ordered on par units
-        gained rather than on the percentage, because a player improving from poor to below-average
-        can post a bigger percentage than one playing the best cricket in the world.
+        cricket - never blended with franchise cricket. The figure beside each name is a{' '}
+        <strong className="font-semibold text-muted">form score out of 100</strong>: a percentile of
+        the par units they have gained against their own baseline, weighted by how much cricket the
+        verdict rests on. It replaced the raw percentage, which has no ceiling - it reaches +306% in
+        this dataset - and which was not ordered the same way the board is, so the column
+        contradicted the sort. The meter beside it is the absolute standard against par, and it is
+        the column that separates "improved to excellent" from "improved to still below average". A
+        dotted rule means confidence below 60%, from a thin sample. Every performance is weighted by
+        the strength of the side it came against, fitted from what every team concedes across the
+        whole fixture list - so runs against a weak attack count for less.
       </Provenance>
     </div>
+  )
+}
+
+/**
+ * A compact "who moved in the ICC's list" strip (Section 8).
+ *
+ * Deliberately movement rather than a trend: only a handful of dated ICC lists
+ * are held, because the daily sync began recently and the ICC republishes about
+ * weekly. See analytics/icc_movement.py.
+ *
+ * The rank type is gendered, because the ICC publishes separate lists and a
+ * women's scope must not show the men's board. It defaults to the batting list
+ * for the format with the most published movement rather than to a fixed one.
+ */
+function IccMovementStrip({ gender, slug }: { gender: ApiGender; slug: string }) {
+  const rankType = gender === 'female' ? 'odiw-batting' : 'odi-batting'
+  const [data, setData] = useState<IccMovementReport | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .iccMovement(rankType)
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch(() => {
+        if (!cancelled) setData(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [rankType])
+
+  // Absent rather than empty: a strip with no movement in it is noise, and two
+  // nearby weekly snapshots are often identical.
+  if (!data || (data.risers.length === 0 && data.fallers.length === 0)) return null
+
+  const rows = [...data.risers.slice(0, 3), ...data.fallers.slice(0, 3)]
+
+  return (
+    <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
+      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-subtle px-4 py-3">
+        <h2 className="text-sm font-semibold tracking-tight text-ink">Latest ICC movements</h2>
+        <Link to={`/${slug}/icc-rankings`} className="text-xs text-muted hover:text-ink">
+          All ICC rankings &rarr;
+        </Link>
+      </header>
+      <p className="px-4 pt-2 text-xs text-dim">
+        ODI batting, {data.current_date} against {data.previous_date}. ICC's own positions,
+        published rather than computed here.
+      </p>
+      <ul className="grid gap-x-5 px-4 py-2 sm:grid-cols-2">
+        {rows.map((m) => {
+          const up = m.places_gained > 0
+          return (
+            <li
+              key={`${m.player_name}-${m.position}`}
+              className="flex items-center gap-2 py-1.5 text-sm"
+            >
+              <span
+                className={`w-3 shrink-0 text-center text-xs ${
+                  up ? 'text-positive-ink' : 'text-negative-ink'
+                }`}
+                aria-hidden
+              >
+                {up ? '\u25b2' : '\u25bc'}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-ink">
+                {m.player_identifier ? (
+                  <Link
+                    to={`/${slug}/players/${m.player_identifier}`}
+                    className="hover:text-analytic-ink"
+                  >
+                    {m.player_name}
+                  </Link>
+                ) : (
+                  m.player_name
+                )}
+              </span>
+              <span className="tnum shrink-0 text-xs text-muted">
+                {m.previous_position} &rarr; {m.position}
+              </span>
+              <span
+                className={`tnum w-8 shrink-0 text-right text-xs font-semibold ${
+                  up ? 'text-positive-ink' : 'text-negative-ink'
+                }`}
+              >
+                {up ? '+' : ''}
+                {m.places_gained}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }

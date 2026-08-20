@@ -51,6 +51,7 @@ unlocks.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -135,6 +136,34 @@ class FormVerdict:
     recent_window_label: str
     baseline_window_label: str
     timeline: list[dict] = field(default_factory=list)
+    # 0..100, and the figure a reader should be shown. Stamped by
+    # `stamp_form_scores` once the scope's population is known; None when this
+    # verdict was assessed outside any scope. See that function for why the
+    # percentage it replaces could not be the headline.
+    form_score: float | None = None
+
+    @property
+    def delta_display(self) -> str | None:
+        """The change against baseline, never worded as a percentage over 100.
+
+        A ratio of 3.06 is a true statement about this player and a bad thing to
+        print as "+306%": a percentage reads as a share of something, so a
+        reader takes anything past 100 as either a bug or a score they cannot
+        place. Past a doubling the same fact is clearer as a multiple, which is
+        also how a cricket source would say it.
+
+        Nothing is clipped. `delta_ratio` keeps the exact figure for anyone who
+        wants to divide it themselves; this only decides the wording.
+        """
+        if self.delta_ratio is None:
+            return None
+        magnitude = abs(self.delta_ratio)
+        if magnitude > 1.0:
+            # 3.06 -> "4.1x their baseline": the ratio is the *change*, so the
+            # multiple of the baseline is 1 + it.
+            return f"{1.0 + magnitude:.1f}x their baseline" if self.delta_ratio > 0 \
+                else f"{1.0 / (1.0 + magnitude):.2f}x their baseline"
+        return f"{self.delta_ratio * 100:+.0f}% against their baseline"
 
     def as_dict(self) -> dict:
         return {
@@ -147,6 +176,13 @@ class FormVerdict:
             "delta_ratio": _round(self.delta_ratio, 4),
             "delta_absolute": _round(self.delta_absolute),
             "delta_percent": _round(self.delta_ratio * 100) if self.delta_ratio is not None else None,
+            # Bounded 0..100 and monotonic with the board's own ordering. This
+            # is what the UI shows; `delta_percent` stays for traceability.
+            "form_score": _round(self.form_score, 1),
+            # How to say the change WITHOUT a percentage over 100. Above a
+            # doubling the ratio stops reading as a percentage, so it is
+            # expressed as a multiple of the baseline instead.
+            "delta_display": self.delta_display,
             "trend": self.trend,
             "confidence": _round(self.confidence, 3),
             "explanation": self.explanation,
@@ -354,11 +390,125 @@ class FormLeader:
            selector would: it takes real cricket to gain a par unit, and no
            amount of arithmetic off a tiny base manufactures one.
 
-        The displayed figure stays the percentage, because that is what the
-        player actually produced; this only decides position. `recent_mean`
-        travels with every row so the absolute standard is visible next to it.
+        This decides position, and since `stamp_form_scores` it also decides the
+        displayed figure -- see there for why showing the percentage instead was
+        a defect rather than a preference. `recent_mean` travels with every row
+        so the absolute standard is visible next to it.
         """
         return (self.verdict.delta_absolute or 0.0) * self.verdict.confidence
+
+
+def _rank_score(v: FormVerdict) -> float:
+    """`FormLeader.rank_score` for a bare verdict. Same quantity, same reasons."""
+    return (v.delta_absolute or 0.0) * v.confidence
+
+
+def score_against_scope(
+    db: Session,
+    verdict: FormVerdict,
+    *,
+    gender: str,
+    competition_key: str | None = None,
+    competition_type: str | None = None,
+) -> float | None:
+    """Where one verdict's move sits in its scope, 0..100.
+
+    For the single-player endpoint, which assesses one verdict outside any
+    population and so cannot be stamped by `stamp_form_scores`. Percentiling the
+    *value* against the cached scope distribution rather than copying a
+    precomputed score means this stays correct when the caller asks for a
+    non-default window: the verdict is then genuinely different from the one in
+    the summary, and comparing it against the same population is still the right
+    question.
+
+    None when the verdict carries too little evidence to place, matching what
+    `stamp_form_scores` does for the same case.
+    """
+    if verdict.state == "insufficient_data" or verdict.confidence < config.LEADERBOARD_MIN_CONFIDENCE:
+        return None
+    population = [
+        _rank_score(v)
+        for v in scope_summary(
+            db,
+            gender=gender,
+            competition_key=competition_key,
+            competition_type=competition_type,
+        ).verdicts.values()
+        if v.state != "insufficient_data"
+        and v.confidence >= config.LEADERBOARD_MIN_CONFIDENCE
+    ]
+    if len(population) < 2:
+        return None
+    mine = _rank_score(verdict)
+    at_or_below = sum(1 for value in population if value <= mine)
+    return round(100.0 * (at_or_below - 1) / (len(population) - 1), 1)
+
+
+def stamp_form_scores(verdicts: "Iterable[FormVerdict]") -> None:
+    """Give every verdict in a scope a bounded 0..100 form score, in place.
+
+    Why the percentage could not stay as the headline figure
+    -------------------------------------------------------
+    `rank_score` above explains why the board is *ordered* on par units rather
+    than on the percentage. What that left behind was a board ordered on one
+    quantity and labelled with another, and the two do not agree: measured over
+    the 711 men's international verdicts, the top row read +197.6% and the sixth
+    read +47.5%, with rows in between higher than rows above them. To a reader
+    that is a broken column, and there is no reading of it that is not either
+    "the sort is wrong" or "the number means something I cannot see".
+
+    It was also unbounded. 22 of those 711 exceeded 100% and the largest was
+    +306.1% -- Daniel Jackiel, 1.67 par units off a 0.28 baseline, against
+    Virat Kohli's 2.63 par units at +197.6%. A percentage past 100 does not read
+    as "more than doubled", it reads as a scale the reader has lost track of,
+    and it put the smaller player above the larger one.
+
+    Why a percentile
+    ----------------
+    The same device `performance_index` uses, for the same reason: it turns a
+    quantity with no natural ceiling into one bounded by construction, and it
+    does it without inventing a cap. Because the percentile is taken over
+    `rank_score`, the score and the row order are the same ordering, so the
+    column can no longer contradict the sort.
+
+    Read it as: 100 is the strongest move in this scope, 50 the median one. It
+    is scope-relative and says so -- like every other figure here, it is not
+    comparable across formats or genders.
+
+    Ties share the higher score, so two players with an identical move are not
+    separated by an arbitrary tenth of a point.
+
+    The population is every verdict here that carries usable evidence -- one
+    that classified, and that clears the same confidence floor the boards use.
+    A verdict resting on three innings gets None rather than a score, because a
+    percentile computed against it would rank noise; the UI already has the
+    dotted treatment for that case. Callers must pass the whole scope rather
+    than a page of it, or the score would mean a different thing per page.
+    """
+    qualified = [
+        v for v in verdicts
+        if v.state != "insufficient_data"
+        and v.confidence >= config.LEADERBOARD_MIN_CONFIDENCE
+    ]
+    if not qualified:
+        return
+    ordered = sorted(qualified, key=_rank_score)
+    n = len(ordered)
+    if n == 1:
+        ordered[0].form_score = 100.0
+        return
+    # Walk runs of equal score together so ties resolve identically.
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and _rank_score(ordered[j + 1]) == _rank_score(ordered[i]):
+            j += 1
+        # Position of the top member of the tie, so tied players share the
+        # higher figure rather than being split.
+        score = 100.0 * j / (n - 1)
+        for k in range(i, j + 1):
+            ordered[k].form_score = round(score, 1)
+        i = j + 1
 
 
 def scope_summary(
@@ -428,6 +578,12 @@ def _build_scope_summary(
             sum(m.balls_bowled for m in timeline),
         )
         match_count[pid] = len(timeline)
+    # Scored against the whole scope, once, here. Every consumer -- the boards,
+    # the directory, Scout, Best XI -- reads its verdicts from this cached
+    # reduction, so a player's form score is the same number wherever it
+    # appears. Percentiling per consumer would give the same player a different
+    # score on the board than in the directory.
+    stamp_form_scores(verdicts.values())
     return ScopeSummary(
         verdicts=verdicts, career_mean=career_mean, balls=balls, match_count=match_count
     )
@@ -498,6 +654,30 @@ def leaderboard(
     # skip a row when two players share a delta.
     leaders.sort(key=lambda l: l.player_identifier)
     leaders.sort(key=lambda l: l.rank_score, reverse=True)
+
+    # The score comes from the scope-wide reduction rather than from this board,
+    # and that is deliberate. This board drops inactive players and thin
+    # verdicts, so percentiling within it would make the same player score
+    # differently here than in the directory. Same scope, same defaults, so the
+    # verdicts are equivalent; this is a lookup, and the summary is cached.
+    scored = scope_summary(
+        db,
+        gender=gender,
+        competition_key=competition_key,
+        competition_type=competition_type,
+    ).verdicts
+    missing: list[FormVerdict] = []
+    for leader in leaders:
+        counterpart = scored.get(leader.player_identifier)
+        if counterpart is None:
+            missing.append(leader.verdict)
+        else:
+            leader.verdict.form_score = counterpart.form_score
+    # A player on the board but absent from the summary cannot happen while the
+    # parameters match; score them locally rather than render a blank column if
+    # it ever does.
+    if missing:
+        stamp_form_scores(missing)
     return leaders
 
 
@@ -649,6 +829,17 @@ def assess(
         detail = (
             f"{abs(delta_absolute):.2f} of a par performance per match {direction} "
             f"their {baseline_window_label} baseline"
+        )
+    elif abs(delta_ratio) > 1.0:
+        # §11 wants the sentence "16% above this player's 12-month baseline",
+        # and for ordinary moves that is exactly what this says. Past a
+        # doubling a percentage stops communicating -- "+306% above baseline"
+        # reads as a broken number -- so the same fact is stated as a multiple.
+        multiple = 1.0 + abs(delta_ratio) if delta_ratio > 0 else 1.0 / (1.0 + abs(delta_ratio))
+        detail = (
+            f"{multiple:.1f} times their {baseline_window_label} baseline"
+            if delta_ratio > 0
+            else f"{multiple:.2f} times their {baseline_window_label} baseline"
         )
     else:
         detail = (
