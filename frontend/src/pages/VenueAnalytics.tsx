@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight } from '../components/Icon'
-import { Link, useSearchParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { VenueOption, VenueProfile } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { useGender } from '../gender/useGender'
 import { useScope } from '../scope/scope'
 import { GroundCharacterChart } from '../components/GroundCharacterChart'
 import { competitionLabel } from '../competitions'
-import { rate } from '../format'
+import { plural, rate } from '../format'
 import {
   Card,
   EmptyState,
@@ -71,8 +72,8 @@ function ParIndex({ value, label }: { value: number | null; label: string }) {
 
 export function VenueAnalytics() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
-  const selected = params.get('venue') ?? ''
+  const f = useFilters()
+  const selected = f.get('venue')
 
   const [grounds, setGrounds] = useState<VenueOption[]>([])
   const [profile, setProfile] = useState<VenueProfile | null>(null)
@@ -112,19 +113,11 @@ export function VenueAnalytics() {
   // link a colleague can open on the same slice (§27). Component state would
   // also be lost on a back-navigation.
   const { competitions } = useScope()
-  const charCompetition = params.get('character') || competitions[0]?.key || ''
-  const setCharCompetition = (value: string) => {
-    const merged = new URLSearchParams(params)
-    if (value) merged.set('character', value)
-    else merged.delete('character')
-    setParams(merged, { replace: true })
-  }
+  const charCompetition = f.get('character') || competitions[0]?.key || ''
+  const setCharCompetition = (value: string) => f.set({ character: value })
 
   function choose(venue: string) {
-    const merged = new URLSearchParams(params)
-    if (venue) merged.set('venue', venue)
-    else merged.delete('venue')
-    setParams(merged, { replace: true })
+    f.set({ venue })
   }
 
   return (
@@ -196,7 +189,7 @@ export function VenueAnalytics() {
           // Reads the live count rather than a number typed in once: the raw
           // spelling total was hardcoded at 593 and is now 636, so the sentence
           // had quietly become false.
-          hint={`${grounds.length.toLocaleString()} grounds in this scope, normalised from the source's own spellings - every spelling of a ground contributes to one page.`}
+          hint={`${plural(grounds.length, 'ground')} in this scope, normalised from the source's own spellings - every spelling of a ground contributes to one page.`}
         />
       )}
 
@@ -332,12 +325,7 @@ export function VenueAnalytics() {
                   ball-by-ball data. “Runs off the bat” excludes extras, which are not attributed to
                   a batter, so it runs about 5% under a true team total; the indices against par are
                   unaffected because both sides are measured the same way.{' '}
-                  <Link
-                    to={`/${slug}/analytics/batting?venue=${encodeURIComponent(profile.venue)}`}
-                    className="text-analytic-ink hover:underline"
-                  >
-                    See the players who scored them <ArrowRight className="ml-1" />
-                  </Link>
+                  <ActionLink to={`/${slug}/analytics/batting?venue=${encodeURIComponent(profile.venue)}`} weight="secondary">See the players who scored them</ActionLink>
                 </Provenance>
               </Panel>
             ))

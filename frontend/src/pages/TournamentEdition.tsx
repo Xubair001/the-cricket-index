@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft } from '../components/Icon'
+import { ActionLink } from '../components/ActionLink'
+
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { EditionFixture, EditionLeader, TournamentEditionDetail } from '../api/types'
@@ -91,12 +92,7 @@ export function TournamentEdition() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to={`/${slug}/tournaments/${data.tournament_slug}`}
-          className="text-xs text-muted hover:text-ink"
-        >
-          <ArrowLeft className="mr-1" /> {data.tournament_name}
-        </Link>
+        <ActionLink to={`/${slug}/tournaments/${data.tournament_slug}`} weight="quiet" direction="back">{data.tournament_name}</ActionLink>
       </div>
 
       <PageHeader

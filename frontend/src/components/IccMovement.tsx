@@ -162,7 +162,7 @@ function MoverList({
                 className={`w-3 shrink-0 text-center ${up ? 'text-positive-ink' : 'text-negative-ink'}`}
                 aria-hidden
               >
-                {up ? '▲' : '▼'}
+                {up ? '\u25b2' : '\u25bc'}
               </span>
               <Flag code={m.country_code} name={m.country ?? ''} />
               <span className="min-w-0 flex-1 truncate text-ink">

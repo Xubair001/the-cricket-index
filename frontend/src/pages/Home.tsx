@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ActionLink } from '../components/ActionLink'
 import { ArrowExternal, ArrowRight } from '../components/Icon'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
@@ -123,7 +124,7 @@ const CAPABILITIES = [
 ]
 
 function TrendGlyph({ trend }: { trend: FormLeaderRow['trend'] }) {
-  const glyph = { rising: '\u2197', flat: '\u2192', falling: '↘', unknown: '·' }[trend]
+  const glyph = { rising: '\u2197', flat: '\u2192', falling: '\u2198', unknown: '·' }[trend]
   const tone =
     trend === 'rising' ? 'text-positive-ink' : trend === 'falling' ? 'text-negative-ink' : 'text-dim'
   const description = {
@@ -341,9 +342,7 @@ function NewsStrip({
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-default pb-2">
         <h2 className="u-display text-title text-ink">In the cricket press</h2>
-        <Link to={`/${slug}/news`} className="text-xs text-analytic-ink hover:underline">
-          All news <ArrowRight className="ml-1" />
-        </Link>
+        <ActionLink to={`/${slug}/news`} weight="secondary">All news</ActionLink>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-dim">
         From four publishers' own feeds, linked out rather than reproduced. Nothing here feeds any
@@ -405,7 +404,7 @@ function LeadStory({ article }: { article: NewsArticleSummary }) {
           <p className="line-clamp-2 text-sm leading-relaxed text-muted">{article.standfirst}</p>
         )}
         {/* A literal escape, not `&nearr;`: JSX resolves named entities through
-            Babel's table, which has `<ArrowRight className="ml-1" />` but not this one, so the entity
+            Babel's table, which has the right-arrow entity but not this one, so it
             rendered as text on the page. */}
         <span aria-hidden className="mt-auto pt-1 text-xs text-dim">
           Read at {article.publisher} <ArrowExternal className="ml-1" />
@@ -509,7 +508,7 @@ export function Home() {
               className="inline-flex items-center gap-1.5 rounded-lg bg-analytic px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-analytic"
             >
               {PRIMARY_ACTION.label}
-              <span aria-hidden><ArrowRight className="ml-1" /></span>
+              <ArrowRight />
             </Link>
             {SECONDARY_ACTIONS.map((a) => (
               <Link
@@ -557,11 +556,16 @@ export function Home() {
                 {c.question}
               </span>
               <span className="text-xs leading-relaxed text-muted">{c.detail}</span>
+              {/* Part of the card, which is itself the link - so this is a
+                  visual affordance rather than a second control. It lights up
+                  with the card on hover, which is what tells a reader the whole
+                  tile is pressable. */}
               <span
                 aria-hidden
-                className="mt-auto pt-1 text-xs text-dim transition-colors group-hover:text-analytic-ink"
+                className="mt-auto inline-flex items-center gap-1.5 pt-2 text-xs font-medium text-analytic-ink"
               >
-                Open <ArrowRight className="ml-1" />
+                Open
+                <ArrowRight className="transition-transform group-hover:translate-x-0.5" />
               </span>
             </Link>
           ))}
@@ -673,9 +677,7 @@ function IccMovementStrip({ gender, slug }: { gender: ApiGender; slug: string })
     <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border-subtle px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight text-ink">Latest ICC movements</h2>
-        <Link to={`/${slug}/icc-rankings`} className="text-xs text-muted hover:text-ink">
-          All ICC rankings <ArrowRight className="ml-1" />
-        </Link>
+        <ActionLink to={`/${slug}/icc-rankings`} weight="secondary">All ICC rankings</ActionLink>
       </header>
       <p className="px-4 pt-2 text-xs text-dim">
         ODI batting, {data.current_date} against {data.previous_date}. ICC's own positions,

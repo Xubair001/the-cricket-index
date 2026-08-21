@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import {
   Bar,
   BarChart,
@@ -13,6 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { ApiGender, ComparisonMetric, PlayerComparison, PlayerSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -276,7 +276,8 @@ function PlayerPicker({
 export function Compare() {
   const { slug, apiGender } = useGender()
   const chart = useChartTheme()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { params, set, clear } = f
 
   // The selection lives in the URL, not in component state, so a comparison is
   // a link a scout can send to a colleague (§27). It is also what makes the
@@ -288,7 +289,7 @@ export function Compare() {
   // more than two players have to keep resolving. The canonical form is
   // `?players=x,y,z`, and a legacy link is rewritten to it on arrival so
   // copying the URL again yields the new form.
-  const scope = params.get('scope') ?? ''
+  const scope = f.get('scope')
   const chosen = useMemo(() => {
     const listed = (params.get('players') ?? '')
       .split(',')
@@ -303,22 +304,14 @@ export function Compare() {
   const [loading, setLoading] = useState(false)
 
   function setChosen(next: string[]) {
-    const merged = new URLSearchParams(params)
     const kept = next.filter(Boolean)
-    if (kept.length) merged.set('players', kept.join(','))
-    else merged.delete('players')
-    // Drop the legacy pair once the canonical parameter is set, or the two
-    // would disagree and `chosen` would silently prefer one of them.
-    merged.delete('a')
-    merged.delete('b')
-    setParams(merged, { replace: true })
+    // The legacy pair is cleared in the same write once the canonical parameter
+    // is set, or the two would disagree and `chosen` would silently prefer one.
+    set({ players: kept.join(','), a: null, b: null })
   }
 
   function setScope(value: string) {
-    const merged = new URLSearchParams(params)
-    if (value) merged.set('scope', value)
-    else merged.delete('scope')
-    setParams(merged, { replace: true })
+    set({ scope: value })
   }
 
   // Each picker searches within the current gender, so a cross-gender set
@@ -332,8 +325,8 @@ export function Compare() {
     if (previousGender.current === apiGender) return
     previousGender.current = apiGender
     setData(null)
-    setParams(new URLSearchParams(), { replace: true })
-  }, [apiGender, setParams])
+    clear()
+  }, [apiGender, clear])
 
   const key = chosen.join(',')
   useEffect(() => {
@@ -440,7 +433,7 @@ export function Compare() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Scout"
+        eyebrow="Players"
         title="Compare Players"
         blurb="Two to four players within one competition at a time - international and franchise figures are never summed together."
       />

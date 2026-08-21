@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight } from '../components/Icon'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { MatchSummary, TeamDetail as TeamDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { TeamStrengthPanel } from '../components/TeamStrength'
@@ -57,7 +59,7 @@ function Result({ match, teamId }: { match: MatchSummary; teamId: number }) {
 export function TeamDetail() {
   const { slug } = useGender()
   const { teamId = '' } = useParams()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
   const [team, setTeam] = useState<TeamDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,13 +70,8 @@ export function TeamDetail() {
   // on T20Is through a back-navigation and can be shared as that view.
   const { competitions } = useScope()
   const phaseCompetitions = competitions.filter((c) => c.key !== 'tests')
-  const intelCompetition = params.get('intel') || phaseCompetitions[0]?.key || ''
-  const setIntelCompetition = (value: string) => {
-    const merged = new URLSearchParams(params)
-    if (value) merged.set('intel', value)
-    else merged.delete('intel')
-    setParams(merged, { replace: true })
-  }
+  const intelCompetition = f.get('intel') || phaseCompetitions[0]?.key || ''
+  const setIntelCompetition = (value: string) => f.set({ intel: value })
 
   useEffect(() => {
     // Guards against a slower request for a previous team resolving after
@@ -101,9 +98,7 @@ export function TeamDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/teams`} className="text-sm text-muted transition-colors hover:text-ink">
-          <ArrowLeft className="mr-1" /> All teams
-        </Link>
+        <ActionLink to={`/${slug}/teams`} weight="quiet" direction="back">All teams</ActionLink>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <Flag code={team.country_code} name={team.name} className="text-2xl" />
           <h1 className="u-display text-title text-ink">{team.name}</h1>
@@ -113,12 +108,7 @@ export function TeamDetail() {
         </div>
         {/* This page is the side's whole record; the squad view is the same
             side over its recent matches only, which is a different question. */}
-        <Link
-          to={`/${slug}/teams/squad?team=${team.team_id}`}
-          className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
-        >
-          Squad analysis <ArrowRight className="ml-1" />
-        </Link>
+        <ActionLink to={`/${slug}/teams/squad?team=${team.team_id}`} weight="secondary">Squad analysis</ActionLink>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

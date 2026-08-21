@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { NewsArticleSummary, NewsSourceInfo } from '../api/types'
 import { useGender } from '../gender/useGender'
+import { useFilters } from '../state/useFilters'
 import { ErrorMessage, SkeletonRows } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { NewsCard } from '../components/NewsItem'
@@ -29,12 +30,16 @@ const LIMIT = 20
  */
 export function News() {
   const { slug, apiGender } = useGender()
+  const f = useFilters()
+  const { keep } = f
+  const offset = f.int('offset', 0)
+  const source = f.get('source')
+  const search = f.get('q')
+
   const [items, setItems] = useState<NewsArticleSummary[]>([])
   const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
-  const [source, setSource] = useState('')
-  const [query, setQuery] = useState('')
-  const [search, setSearch] = useState('')
+  // The submitted query is in the URL; this is what is being typed.
+  const [query, setQuery] = useState(search)
   const [sources, setSources] = useState<NewsSourceInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -42,12 +47,6 @@ export function News() {
   useEffect(() => {
     api.newsSources().then(setSources).catch(() => setSources([]))
   }, [])
-
-  // Reset to page one whenever the question changes; leaving the offset means
-  // a narrower filter can land on an empty page that looks like no results.
-  useEffect(() => {
-    setOffset(0)
-  }, [apiGender, source, search])
 
   useEffect(() => {
     let cancelled = false
@@ -63,6 +62,14 @@ export function News() {
       })
       .then((page) => {
         if (cancelled) return
+        // A gender switch keeps the query string, so an offset from a longer
+        // list can survive into a shorter one and read as "no results". Correct
+        // it where the answer arrives, which also covers the list shrinking
+        // under us after an ingest.
+        if (page.items.length === 0 && offset > 0) {
+          keep({ offset: null })
+          return
+        }
         setItems(page.items)
         setTotal(page.total)
       })
@@ -75,7 +82,8 @@ export function News() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, source, search, offset])
+    // `keep` is stable, so listing it does not refetch on unrelated params.
+  }, [apiGender, source, search, offset, keep])
 
   const enabled = sources.filter((s) => s.enabled)
   const disabled = sources.filter((s) => !s.enabled)
@@ -93,7 +101,7 @@ export function News() {
           <span className="u-eyebrow block">Publisher</span>
           <select
             value={source}
-            onChange={(e) => setSource(e.target.value)}
+            onChange={(e) => f.set({ source: e.target.value })}
             className={`${fieldClass} mt-1`}
           >
             <option value="">All publishers</option>
@@ -109,7 +117,7 @@ export function News() {
           className="flex min-w-[14rem] flex-1 items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault()
-            setSearch(query.trim())
+            f.set({ q: query.trim() })
           }}
         >
           <label className="min-w-0 flex-1">
@@ -165,7 +173,7 @@ export function News() {
       )}
 
       {!loading && total > LIMIT && (
-        <Pagination total={total} limit={LIMIT} offset={offset} onChange={setOffset} />
+        <Pagination total={total} limit={LIMIT} offset={offset} onChange={(o) => f.keep({ offset: o })} />
       )}
 
       <Panel

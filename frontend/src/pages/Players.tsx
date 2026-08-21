@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { DirectoryPlayer, FormState } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
-import { change, rate, score } from '../format'
+import { change, plural, rate, score } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import { tableClass, tdNumClass, theadRowClass, trClass } from '../components/ui'
 
@@ -101,20 +101,21 @@ function Select({
 
 export function Players() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { keep, set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
+  const requestedCompetition = f.get('competition')
   const {
     competition,
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const status = params.get('status') ?? ''
-  const formState = params.get('form') ?? ''
-  const sortBy = params.get('sort') ?? 'matches'
-  const minMatches = Number(params.get('min_matches') ?? 1)
-  const offset = Number(params.get('offset') ?? 0)
-  const search = params.get('q') ?? ''
+  const status = f.get('status')
+  const formState = f.get('form')
+  const sortBy = f.get('sort', 'matches')
+  const minMatches = f.int('min_matches', 1)
+  const offset = f.int('offset', 0)
+  const search = f.get('q')
 
   const [searchInput, setSearchInput] = useState(search)
   const [rows, setRows] = useState<DirectoryPlayer[]>([])
@@ -125,15 +126,6 @@ export function Players() {
 
   // One writer for the URL, so every control resets pagination the same way and
   // no control can leave a stale offset pointing past the new result set.
-  function update(next: Record<string, string>, keepOffset = false) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    if (!keepOffset) merged.delete('offset')
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -183,7 +175,7 @@ export function Players() {
       <div>
         <h1 className="u-display text-title text-ink">Players</h1>
         <p className="mt-1 text-sm text-muted">
-          {total.toLocaleString()} players in {scope || 'this scope'}
+          {plural(total, 'player')} in {scope || 'this scope'}
           {qualification && (
             <>
               {' '}
@@ -303,7 +295,7 @@ export function Players() {
               total={total}
               limit={LIMIT}
               offset={offset}
-              onChange={(o) => update({ offset: String(o) }, true)}
+              onChange={(o) => keep({ offset: String(o) })}
             />
           </div>
         )}

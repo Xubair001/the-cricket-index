@@ -6,6 +6,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { IccMovementPanel } from '../components/IccMovement'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { useFilters } from '../state/useFilters'
 import { PlayerName } from '../components/PlayerName'
 import {
   tableClass,
@@ -45,12 +46,14 @@ const notice = 'rounded-xl border border-border-subtle bg-surface shadow-card px
 
 export function IccRankings() {
   const { slug, apiGender } = useGender()
-  const [format, setFormat] = useState('test')
-  const [discipline, setDiscipline] = useState('batting')
+  const f = useFilters()
+  const { keep } = f
+  const format = f.get('format', 'test')
+  const discipline = f.get('discipline', 'batting')
+  const offset = f.int('offset', 0)
   const [available, setAvailable] = useState<{ players: string[]; teams: string[] } | null>(null)
   const [players, setPlayers] = useState<IccRankingTable | null>(null)
   const [teams, setTeams] = useState<IccTeamRankingTable | null>(null)
-  const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -63,11 +66,6 @@ export function IccRankings() {
   useEffect(() => {
     api.iccRankTypes().then(setAvailable).catch((e) => setError(String(e)))
   }, [])
-
-  // A new table is a new list; carrying an offset into it can land past the end.
-  useEffect(() => {
-    setOffset(0)
-  }, [rankType])
 
   const known = available
     ? [...available.players, ...available.teams].includes(rankType)
@@ -92,17 +90,26 @@ export function IccRankings() {
     setPlayers(null)
     setTeams(null)
     const page = { limit: LIMIT, offset }
+    // A gender switch keeps the query string, so an offset from a longer list
+    // can survive into a shorter one. Correct it where the answer arrives
+    // rather than guessing the new length up front.
+    const land = (rows: number, apply: () => void) => {
+      if (cancelled) return
+      if (rows === 0 && offset > 0) keep({ offset: null })
+      else apply()
+    }
     const request =
       discipline === 'team'
-        ? api.iccTeamRanking(rankType, page).then((t) => !cancelled && setTeams(t))
-        : api.iccPlayerRanking(rankType, page).then((t) => !cancelled && setPlayers(t))
+        ? api.iccTeamRanking(rankType, page).then((t) => land(t.rows.length, () => setTeams(t)))
+        : api.iccPlayerRanking(rankType, page).then((t) => land(t.rows.length, () => setPlayers(t)))
     request
       .catch((e) => !cancelled && setError(String(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [rankType, discipline, womensTest, offset])
+    // `keep` is stable, so listing it does not refetch on unrelated params.
+  }, [rankType, discipline, womensTest, offset, keep])
 
   const published = players ?? teams
 
@@ -123,7 +130,7 @@ export function IccRankings() {
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Format</span>
-          <select value={format} onChange={(e) => setFormat(e.target.value)} className={field}>
+          <select value={format} onChange={(e) => f.set({ format: e.target.value })} className={field}>
             {FORMATS.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label}
@@ -135,7 +142,7 @@ export function IccRankings() {
           <span className={fieldLabel}>Discipline</span>
           <select
             value={discipline}
-            onChange={(e) => setDiscipline(e.target.value)}
+            onChange={(e) => f.set({ discipline: e.target.value })}
             className={field}
           >
             {DISCIPLINES.map((d) => (
@@ -239,7 +246,7 @@ export function IccRankings() {
                   total={published.total}
                   limit={published.limit || LIMIT}
                   offset={published.offset}
-                  onChange={setOffset}
+                  onChange={(o) => f.keep({ offset: o })}
                 />
               </div>
             )}

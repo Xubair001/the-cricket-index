@@ -6,6 +6,7 @@ import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
+import { useFilters } from '../state/useFilters'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import {
@@ -27,6 +28,9 @@ import {
  */
 
 const LIMIT = 20
+
+/** Kept off the URL when unchanged, so a default board has a clean address. */
+const DEFAULT_MIN_MATCHES = 10
 
 const BATTING_SORTS = [
   { value: 'runs', label: 'Runs' },
@@ -76,11 +80,15 @@ function SelectControl({
 
 export function Rankings() {
   const { slug, apiGender } = useGender()
-  const [tab, setTab] = useState<'batting' | 'bowling'>('batting')
-  const [requestedCompetition, setCompetition] = useState('')
-  const [minMatches, setMinMatches] = useState(10)
-  const [sortBy, setSortBy] = useState('runs')
-  const [offset, setOffset] = useState(0)
+  // Every filter here lives in the URL (see `state/useFilters`), so a narrowed
+  // board is a shareable address and the back button undoes a filter rather
+  // than leaving the page.
+  const f = useFilters()
+  const tab: 'batting' | 'bowling' = f.get('tab') === 'bowling' ? 'bowling' : 'batting'
+  const requestedCompetition = f.get('competition')
+  const minMatches = Math.max(1, f.int('min_matches', DEFAULT_MIN_MATCHES))
+  const sortBy = f.get('sort_by', tab === 'batting' ? 'runs' : 'wickets')
+  const offset = f.int('offset', 0)
 
   // The scope switch owns which family is in play; a competition from the
   // other family is dropped rather than sent, so the board never shows
@@ -96,14 +104,11 @@ export function Rankings() {
   const [loading, setLoading] = useState(false)
 
   function switchTab(nextTab: 'batting' | 'bowling') {
-    // Set everything together (same render/batch) so the fetch effect below
-    // never runs with a sort field that's invalid for the new tab (e.g.
-    // bowling with sortBy still 'runs' from the batting tab), and so the
-    // pagination footer never shows a stale total from the previous tab
-    // while the table body is already empty/loading.
-    setTab(nextTab)
-    setSortBy(nextTab === 'batting' ? 'runs' : 'wickets')
-    setOffset(0)
+    // Tab and sort move in ONE write, so the fetch effect below never runs with
+    // a sort field the new tab does not have (bowling with `runs` carried over
+    // from batting is a 422). The rows are cleared in the same handler so the
+    // pagination footer cannot show the previous tab's total over an empty body.
+    f.set({ tab: nextTab, sort_by: nextTab === 'batting' ? 'runs' : 'wickets' })
     setRows([])
     setTotal(0)
   }
@@ -149,7 +154,6 @@ export function Rankings() {
     'rounded-md px-4 py-1.5 text-sm font-medium transition-colors ' +
     (active ? 'bg-elevated text-ink' : 'text-muted hover:text-ink')
 
-
   return (
     <div className="space-y-5">
       <div>
@@ -175,25 +179,18 @@ export function Rankings() {
         </button>
       </div>
 
-
       <div className="flex flex-wrap items-end gap-3">
         <SelectControl
           label="Format"
           value={competition}
           options={competitionOptions}
-          onChange={(v) => {
-            setCompetition(v)
-            setOffset(0)
-          }}
+          onChange={(v) => f.set({ competition: v })}
         />
         <SelectControl
           label="Sort by"
           value={sortBy}
           options={sortOptions}
-          onChange={(v) => {
-            setSortBy(v)
-            setOffset(0)
-          }}
+          onChange={(v) => f.set({ sort_by: v })}
         />
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
@@ -203,10 +200,7 @@ export function Rankings() {
             type="number"
             min={1}
             value={minMatches}
-            onChange={(e) => {
-              setMinMatches(Math.max(1, Number(e.target.value) || 1))
-              setOffset(0)
-            }}
+            onChange={(e) => f.set({ min_matches: Math.max(1, Number(e.target.value) || 1) })}
             className="w-24 rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
           />
         </label>
@@ -314,7 +308,7 @@ export function Rankings() {
           )}
 
           <div className="px-4">
-            <Pagination total={total} limit={LIMIT} offset={offset} onChange={setOffset} />
+            <Pagination total={total} limit={LIMIT} offset={offset} onChange={(o) => f.keep({ offset: o })} />
           </div>
         </div>
       )}

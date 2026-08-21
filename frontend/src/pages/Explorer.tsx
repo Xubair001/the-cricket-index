@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary, VenueOption } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { ExplorerScatter } from '../components/ExplorerScatter'
@@ -114,9 +115,10 @@ export function Explorer() {
   const { slug, apiGender } = useGender()
   const { explorer = 'batting' } = useParams<{ explorer: ExplorerKind }>()
   const kind = (EXPLORERS.some((e) => e.key === explorer) ? explorer : 'batting') as ExplorerKind
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { keep, set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
+  const requestedCompetition = f.get('competition')
   // The scope switch owns which family is in play. A competition from the other
   // family is dropped rather than sent, so the figures on screen always match
   // the heading above them.
@@ -125,15 +127,15 @@ export function Explorer() {
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const opposition = params.get('opposition') ?? ''
-  const dateFrom = params.get('from') ?? ''
-  const dateTo = params.get('to') ?? ''
-  const sortBy = params.get('sort') ?? ''
-  const minInnings = params.get('min_innings') ?? ''
-  const minBalls = params.get('min_balls') ?? ''
-  const role = params.get('role') ?? ''
-  const venue = params.get('venue') ?? ''
-  const offset = Number(params.get('offset') ?? 0)
+  const opposition = f.get('opposition')
+  const dateFrom = f.get('from')
+  const dateTo = f.get('to')
+  const sortBy = f.get('sort')
+  const minInnings = f.get('min_innings')
+  const minBalls = f.get('min_balls')
+  const role = f.get('role')
+  const venue = f.get('venue')
+  const offset = f.int('offset', 0)
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
   const [venues, setVenues] = useState<VenueOption[]>([])
@@ -141,15 +143,6 @@ export function Explorer() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>, keepOffset = false) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    if (!keepOffset) merged.delete('offset')
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     api
@@ -214,7 +207,6 @@ export function Explorer() {
           </Link>
         ))}
       </div>
-
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
@@ -328,7 +320,8 @@ export function Explorer() {
               had played, and nothing on the page distinguished that from a
               ground with no cricket at it. */}
           <span className="tnum font-medium text-ink">{data.total.toLocaleString()}</span> of{' '}
-          <span className="tnum">{data.total_before_volume_floor.toLocaleString()}</span> players
+          <span className="tnum">{data.total_before_volume_floor.toLocaleString()}</span>{' '}
+          {data.total_before_volume_floor === 1 ? 'player' : 'players'}
           shown · needs <span className="tnum">{data.applied_min_innings}</span>{' '}
           {data.applied_min_innings === 1 ? 'match' : 'matches'} and{' '}
           <span className="tnum">{data.applied_min_balls}</span> balls
@@ -453,7 +446,7 @@ export function Explorer() {
               total={data.total}
               limit={LIMIT}
               offset={offset}
-              onChange={(o) => update({ offset: String(o) }, true)}
+              onChange={(o) => keep({ offset: String(o) })}
             />
           </div>
         )}

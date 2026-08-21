@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { SelectedSide, SelectionPick, TeamSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
@@ -119,11 +120,12 @@ function formNote(p: SelectionPick): { text: string; tone: string } {
 
 export function BestXI() {
   const { apiGender, slug } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
-  const size = Number(params.get('size') ?? 11)
-  const teamId = params.get('team') ?? ''
+  const requestedCompetition = f.get('competition')
+  const size = f.int('size', 11)
+  const teamId = f.get('team')
   // The PAGE defaults to the current squad; the API still defaults to all-time.
   //
   // Two different requirements. A reader who opens "Best XI" is almost always
@@ -134,9 +136,9 @@ export function BestXI() {
   //
   // So the page sends its intent explicitly rather than relying on the default,
   // and `?pool=all_time` still selects the all-time side.
-  const pool = params.get('pool') === 'all_time' ? 'all_time' : 'current'
-  const objective = params.get('objective') || 'overall'
-  const venue = params.get('venue') ?? ''
+  const pool = f.get('pool') === 'all_time' ? 'all_time' : 'current'
+  const objective = f.get('objective', 'overall')
+  const venue = f.get('venue')
 
   const { competitions } = useScope()
   const {
@@ -161,14 +163,6 @@ export function BestXI() {
   const scopeLabel =
     competitions.find((c) => c.key === side?.scope)?.display_name ?? side?.scope ?? ''
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   // A PSL side is picked from franchises; an international side from nations.
   const teamType = competition === 'psl' ? 'franchise' : 'international'
@@ -216,7 +210,6 @@ export function BestXI() {
         title={size === 15 ? 'Best XV' : 'Best XI'}
         blurb="A side picked to a role shape - not the top eleven on rating, which returns six openers and no keeper. Every place shows what it was picked on."
       />
-
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">

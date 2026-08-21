@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { AvailabilityWindow, PlayerAvailabilityRow } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
@@ -60,25 +61,18 @@ function todayISO(offsetDays = 0): string {
 
 export function Availability() {
   const { slug } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { set: update } = f
 
-  const from = params.get('from') || todayISO()
-  const to = params.get('to') || todayISO(60)
-  const role = params.get('role') ?? ''
-  const hand = params.get('hand') ?? ''
+  const from = f.get('from') || todayISO()
+  const to = f.get('to') || todayISO(60)
+  const role = f.get('role')
+  const hand = f.get('hand')
 
   const [data, setData] = useState<AvailabilityWindow | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false

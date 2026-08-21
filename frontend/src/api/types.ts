@@ -1239,6 +1239,15 @@ export interface SplitBucket {
   economy: number | null
   bowling_average: number | null
   bowling_dot_pct: number | null
+  /** False where this bucket rests on too little cricket for THAT SIDE's rates
+   *  to mean anything. Per discipline: a batter who bowled two overs at a ground
+   *  must not have their batting average flagged on the bowling sample. The runs
+   *  were still scored, so the row stays - it is the rates that carry a warning. */
+  batting_reliable: boolean
+  bowling_reliable: boolean
+  /** Narrower: an average divides by dismissals, not by innings or balls. */
+  average_reliable: boolean
+  bowling_average_reliable: boolean
 }
 
 export interface PlayerSplits {

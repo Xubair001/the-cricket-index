@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { ScoutCandidate, ScoutResult } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
@@ -68,28 +68,21 @@ const SCOPES = [
 
 export function Scout() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { set: update } = f
 
-  const scope = params.get('scope') || 'international'
-  const role = params.get('role') ?? ''
-  const hand = params.get('hand') ?? ''
-  const family = params.get('family') ?? ''
-  const formState = params.get('form') ?? ''
-  const maxAge = params.get('max_age') ?? ''
-  const minMatches = params.get('min_matches') ?? '20'
+  const scope = f.get('scope', 'international')
+  const role = f.get('role')
+  const hand = f.get('hand')
+  const family = f.get('family')
+  const formState = f.get('form')
+  const maxAge = f.get('max_age')
+  const minMatches = f.get('min_matches', '20')
 
   const [data, setData] = useState<ScoutResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false

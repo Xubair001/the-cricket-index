@@ -26,8 +26,8 @@ function VerdictMark({ verdict }: { verdict: string }) {
   // the same reason the form boards do not lean on hue: the amber/red pair in
   // this palette cannot be separated under deuteranopia.
   const map: Record<string, { glyph: string; tone: string; label: string }> = {
-    declined: { glyph: '▼', tone: 'text-negative-ink', label: 'Declined' },
-    improved: { glyph: '▲', tone: 'text-positive-ink', label: 'Improved' },
+    declined: { glyph: '\u25bc', tone: 'text-negative-ink', label: 'Declined' },
+    improved: { glyph: '\u25b2', tone: 'text-positive-ink', label: 'Improved' },
     steady: { glyph: '·', tone: 'text-dim', label: 'Steady' },
     unmeasured: { glyph: '–', tone: 'text-dim', label: 'Not enough cricket' },
   }

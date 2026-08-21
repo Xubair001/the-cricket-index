@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft } from '../components/Icon'
-import { Link, useParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
+import { useParams } from 'react-router-dom'
 import {
   CartesianGrid,
   Legend,
@@ -115,9 +116,7 @@ export function MatchIntelligence() {
         title="Match Intelligence"
         blurb="Which stand decided the innings, which spell broke it, and when the game turned."
         actions={
-          <Link to={`/${slug}/matches/${matchId}`} className="text-sm text-analytic-ink hover:underline">
-            <ArrowLeft className="mr-1" /> Scorecard
-          </Link>
+          <ActionLink to={`/${slug}/matches/${matchId}`} weight="quiet" direction="back">Scorecard</ActionLink>
         }
       />
 

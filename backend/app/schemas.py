@@ -805,6 +805,18 @@ class SplitBucket(BaseModel):
     economy: float | None
     bowling_average: float | None
     bowling_dot_pct: float | None
+    """False where this bucket rests on too little cricket for that side's RATES
+    to mean anything. Per discipline: a batter who bowled two overs at a ground
+    must not have their batting average flagged on the bowling sample. Marked
+    rather than withheld - the runs were scored, but an average of 146.50 from
+    two innings is not a record and must not be shown as one."""
+    batting_reliable: bool = True
+    bowling_reliable: bool = True
+    """Narrower still, for the two rates whose denominator is not balls: an
+    average divides by dismissals and a bowling average by wickets, so four
+    innings can give a sound strike rate and a meaningless average."""
+    average_reliable: bool = True
+    bowling_average_reliable: bool = True
 
 
 class PlayerSplits(BaseModel):

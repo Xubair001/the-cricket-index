@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight } from '../components/Icon'
+import { ActionLink } from '../components/ActionLink'
+
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { FormVerdict, PlayerDetail as PlayerDetailType } from '../api/types'
@@ -83,9 +84,7 @@ export function PlayerDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/players`} className="text-sm text-muted transition-colors hover:text-ink">
-          <ArrowLeft className="mr-1" /> All players
-        </Link>
+        <ActionLink to={`/${slug}/players`} weight="quiet" direction="back">All players</ActionLink>
         <div className="mt-2 flex flex-wrap items-center gap-4">
           <PlayerAvatar src={player.bio.image_url} alt={player.name} />
           <div className="flex flex-wrap items-center gap-3">
@@ -118,12 +117,7 @@ export function PlayerDetail() {
             </span>
           ))}
         </p>
-        <Link
-          to={`/${slug}/compare?players=${player.identifier}`}
-          className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
-        >
-          Compare with another player <ArrowRight className="ml-1" />
-        </Link>
+        <ActionLink to={`/${slug}/compare?players=${player.identifier}`} weight="secondary">Compare with another player</ActionLink>
       </div>
 
       {/* Form sits above the career record deliberately: Rule 3 treats "how is

@@ -85,3 +85,15 @@ export function timeAgo(iso: string | null): string {
     year: 'numeric',
   })
 }
+
+/**
+ * "1 player", "142 players". The count is grouped with thousands separators,
+ * which is why this cannot just be a template literal at the call site.
+ *
+ * Five headings read "1 players" or "1 matches" when a filter narrowed to a
+ * single row, which is the one case a reader is most likely to be looking
+ * straight at. Irregular plurals are passed explicitly.
+ */
+export function plural(n: number, singular: string, many?: string): string {
+  return `${n.toLocaleString()} ${n === 1 ? singular : (many ?? singular + 's')}`
+}

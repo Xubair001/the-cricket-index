@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight } from '../components/Icon'
-import { Link, useParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
+import { useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { MatchDetail as MatchDetailType, MatchPerformer, TeamRef } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
@@ -135,9 +136,7 @@ export function MatchDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/matches`} className="text-sm text-muted transition-colors hover:text-ink">
-          <ArrowLeft className="mr-1" /> All matches
-        </Link>
+        <ActionLink to={`/${slug}/matches`} weight="quiet" direction="back">All matches</ActionLink>
         {/* §22: the scorecard says who scored what; intelligence says which
             stand decided it and which spell broke it.
 
@@ -145,12 +144,7 @@ export function MatchDetail() {
             match carries real totals but no ball-by-ball, so this link would
             lead to a page that can never render; saying why beats a dead end. */}
         {match.has_ball_by_ball ? (
-          <Link
-            to={`/${slug}/matches/${matchId}/intelligence`}
-            className="ml-4 text-sm text-analytic-ink hover:underline"
-          >
-            Match intelligence <ArrowRight className="ml-1" />
-          </Link>
+          <ActionLink to={`/${slug}/matches/${matchId}/intelligence`} weight="secondary">Match intelligence</ActionLink>
         ) : (
           <span
             className="ml-4 text-sm text-dim"

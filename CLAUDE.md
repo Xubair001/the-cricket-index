@@ -1025,6 +1025,142 @@ anything is bound to a public interface**, and the cold-path costs documented ab
 protect. `/docs`, `/redoc` and `/openapi.json` are open for the same reason and
 should be reconsidered together with the above, not separately.
 
+### Filter state lives in the URL, and `useFilters` is the only thing that writes it
+
+Sixteen pages carry filters. Nine held them in the URL through a hand-rolled copy
+of the same fifteen lines, and seven held them in `useState`, which is invisible
+state: narrow a board to Test bowling with a 20-match floor, follow a player
+link, come back, and you are on the unfiltered default with nothing saying what
+changed. That URL also cannot be shared or reloaded, and the browser's back
+button becomes a page-level navigation rather than an undo. The split was not a
+decision anybody made, which is why `frontend/src/state/useFilters.ts` now owns
+it and nothing else calls `useSearchParams`.
+
+Four things there are load-bearing:
+
+- **Two writers, not one with a boolean.** `set` means *a filter changed*, so
+  paging resets - holding an offset across a filter change lands the reader on
+  page four of a three-page result, which reads as an empty board. `keep` is
+  everything else: the pager itself, and disclosures like the Performance Index's
+  per-row "How?", which are UI state and must not throw away the reader's place.
+  A `keepOffset` flag at the call site did not say which was meant.
+- **Zero is written for a filter and dropped for paging.** `0` is falsy, and the
+  first version dropped it everywhere - so a reader who deliberately set a
+  minimum of nought silently got the control's default of ten back. A floor of
+  zero is a real choice; page one is genuinely the absence of an offset.
+- **The writers are referentially STABLE**, via the functional form of
+  `setSearchParams` rather than closing over `params`. This is not tidiness: an
+  effect that lists a writer whose identity changed with the query string would
+  re-run - and refetch - every time any unrelated parameter moved, such as a
+  disclosure opening.
+- **A URL naming a value wins over a stored preference**, the same rule the scope
+  switch already follows. `Teams.tsx` follows the app-wide family switch only
+  when it actually MOVES, tracked through a ref: writing on mount as well would
+  overwrite a shared `?type=franchise` with the family default.
+
+Two pages validate rather than cast, because a hand-typed value reaches the API
+otherwise: `Fixtures` checks the window against `WINDOWS` (three values, not the
+two an earlier narrowing assumed - `live` was silently unreachable), and
+`Underrated` checks the format against the **current gender's** list, since
+men's and women's rank types share no vocabulary and `test` has no women's
+equivalent.
+
+Removing the per-page "reset the offset on a gender switch" effects left a real
+gap, because a gender switch is a path change that keeps the query string. The
+fix is at the point the answer lands rather than a guess up front: an empty page
+at a non-zero offset clears the offset, which also covers a list shrinking after
+an ingest. `clear()` exists for the stronger case - Compare and Squad Analysis
+drop every filter, because an identifier from one gender names nothing in the
+other.
+
+`npm run check:filters` asserts the ten merge rules. The repo has no test suite
+and this is not the start of one; it is the one piece of the filter layer that is
+pure logic and was got wrong twice.
+
+### A thin rate is marked, and each rate is gated on ITS OWN denominator
+
+The splits panel shipped every rate at the same weight, which the venue split
+punishes hardest: a Test career spans ~79 grounds and around one in seven is a
+single innings, so an average of 146.50 from two visits sat beside one from
+eight with nothing to separate them. Thin rates now carry the `.uncertain`
+dotted rule - marked rather than withheld, because the runs were scored and it is
+the *rate* that cannot be trusted.
+
+Two refinements, both found by reading real output rather than the code:
+
+- **Per discipline, not per row.** A single flag marked Kohli's Wankhede
+  **batting** (6 innings, 433 runs) unreliable because he had also bowled a few
+  balls there. That is the same conflation the explorers guard against when they
+  keep batters off a bowling board.
+- **Per rate, because the denominators are different quantities.** Gating
+  everything on innings marked the wrong figures. A batting average is runs /
+  **dismissals**: Kohli's JSCA return of 192.00 comes off 4 innings and **2
+  dismissals** and is exactly the unstable case, yet it passed an innings test
+  comfortably - while the strike rate over those same 4 innings rests on 200-odd
+  balls and is perfectly sound. Measured over his 103 ODI venues, **21 rows are
+  sound on strike rate and meaningless on average**, and the innings-only gate
+  missed every one. `RELIABLE_MIN_DISMISSALS` and `RELIABLE_MIN_WICKETS` (4 each)
+  gate those two; balls faced and balls bowled gate the rest.
+
+The tooltip names the denominator it actually rested on ("Divides by 2
+dismissals - too few for an average"), because "too few innings" is the wrong
+explanation for a figure that does not divide by innings.
+
+The split selector and the row-expansion moved into the URL with everything else,
+so "look at their venue splits" is a link somebody can send.
+
+### An error message is reader-facing copy, and this one named a dev port
+
+`ErrorMessage` appended "check the API is running on port 8001, then reload" to
+every failure, above the raw thrown string. Three things wrong with it, and the
+third is the one that matters:
+
+- **The port is a developer's detail** and was already wrong: a reviewer running
+  a second instance on 8009 was told to check 8001.
+- **A JSON envelope is not a sentence.** A mistyped player id rendered as
+  `Error: 404 Not Found: {"detail":"player 'x' not found"}`.
+- **"The API is down" is the wrong diagnosis for the commonest case.** A 404 or
+  422 means the address names something this dataset does not hold, and telling
+  the reader to reload sends them round the same failure again.
+
+The status code now chooses the wording and the server's own `detail` - which
+this project writes as a readable sentence on every 404 and its own 422s - is the
+explanation. Two details worth keeping:
+
+- **The body is found from the first brace, not the first colon.** Callers pass
+  either `error.message` or `String(error)`, and the second carries an `Error: `
+  prefix that claims the first colon - which silently sent every error to the
+  generic fallback.
+- **A 422 is never told to reload**, because the address itself carries the bad
+  value and the same request fails identically. FastAPI's own field-level shape
+  (`detail` as a list) is not prose, so it falls back to naming the cause rather
+  than printing `Input should be less than or equal to 9223372036854775807`.
+
+`format.plural` fixes the matching copy defect: five headings read "1 players"
+or "1 matches" exactly when a filter had narrowed to the single row a reader is
+most likely looking straight at.
+
+### Navigation is a button, and an arrow is not a word
+
+Inline "Compare with another player ->" links were replaced by
+`components/ActionLink.tsx` (three weights: primary, secondary, quiet) drawing
+`components/Icon.tsx` SVGs. Three reasons, and the third is the one that is easy
+to miss: underlined-blue-plus-glyph is the convention for a link *inside prose*
+and these are not in prose, a text arrow sits on the body baseline so it never
+aligns with its label, and a four-word link is a four-word hit target.
+
+The distinction that has to survive: **navigation marks are icons, data-direction
+marks are text.** A rise/fall glyph in an ICC movement row, a trend arrow on a
+form verdict, `12 -> 8` between two positions - those are content, and a sweep
+that replaced every arrow with a component corrupted them into JSX-as-text. They
+stay as escaped literals (`'\u2197'`, not the raw character), because JSX resolves
+named entities through Babel's table, which carries `&rarr;` but not `&nearr;` -
+that one rendered as the literal string on the page.
+
+Links genuinely inside a sentence stay underlined text links. There are twelve of
+them, all naming another page in the middle of an explanation, and turning those
+into buttons would put a control in the middle of a paragraph.
+
 ### International and Leagues is a switch, and the client used to leak across it
 
 Competition type is a hard partition in this schema, exactly as gender is, and

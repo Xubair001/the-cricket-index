@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight } from '../components/Icon'
+import { ActionLink } from '../components/ActionLink'
+
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TournamentDetail as Detail, TournamentEdition } from '../api/types'
@@ -88,12 +89,7 @@ function EditionRow({
       <td className={`${tdClass} whitespace-nowrap text-xs text-dim`}>{e.first_date ?? '-'}</td>
       <td className={`${tdClass} whitespace-nowrap`}>
         {e.season && (
-          <Link
-            to={`/${slug}/tournaments/${tournamentSlug}/editions/${e.season}`}
-            className="text-xs text-analytic-ink hover:underline"
-          >
-            Table &amp; fixtures <ArrowRight className="ml-1" />
-          </Link>
+          <ActionLink to={`/${slug}/tournaments/${tournamentSlug}/editions/${e.season}`} weight="secondary">Table &amp; fixtures</ActionLink>
         )}
       </td>
     </tr>
@@ -132,9 +128,7 @@ export function TournamentDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/tournaments`} className="text-xs text-muted hover:text-ink">
-          <ArrowLeft className="mr-1" /> All tournaments
-        </Link>
+        <ActionLink to={`/${slug}/tournaments`} weight="quiet" direction="back">All tournaments</ActionLink>
       </div>
 
       <PageHeader

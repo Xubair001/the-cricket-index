@@ -14,8 +14,10 @@ import {
   thNumClass,
   theadRowClass,
   trClass,
+  Uncertain,
 } from './ui'
 import { count, percent, rate } from '../format'
+import { useFilters } from '../state/useFilters'
 
 /**
  * Performance splits on a player's profile (Section 12).
@@ -66,11 +68,15 @@ export function PlayerSplitsPanel({
   competitionKey: string | null
   competitionLabel: string
 }) {
-  const [split, setSplit] = useState('situation')
+  // In the URL, not component state: "look at their venue splits" is a link
+  // somebody sends, and a back-navigation would otherwise drop the reader on
+  // the default cut with nothing saying what changed.
+  const f = useFilters()
+  const split = f.get('split', 'situation')
+  const expanded = f.flag('rows')
   const [data, setData] = useState<PlayerSplits | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -114,10 +120,7 @@ export function PlayerSplitsPanel({
           <button
             key={key}
             type="button"
-            onClick={() => {
-              setSplit(key)
-              setExpanded(false)
-            }}
+            onClick={() => f.set({ split: key, rows: null })}
             aria-pressed={split === key}
             className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
               split === key
@@ -188,7 +191,7 @@ export function PlayerSplitsPanel({
           {buckets.length > VISIBLE_ROWS && (
             <button
               type="button"
-              onClick={() => setExpanded((v) => !v)}
+              onClick={() => f.keep({ rows: expanded ? null : 'true' })}
               className="mt-2 text-xs text-analytic-ink hover:underline"
             >
               {expanded
@@ -222,6 +225,33 @@ function SplitRow({
   batting: boolean
   bowling: boolean
 }) {
+  // A rate off two innings is not a record. The totals stay plain - the runs were
+  // scored - and only the RATES carry the dotted rule, which is this product's
+  // established mark for "trust this less" and is legible without colour.
+  const marked = (value: number | null, ok: boolean, why: string) =>
+    ok ? rate(value) : <Uncertain reason={why}>{rate(value)}</Uncertain>
+
+  // Each rate names the denominator it actually rests on, because "too few
+  // innings" is the wrong explanation for an average: that divides by
+  // dismissals, and four innings can carry a sound strike rate beside a
+  // meaningless average.
+  const thin = `Only ${b.innings} ${b.innings === 1 ? 'innings' : 'innings'} here`
+  const bat = (value: number | null) =>
+    marked(value, b.batting_reliable, `${thin} - too little batting for a rate`)
+  const battingAverage = (value: number | null) =>
+    marked(
+      value,
+      b.average_reliable,
+      `Divides by ${b.dismissals} ${b.dismissals === 1 ? 'dismissal' : 'dismissals'} - too few for an average`
+    )
+  const bowl = (value: number | null) =>
+    marked(value, b.bowling_reliable, `${thin} - too little bowling for a rate`)
+  const bowlingAverage = (value: number | null) =>
+    marked(
+      value,
+      b.bowling_average_reliable,
+      `Divides by ${b.wickets} ${b.wickets === 1 ? 'wicket' : 'wickets'} - too few for an average`
+    )
   return (
     <tr className={trClass}>
       <td className={tdClass}>{b.label}</td>
@@ -229,8 +259,8 @@ function SplitRow({
       {batting && (
         <>
           <td className={tdNumStrongClass}>{count(b.runs)}</td>
-          <td className={tdNumClass}>{rate(b.average)}</td>
-          <td className={tdNumClass}>{rate(b.strike_rate)}</td>
+          <td className={tdNumClass}>{battingAverage(b.average)}</td>
+          <td className={tdNumClass}>{bat(b.strike_rate)}</td>
           <td className={tdNumClass}>{percent(b.dot_pct)}</td>
           <td className={tdNumClass}>{percent(b.boundary_pct)}</td>
         </>
@@ -238,8 +268,8 @@ function SplitRow({
       {bowling && (
         <>
           <td className={tdNumStrongClass}>{count(b.wickets)}</td>
-          <td className={tdNumClass}>{rate(b.economy)}</td>
-          <td className={tdNumClass}>{rate(b.bowling_average)}</td>
+          <td className={tdNumClass}>{bowl(b.economy)}</td>
+          <td className={tdNumClass}>{bowlingAverage(b.bowling_average)}</td>
         </>
       )}
     </tr>

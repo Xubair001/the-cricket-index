@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight } from '../components/Icon'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { FormLeaderRow, FormLeaderboard } from '../api/types'
 import { ErrorMessage, SkeletonRows } from '../components/LoadingSpinner'
 import { change, score } from '../format'
@@ -99,7 +101,7 @@ const BOARDS: Board[] = [
 const TREND_GLYPH: Record<FormLeaderRow['trend'], { glyph: string; tone: string; note: string }> = {
   rising: { glyph: '\u2197', tone: 'text-positive-ink', note: 'Improving within the recent window' },
   flat: { glyph: '\u2192', tone: 'text-dim', note: 'Level within the recent window' },
-  falling: { glyph: '↘', tone: 'text-negative-ink', note: 'Declining within the recent window' },
+  falling: { glyph: '\u2198', tone: 'text-negative-ink', note: 'Declining within the recent window' },
   unknown: { glyph: '·', tone: 'text-dim', note: 'Not enough cricket to read a trend' },
 }
 
@@ -110,9 +112,10 @@ export function FormBoards() {
   const { slug, apiGender } = useGender()
   const { board: boardSlug = 'in-form' } = useParams<{ board: string }>()
   const board = BOARDS.find((b) => b.slug === boardSlug) ?? BOARDS[0]
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { keep, set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
+  const requestedCompetition = f.get('competition')
   // The scope switch owns which family is in play. A competition from the other
   // family is dropped rather than sent, so the figures on screen always match
   // the heading above them.
@@ -121,21 +124,12 @@ export function FormBoards() {
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const offset = Number(params.get('offset') ?? 0)
+  const offset = f.int('offset', 0)
 
   const [data, setData] = useState<FormLeaderboard | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>, keepOffset = false) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    if (!keepOffset) merged.delete('offset')
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -167,15 +161,9 @@ export function FormBoards() {
         title={board.label}
         blurb="Form measures change against a player's own recent baseline - not standard. For who is playing the best cricket outright, see the Performance Index."
         actions={
-          <Link
-            to={`/${slug}/performance-index`}
-            className="text-sm text-analytic-ink hover:underline"
-          >
-            Performance Index <ArrowRight className="ml-1" />
-          </Link>
+          <ActionLink to={`/${slug}/performance-index`} weight="secondary">Performance Index</ActionLink>
         }
       />
-
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="inline-flex flex-wrap rounded-xl border border-border-subtle bg-surface p-0.5 shadow-card">
@@ -345,7 +333,7 @@ export function FormBoards() {
               total={data.total}
               limit={LIMIT}
               offset={offset}
-              onChange={(o) => update({ offset: String(o) }, true)}
+              onChange={(o) => keep({ offset: String(o) })}
             />
           </div>
         )}
