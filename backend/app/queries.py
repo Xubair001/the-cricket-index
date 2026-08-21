@@ -1,9 +1,10 @@
 from datetime import date
 
-from sqlalchemy import case, func, or_, select, union_all
+from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from . import cache, schemas, flags
+from .analytics import periods
 from .names import preferred_name
 from .models import (
     Competition,
@@ -279,6 +280,108 @@ def _competition_scoped(stmt, competition_key: str | None, competition_type: str
     return stmt
 
 
+def _scope_anchor(
+    db: Session,
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+) -> str | None:
+    """The newest match date within THIS scope, which is what a relative window
+    like "last 12 months" is measured back from.
+
+    `periods.py` establishes that a relative window is anchored to the newest
+    match in the data rather than to today, because anchoring to now means the
+    day the archive goes stale every current player silently drops out of the
+    window and the product reports a data-freshness problem as a fact about
+    cricket.
+
+    The anchor is taken **within the scope** rather than over the whole
+    database, which is the same call `selection.py` makes for its current-player
+    pool and for the same reason: the PSL season ends in May while the newest
+    match overall is an August Test, so a database-wide anchor would silently
+    cost a PSL board three and a half months of its own season.
+    """
+    stmt = select(func.max(Match.match_date_start)).where(Match.gender == gender)
+    stmt = _competition_scoped(stmt, competition_key, competition_type)
+    return db.execute(stmt).scalar()
+
+
+def _period_scoped(
+    stmt,
+    period: "periods.Period | None",
+    anchor: str | None,
+):
+    """Applies a DATE-BOUNDED window to a statement.
+
+    Count-bounded windows ("last 10 matches") are not expressible here: each
+    player's tenth-most-recent match falls on a different date, so the cut is
+    per player and happens in `_count_bounded_match_ids`. Callers branch on
+    `period.is_count_bounded` rather than guessing.
+    """
+    if period is None:
+        return stmt
+    bounds = period.to_date_bounds(anchor)
+    if bounds is None:  # count-bounded; handled by the caller
+        return stmt
+    start, end = bounds
+    if start:
+        stmt = stmt.where(Match.match_date_start >= start)
+    if end:
+        stmt = stmt.where(Match.match_date_start <= end)
+    if period.season_label:
+        stmt = stmt.where(Match.season_label == period.season_label)
+    return stmt
+
+
+def _count_bounded_window(
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+    matches: int,
+    team_id: int | None = None,
+):
+    """A joinable subquery of the (player, match) pairs inside each player's
+    last N appearances.
+
+    A count-bounded window has to be cut per player: each player's tenth-most
+    recent match falls on a different date, so there is no single date range
+    that expresses it. Filtering on match id alone is wrong for the same reason
+    - a match inside one player's last ten is outside another's, so it would
+    admit every player who happened to appear in somebody else's recent match.
+    The pair is therefore the unit, and it is joined rather than collected in
+    Python so the aggregate stays one query.
+
+    A plain window function, not a SQLite extension: §24 requires the analytics
+    layer to stay portable, and `ROW_NUMBER() OVER (PARTITION BY ...)` is
+    standard SQL that Postgres runs unchanged.
+    """
+    ranked = (
+        select(
+            PlayerMatchStat.player_identifier.label("pid"),
+            PlayerMatchStat.match_id.label("mid"),
+            func.row_number()
+            .over(
+                partition_by=PlayerMatchStat.player_identifier,
+                order_by=(
+                    Match.match_date_start.desc(),
+                    # Two matches can share a date (a double-header), so the id
+                    # breaks the tie and keeps the cut deterministic across runs.
+                    PlayerMatchStat.match_id.desc(),
+                ),
+            )
+            .label("rn"),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .where(Match.gender == gender)
+        .where(PlayerMatchStat.player_identifier.is_not(None))
+    )
+    ranked = _competition_scoped(ranked, competition_key, competition_type)
+    if team_id is not None:
+        ranked = ranked.where(PlayerMatchStat.team_id == team_id)
+    sub = ranked.subquery()
+    return select(sub.c.pid, sub.c.mid).where(sub.c.rn <= matches).subquery()
+
+
 def _build_batting_aggregate_rows(
     db: Session,
     gender: str,
@@ -286,6 +389,7 @@ def _build_batting_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     stmt = (
         select(
@@ -323,6 +427,25 @@ def _build_batting_aggregate_rows(
         stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
     if team_id is not None:
         stmt = stmt.where(PlayerMatchStat.team_id == team_id)
+    # Two different mechanisms, because the two kinds of window are not the
+    # same shape: a date range pushes straight into the WHERE clause, while
+    # "last 10 matches" is a per-player cut and joins a ranked subquery.
+    if period is not None:
+        if period.is_count_bounded:
+            window = _count_bounded_window(
+                gender, competition_key, competition_type,
+                period.matches or 0, team_id,
+            )
+            stmt = stmt.join(
+                window,
+                and_(
+                    window.c.pid == PlayerMatchStat.player_identifier,
+                    window.c.mid == PlayerMatchStat.match_id,
+                ),
+            )
+        else:
+            anchor = _scope_anchor(db, gender, competition_key, competition_type)
+            stmt = _period_scoped(stmt, period, anchor)
 
     rows = db.execute(stmt).all()
     results = []
@@ -358,6 +481,7 @@ def _build_bowling_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     stmt = (
         select(
@@ -382,6 +506,25 @@ def _build_bowling_aggregate_rows(
         stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
     if team_id is not None:
         stmt = stmt.where(PlayerMatchStat.team_id == team_id)
+    # Two different mechanisms, because the two kinds of window are not the
+    # same shape: a date range pushes straight into the WHERE clause, while
+    # "last 10 matches" is a per-player cut and joins a ranked subquery.
+    if period is not None:
+        if period.is_count_bounded:
+            window = _count_bounded_window(
+                gender, competition_key, competition_type,
+                period.matches or 0, team_id,
+            )
+            stmt = stmt.join(
+                window,
+                and_(
+                    window.c.pid == PlayerMatchStat.player_identifier,
+                    window.c.mid == PlayerMatchStat.match_id,
+                ),
+            )
+        else:
+            anchor = _scope_anchor(db, gender, competition_key, competition_type)
+            stmt = _period_scoped(stmt, period, anchor)
 
     rows = db.execute(stmt).all()
     results = []
@@ -404,6 +547,23 @@ def _build_bowling_aggregate_rows(
     return _attach_country(results, _player_country_map(db, gender))
 
 
+def _period_key(period: "periods.Period | None") -> str | None:
+    """A stable cache key for a window.
+
+    Built from the fields that change the rows rather than from the label, so
+    two specs that mean the same window share one cache entry and a relabelled
+    preset does not silently orphan its own entry.
+    """
+    if period is None:
+        return None
+    return "|".join(
+        str(x) for x in (
+            period.kind, period.matches, period.days,
+            period.season_label, period.start, period.end,
+        )
+    )
+
+
 def _cached_aggregate_rows(build, db, key_prefix, *args) -> list[dict]:
     """Cache a scope-wide aggregate, pass a single-player one straight through.
 
@@ -416,13 +576,19 @@ def _cached_aggregate_rows(build, db, key_prefix, *args) -> list[dict]:
     fast, and caching it would key the store by 9,500 identifiers per scope for
     no gain.
     """
-    gender, competition_key, competition_type, player_identifier, team_id = args
+    gender, competition_key, competition_type, player_identifier, team_id, period = args
     if player_identifier is not None:
-        return build(db, gender, competition_key, competition_type, player_identifier, team_id)
+        return build(
+            db, gender, competition_key, competition_type, player_identifier, team_id, period
+        )
+    # The period is part of the key, not of the value: "last 12 months" and
+    # career are different aggregates over the same scope, and sharing one entry
+    # between them would serve whichever was asked for first.
+    period_key = _period_key(period)
     return cache.get_or_compute(
         db,
-        (key_prefix, gender, competition_key, competition_type, team_id),
-        lambda: build(db, gender, competition_key, competition_type, None, team_id),
+        (key_prefix, gender, competition_key, competition_type, team_id, period_key),
+        lambda: build(db, gender, competition_key, competition_type, None, team_id, period),
     )
 
 
@@ -433,10 +599,11 @@ def _batting_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     return _cached_aggregate_rows(
         _build_batting_aggregate_rows, db, "batting_rows",
-        gender, competition_key, competition_type, player_identifier, team_id,
+        gender, competition_key, competition_type, player_identifier, team_id, period,
     )
 
 
@@ -447,10 +614,11 @@ def _bowling_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     return _cached_aggregate_rows(
         _build_bowling_aggregate_rows, db, "bowling_rows",
-        gender, competition_key, competition_type, player_identifier, team_id,
+        gender, competition_key, competition_type, player_identifier, team_id, period,
     )
 
 
@@ -468,6 +636,28 @@ def _ranking_scope(competition_key: str | None, competition_type: str | None) ->
     return competition_type or DEFAULT_RANKING_COMPETITION_TYPE
 
 
+def applied_period(
+    db: Session,
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+    period: "periods.Period | None",
+) -> dict:
+    """What window a scoped request actually used, for the response to state.
+
+    Resolving the anchor needs the database and the scope, which is why this
+    lives here rather than in `periods`: that module owns the vocabulary and the
+    arithmetic, this owns "the newest match in THIS scope".
+    """
+    if period is None or period.kind == periods.CAREER:
+        return periods.applied(None, None)
+    anchor_date = _scope_anchor(
+        db, gender, competition_key,
+        _ranking_scope(competition_key, competition_type),
+    )
+    return periods.applied(period, anchor_date)
+
+
 def get_batting_rankings(
     db: Session,
     gender: str,
@@ -477,12 +667,14 @@ def get_batting_rankings(
     limit: int,
     offset: int,
     competition_type: str | None = None,
+    period: "periods.Period | None" = None,
 ) -> tuple[list[dict], int]:
     rows = _batting_aggregate_rows(
         db,
         gender,
         competition_key=competition_key,
         competition_type=_ranking_scope(competition_key, competition_type),
+        period=period,
     )
     rows = [r for r in rows if r["matches"] >= min_matches]
     # Identifier as the final key so equal figures always land in the same
@@ -502,12 +694,14 @@ def get_bowling_rankings(
     limit: int,
     offset: int,
     competition_type: str | None = None,
+    period: "periods.Period | None" = None,
 ) -> tuple[list[dict], int]:
     rows = _bowling_aggregate_rows(
         db,
         gender,
         competition_key=competition_key,
         competition_type=_ranking_scope(competition_key, competition_type),
+        period=period,
     )
     rows = [r for r in rows if r["matches"] >= min_matches]
     reverse = sort_by not in ("average", "economy")  # lower is better for both

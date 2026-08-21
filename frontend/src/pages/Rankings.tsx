@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { BattingRankingRow, BowlingRankingRow } from '../api/types'
+import type { AppliedPeriod, BattingRankingRow, BowlingRankingRow } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
 import { useFilters } from '../state/useFilters'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
 import { rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import {
@@ -88,6 +89,9 @@ export function Rankings() {
   const requestedCompetition = f.get('competition')
   const minMatches = Math.max(1, f.int('min_matches', DEFAULT_MIN_MATCHES))
   const sortBy = f.get('sort_by', tab === 'batting' ? 'runs' : 'wickets')
+  // The window, as one shareable value. Absent means career, which is what a
+  // leaderboard has always meant here.
+  const period = f.get('period')
   const offset = f.int('offset', 0)
 
   // The scope switch owns which family is in play; a competition from the
@@ -100,6 +104,7 @@ export function Rankings() {
   } = useScopedCompetition(requestedCompetition)
   const [rows, setRows] = useState<(BattingRankingRow | BowlingRankingRow)[]>([])
   const [total, setTotal] = useState(0)
+  const [applied, setApplied] = useState<AppliedPeriod | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -126,6 +131,7 @@ export function Rankings() {
       competition_type: competitionType,
       min_matches: minMatches,
       sort_by: sortBy,
+      period: period || undefined,
       limit: LIMIT,
       offset,
     }
@@ -136,6 +142,7 @@ export function Rankings() {
         if (cancelled) return
         setRows(res.items)
         setTotal(res.total)
+        setApplied(res.period)
       })
       .catch((e) => {
         if (!cancelled) setError(String(e))
@@ -146,7 +153,7 @@ export function Rankings() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, tab, competition, competitionType, minMatches, sortBy, offset])
+  }, [apiGender, tab, competition, competitionType, minMatches, sortBy, period, offset])
 
   const sortOptions = tab === 'batting' ? BATTING_SORTS : BOWLING_SORTS
 
@@ -186,6 +193,7 @@ export function Rankings() {
           options={competitionOptions}
           onChange={(v) => f.set({ competition: v })}
         />
+        <PeriodSelect value={period} onChange={(v) => f.set({ period: v })} />
         <SelectControl
           label="Sort by"
           value={sortBy}
@@ -205,6 +213,10 @@ export function Rankings() {
           />
         </label>
       </div>
+
+      {/* Above the table, not below it: the window is what the figures MEAN, so
+          a reader has to have it before they read the first row. */}
+      <AppliedPeriodNote period={applied} />
 
       {error && <ErrorMessage message={error} />}
       {loading && rows.length === 0 && <LoadingSpinner />}

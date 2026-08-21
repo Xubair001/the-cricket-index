@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { useFilters } from '../state/useFilters'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
 import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary, VenueOption } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { ExplorerScatter } from '../components/ExplorerScatter'
@@ -128,8 +129,11 @@ export function Explorer() {
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
   const opposition = f.get('opposition')
+  // Still read, because links already shared carry them and the API still
+  // intersects them with any window.
   const dateFrom = f.get('from')
   const dateTo = f.get('to')
+  const period = f.get('period')
   const sortBy = f.get('sort')
   const minInnings = f.get('min_innings')
   const minBalls = f.get('min_balls')
@@ -166,6 +170,7 @@ export function Explorer() {
         opposition_team_id: opposition ? Number(opposition) : undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
+        period: period || undefined,
         min_innings: minInnings ? Number(minInnings) : undefined,
         min_balls: minBalls ? Number(minBalls) : undefined,
         role: role || undefined,
@@ -180,7 +185,7 @@ export function Explorer() {
     return () => {
       cancelled = true
     }
-  }, [kind, apiGender, competition, competitionType, opposition, dateFrom, dateTo, minInnings, minBalls, role, venue, sortBy, offset])
+  }, [kind, apiGender, competition, competitionType, opposition, dateFrom, dateTo, period, minInnings, minBalls, role, venue, sortBy, offset])
 
   const columns = COLUMNS[kind]
   const active = EXPLORERS.find((e) => e.key === kind)!
@@ -252,24 +257,12 @@ export function Explorer() {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className={fieldLabel}>From</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => update({ from: e.target.value })}
-            className={field}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={fieldLabel}>To</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => update({ to: e.target.value })}
-            className={field}
-          />
-        </label>
+        {/* One "when" control, not two mechanisms side by side. The raw
+            `from`/`to` params are still sent and still honoured by the API, so
+            links already shared keep resolving - but a reader picking a window
+            picks it once, and gets the count-bounded options a pair of date
+            inputs cannot express. */}
+        <PeriodSelect value={period} onChange={(v) => update({ period: v })} />
         {kind !== 'allround' && (
           <label className="flex flex-col gap-1">
             <span className={fieldLabel}>Role</span>
@@ -308,6 +301,11 @@ export function Explorer() {
         </label>
       </div>
 
+      {/* The window is what the figures MEAN, so it sits above the first row. */}
+
+      <AppliedPeriodNote period={data?.period ?? null} />
+
+
       {error && <ErrorMessage message={error} />}
 
       {/* The qualification in force is stated rather than left implicit - a
@@ -321,8 +319,7 @@ export function Explorer() {
               ground with no cricket at it. */}
           <span className="tnum font-medium text-ink">{data.total.toLocaleString()}</span> of{' '}
           <span className="tnum">{data.total_before_volume_floor.toLocaleString()}</span>{' '}
-          {data.total_before_volume_floor === 1 ? 'player' : 'players'}
-          shown · needs <span className="tnum">{data.applied_min_innings}</span>{' '}
+          {data.total_before_volume_floor === 1 ? 'player' : 'players'} shown · needs <span className="tnum">{data.applied_min_innings}</span>{' '}
           {data.applied_min_innings === 1 ? 'match' : 'matches'} and{' '}
           <span className="tnum">{data.applied_min_balls}</span> balls
           {!minInnings && !minBalls && ' (scaled to this slice)'}
@@ -343,6 +340,7 @@ export function Explorer() {
             opposition_team_id: opposition ? Number(opposition) : undefined,
             date_from: dateFrom || undefined,
             date_to: dateTo || undefined,
+            period: period || undefined,
             min_innings: minInnings ? Number(minInnings) : undefined,
             min_balls: minBalls ? Number(minBalls) : undefined,
             role: role || undefined,

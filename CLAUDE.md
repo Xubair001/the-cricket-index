@@ -1077,6 +1077,89 @@ other.
 and this is not the start of one; it is the one piece of the filter layer that is
 pure logic and was got wrong twice.
 
+### The period vocabulary existed with no consumers, and two window kinds are not one
+
+`analytics/periods.py` was written early, fully documented, and **wired to
+nothing**: `parse`, `to_date_bounds` and `is_count_bounded` had zero callers and
+the only export was `/api/analytics/periods` returning a list of options no page
+requested. So the audit finding was not "the UI is missing a control" - no
+endpoint accepted a window at all, and Principle 3's "first-class everywhere"
+was unmet everywhere.
+
+Rankings and all three explorers now take `period`. The implementation turns on
+one distinction that is easy to miss and expensive to get wrong:
+
+- **A date-bounded window pushes into SQL.** "Last 12 months", a season, a
+  custom range: one predicate, applied to every player in the same query.
+- **A count-bounded window cannot.** Each player's tenth-most-recent match falls
+  on a different day, so there is no date range that expresses "last 10
+  matches". It is a per-player cut, done with
+  `ROW_NUMBER() OVER (PARTITION BY player_identifier ORDER BY match_date DESC)`
+  and joined as a subquery. **The pair is the unit, not the match id**: a match
+  inside one player's last ten is outside another's, so filtering on match id
+  would admit every player who happened to appear in somebody else's recent
+  match. Standard SQL rather than a SQLite extension, per §24's portability rule.
+
+Four things that are load-bearing:
+
+- **The anchor is the newest match IN THE SCOPE**, not in the database and not
+  today. Not today, for the reason `player_status` already documents. Not the
+  database, for the reason `selection.py` already documents: the PSL season ends
+  in May while the newest match overall is an August Test, so a database-wide
+  anchor would silently cost a PSL board three and a half months of its own
+  season. Measured: the men's Test scope anchors to 2026-08-15 where the whole
+  database is 2026-08-04.
+- **The count-bounded cut is ranked over the SAME slice the board draws.** On the
+  explorer that means "last 10 matches at the SCG" is their last ten *there*, not
+  their last ten anywhere filtered down to the SCG - which would return one or
+  two rows per player and describe nothing. `_last_matches_window` re-applies
+  every filter except the window itself.
+- **The period is part of the cache key, built from the window's FIELDS rather
+  than its label.** Career and last-12-months are different aggregates over one
+  scope, and sharing an entry would serve whichever was asked for first. Verified:
+  each returns its own leader, and repeats are 2 to 3 ms.
+- **A period and an explicit date range INTERSECT** rather than one overriding
+  the other, the same rule `_competition_scoped` follows for a key and a type
+  given together. `period=last12m&date_to=2026-01-01` resolves to
+  2025-08-15..2026-01-01. This is what let the explorer's two raw date inputs be
+  replaced by one window control without breaking a single shared link.
+
+#### A count-bounded board puts a retired player beside a current one, and says so
+
+"Last 10 matches" on a leaderboard reads as *recent form*, and it is not: it is
+each player's own last ten, so the men's Test board returns Mahela Jayawardene
+second and Kumar Sangakkara sixth beside Shubman Gill and Devon Conway. That is
+the honest answer to the question asked and it is genuinely useful, so it is not
+"fixed" by adding a recency filter. `periods.applied` relabels it **"Each
+player's last 10 matches"** and carries the caveat, and the page prints both
+above the first row.
+
+The same function resolves a relative window to real dates for display, because
+"617 runs" means nothing without knowing over what (§30).
+
+#### A season is the source's own label, so it is not offered as a control
+
+`season:<label>` parses and a URL naming one resolves, but `describe()` omits
+seasons deliberately. Cricsheet labels men's Tests **`2024` (13 matches) and
+`2024/25` (29)**, so an option reading "2024" returns a third of the year's
+cricket and looks like missing data. A reader wanting a calendar year gets an
+exact answer from a custom range instead, which is why the custom control is a
+pair of date inputs rather than an entry in the preset list.
+
+#### Validated against published tables, which is how the date path was checked
+
+Calendar 2024 men's Tests reproduce exactly - the ordering and every figure:
+
+    batting   Root 1,556 (17)   Jaiswal 1,478 (15)   Duckett 1,149 (17)
+              Brook 1,100 (12)  K Mendis 1,049 (9)
+    bowling   Bumrah 71 at 14.93 (published 14.92)   Atkinson 52
+              Bashir 49   Henry 48   Jadeja 48   Ashwin 47
+
+`validation.check_period` bounds the spec at 64 characters and turns a parse
+failure into a 422 naming the valid set, the same treatment competition keys get.
+Swept: 55 (period x surface) combinations return 200, and six malformed specs all
+422 rather than 500.
+
 ### A thin rate is marked, and each rate is gated on ITS OWN denominator
 
 The splits panel shipped every rate at the same weight, which the venue split

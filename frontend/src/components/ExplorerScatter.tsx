@@ -87,6 +87,9 @@ export type ExplorerQuery = {
   opposition_team_id?: number
   date_from?: string
   date_to?: string
+  /** The window, so the scatter's own field is drawn over the same period as
+   *  the table above it rather than over the whole career. */
+  period?: string
   min_innings?: number
   min_balls?: number
   role?: string

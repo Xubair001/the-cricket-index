@@ -13,6 +13,7 @@ import type {
   MatchDetail,
   MatchSummary,
   Paginated,
+  PeriodPaginated,
   PaginatedFixtures,
   ParFigures,
   PerformanceIndexPage,
@@ -75,13 +76,31 @@ export const api = {
 
   battingRankings: (
     gender: ApiGender,
-    params: { competition?: string; min_matches?: number; sort_by?: string; limit?: number; offset?: number }
-  ) => getJson<Paginated<BattingRankingRow>>('/api/rankings/batting', { gender, ...params }),
+    params: {
+      competition?: string
+      competition_type?: string
+      /** A period spec: a preset key, `season:<label>`, or `custom:<from>:<to>`. */
+      period?: string
+      min_matches?: number
+      sort_by?: string
+      limit?: number
+      offset?: number
+    }
+  ) => getJson<PeriodPaginated<BattingRankingRow>>('/api/rankings/batting', { gender, ...params }),
 
   bowlingRankings: (
     gender: ApiGender,
-    params: { competition?: string; min_matches?: number; sort_by?: string; limit?: number; offset?: number }
-  ) => getJson<Paginated<BowlingRankingRow>>('/api/rankings/bowling', { gender, ...params }),
+    params: {
+      competition?: string
+      competition_type?: string
+      /** A period spec: a preset key, `season:<label>`, or `custom:<from>:<to>`. */
+      period?: string
+      min_matches?: number
+      sort_by?: string
+      limit?: number
+      offset?: number
+    }
+  ) => getJson<PeriodPaginated<BowlingRankingRow>>('/api/rankings/bowling', { gender, ...params }),
 
   // team_type is optional: the Teams page scopes to one kind at a time, but
   // the Matches filter deliberately omits it so you can filter by any side.
@@ -219,6 +238,8 @@ export const api = {
       opposition_team_id?: number
       date_from?: string
       date_to?: string
+      /** A period spec. Intersected with any explicit date range above. */
+      period?: string
       min_innings?: number
       min_balls?: number
       role?: string

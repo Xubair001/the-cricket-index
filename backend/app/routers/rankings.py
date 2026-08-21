@@ -28,6 +28,10 @@ def batting_rankings(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
+    # A window over the same scope, not a different scope. Absent means career,
+    # which is what a leaderboard has always meant here; `last12m` turns the
+    # same board into "leading run-scorers of the last twelve months".
+    period: str | None = Query(default=None),
     min_matches: int = Query(default=10, ge=1),
     sort_by: Literal["runs", "average", "strike_rate", "matches"] = "runs",
     limit: int = Query(default=25, ge=1, le=100),
@@ -36,13 +40,21 @@ def batting_rankings(
 ) -> dict:
     competition = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
+    window = validation.check_period(period)
     rows, total = queries.get_batting_rankings(
-        db, gender, competition, min_matches, sort_by, limit, offset, competition_type
+        db, gender, competition, min_matches, sort_by, limit, offset, competition_type,
+        period=window,
     )
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
+        # What window produced these figures, in the response rather than left to
+        # the caller to re-derive. A relative window resolves to dates here and a
+        # count-bounded one says whose count it is - see periods.applied.
+        "period": queries.applied_period(
+            db, gender, competition, competition_type, window
+        ),
         "items": [schemas.BattingRankingRow(**r) for r in rows],
     }
 
@@ -52,6 +64,10 @@ def bowling_rankings(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
+    # A window over the same scope, not a different scope. Absent means career,
+    # which is what a leaderboard has always meant here; `last12m` turns the
+    # same board into "leading run-scorers of the last twelve months".
+    period: str | None = Query(default=None),
     min_matches: int = Query(default=10, ge=1),
     sort_by: Literal["wickets", "average", "economy", "matches"] = "wickets",
     limit: int = Query(default=25, ge=1, le=100),
@@ -60,13 +76,21 @@ def bowling_rankings(
 ) -> dict:
     competition = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
+    window = validation.check_period(period)
     rows, total = queries.get_bowling_rankings(
-        db, gender, competition, min_matches, sort_by, limit, offset, competition_type
+        db, gender, competition, min_matches, sort_by, limit, offset, competition_type,
+        period=window,
     )
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
+        # What window produced these figures, in the response rather than left to
+        # the caller to re-derive. A relative window resolves to dates here and a
+        # count-bounded one says whose count it is - see periods.applied.
+        "period": queries.applied_period(
+            db, gender, competition, competition_type, window
+        ),
         "items": [schemas.BowlingRankingRow(**r) for r in rows],
     }
 

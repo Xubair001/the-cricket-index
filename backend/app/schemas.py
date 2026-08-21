@@ -1102,6 +1102,11 @@ class ExplorerPage(BaseModel):
     total_before_volume_floor: int = 0
     applied_min_balls: int = 0
     applied_min_innings: int = 0
+    """The window these figures cover, resolved. A relative window counts back
+    from the newest match in the scope rather than from today, and a
+    count-bounded one is each player's own last N - neither of which a caller
+    can re-derive from the spec alone."""
+    period: dict | None = None
     items: list[ExplorerRow]
 
 

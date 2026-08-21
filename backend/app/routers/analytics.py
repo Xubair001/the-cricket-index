@@ -261,6 +261,11 @@ def explore(
     # Canonical ground name. Now a real filter rather than an absent one: see
     # app/venues.py for why it could not ship until venues were normalised.
     venue: str | None = Query(default=None, max_length=120),
+    # A window over this slice. A date-bounded one resolves into date_from and
+    # date_to below, so `period=last12m` and an explicit range are the same
+    # mechanism and links already carrying raw dates keep resolving. Only a
+    # count-bounded window needs its own path.
+    period: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -288,10 +293,32 @@ def explore(
     # batting board and unreachable at one ground against one side, so
     # "Bellerive Oval against Australia" returned 0 players of 148.
 
+    competition_key = validation.check_competition_key(db, competition)
+    competition_type = validation.check_competition_type(db, competition_type)
+    window = validation.check_period(period)
+
+    # A date-bounded window becomes a date range, INTERSECTED with any explicit
+    # one rather than overriding it: two ways of narrowing the same axis should
+    # compose, which is the rule `_competition_scoped` already follows for a key
+    # and a type given together.
+    last_matches = None
+    if window is not None:
+        if window.is_count_bounded:
+            last_matches = window.matches
+        else:
+            anchor = queries.applied_period(
+                db, gender, competition_key, competition_type, window
+            )["anchor"]
+            bounds = window.to_date_bounds(anchor)
+            if bounds:
+                start, end = bounds
+                date_from = max(x for x in (date_from, start) if x) if (date_from or start) else None
+                date_to = min(x for x in (date_to, end) if x) if (date_to or end) else None
+
     filters = explorer_mod.ExplorerFilters(
         gender=gender,
-        competition_key=validation.check_competition_key(db, competition),
-        competition_type=validation.check_competition_type(db, competition_type),
+        competition_key=competition_key,
+        competition_type=competition_type,
         team_id=team_id,
         opposition_team_id=opposition_team_id,
         date_from=date_from,
@@ -300,6 +327,7 @@ def explore(
         min_balls=min_balls,
         venue=venue,
         role=role,
+        last_matches=last_matches,
     )
     items, total, before_floor, applied_balls, applied_innings = explorer_mod.page(
         db, explorer, filters, sort_by, limit, offset
@@ -312,6 +340,10 @@ def explore(
         sort_by=sort_by,
         filters=filters.describe(explorer),
         sorts=sorted(sorts),
+        period=periods.applied(
+            window,
+            queries.applied_period(db, gender, competition_key, competition_type, window)["anchor"],
+        ),
         # Both counts, because their being different IS the story on a narrowed
         # slice. Without the "before" figure a reader cannot tell "no cricket
         # here" from "the volume floor removed all of it".

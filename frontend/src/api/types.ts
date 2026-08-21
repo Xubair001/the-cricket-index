@@ -436,7 +436,29 @@ export interface FormVerdict {
 export interface PeriodOption {
   key: string
   label: string
+  /** 'career' | 'last_matches' | 'last_days'. The UI groups on this, because a
+   *  count-bounded window means something different from a date-bounded one. */
   kind: string
+}
+
+/** The window a response actually used, as reported back by the API. */
+export interface AppliedPeriod {
+  /** The spec that reproduces this window, for a shareable URL. */
+  spec: string | null
+  label: string
+  kind: string
+  /** Resolved bounds, present only for a date-bounded window. */
+  start: string | null
+  end: string | null
+  /** The newest match in this scope, which a relative window counts back from. */
+  anchor: string | null
+  /** Present where the window needs a caveat stated rather than inferred. */
+  note: string | null
+}
+
+/** A paginated board that reports which window produced it. */
+export interface PeriodPaginated<T> extends Paginated<T> {
+  period: AppliedPeriod
 }
 
 export interface ParFigures {
@@ -560,6 +582,8 @@ export interface ExplorerPage {
   total_before_volume_floor: number
   applied_min_balls: number
   applied_min_innings: number
+  /** The window these figures cover, resolved by the API. */
+  period: AppliedPeriod | null
   items: ExplorerRow[]
 }
 

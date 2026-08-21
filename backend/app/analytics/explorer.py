@@ -110,6 +110,12 @@ class ExplorerFilters:
     # Narrow further *within* an explorer's eligible set. None = whoever
     # belongs in this explorer, which already excludes the other specialism.
     role: str | None = None
+    # Set only for a COUNT-bounded window ("each player's last 10 matches"),
+    # which cannot be expressed as a date range because every player's tenth
+    # most recent match falls on a different day. A date-bounded period is
+    # resolved into `date_from`/`date_to` by the router instead, so it needs no
+    # second mechanism here and existing links carrying raw dates keep working.
+    last_matches: int | None = None
 
     def describe(self, explorer: str | None = None) -> dict:
         """What was actually applied -- returned with every response."""
@@ -238,7 +244,52 @@ def _scoped(stmt: Select, f: ExplorerFilters, db: Session | None = None) -> Sele
         # Pairs, not bare venue strings: see `raw_venue_pairs`. Filtering on the
         # venue alone merged six different County Grounds into one.
         stmt = stmt.where(venue_condition(raw_venue_pairs(db, f.venue)))
+    if f.last_matches:
+        # The per-player cut. Ranked over the SAME scope the board is drawn on,
+        # so "last 10 matches" at one ground means their last ten THERE rather
+        # than their last ten anywhere - which is the only reading that makes a
+        # narrowed slice mean anything.
+        window = _last_matches_window(f, db)
+        stmt = stmt.join(
+            window,
+            and_(
+                window.c.pid == PlayerMatchStat.player_identifier,
+                window.c.mid == PlayerMatchStat.match_id,
+            ),
+        )
     return stmt
+
+
+def _last_matches_window(f: ExplorerFilters, db: Session | None):
+    """(player, match) pairs inside each player's last N appearances in this slice.
+
+    Built by re-applying every filter EXCEPT the window itself, so the ranking is
+    over the same population the board shows. `last_matches` is cleared on the
+    copy to stop this recursing into itself.
+    """
+    inner = dataclasses.replace(f, last_matches=None)
+    ranked = (
+        select(
+            PlayerMatchStat.player_identifier.label("pid"),
+            PlayerMatchStat.match_id.label("mid"),
+            func.row_number()
+            .over(
+                partition_by=PlayerMatchStat.player_identifier,
+                order_by=(
+                    Match.match_date_start.desc(),
+                    # Double-headers share a date, so the id keeps the cut stable.
+                    PlayerMatchStat.match_id.desc(),
+                ),
+            )
+            .label("rn"),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .join(Competition, Competition.competition_id == Match.competition_id)
+        .where(PlayerMatchStat.player_identifier.is_not(None))
+    )
+    ranked = _scoped(ranked, inner, db)
+    sub = ranked.subquery()
+    return select(sub.c.pid, sub.c.mid).where(sub.c.rn <= f.last_matches).subquery()
 
 
 def _base(*columns) -> Select:
