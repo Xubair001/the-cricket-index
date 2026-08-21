@@ -22,11 +22,13 @@ are loaded, with no redeploy.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from dataclasses import dataclass
+
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from . import cache
-from .models import Delivery
+from .models import Competition, Delivery, Match, PlayerMatchStat
 
 # The wording every surface uses, so a reader meets the same sentence wherever
 # they hit the limit rather than four paraphrases of it.
@@ -57,3 +59,92 @@ def has_deliveries(db: Session) -> bool:
     # exist, and rebinding the name closes it without a lock.
     _state = {generation: found}
     return found
+
+
+# --------------------------------------------------------------------------
+# Partial coverage, which is more dangerous than none
+# --------------------------------------------------------------------------
+#
+# `has_deliveries` is a BINARY, deployment-level answer, and that was sufficient
+# while the ball record was either whole or absent. It stopped being sufficient
+# the moment a deployment held ball-by-ball data for *some* matches: a player
+# who appeared in both covered and uncovered matches then gets a figure computed
+# from part of their cricket and rendered exactly like a complete one.
+#
+# That is worse than holding nothing. An empty split reads as an absence and
+# invites the question; a partial split reads as a fact. §17 and §30 are both
+# about not letting those two look alike, so a surface built on deliveries has to
+# be able to say "computed from 14 of your 31 matches" and mean it.
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How much of a slice the ball record actually covers."""
+
+    matches_with_deliveries: int
+    matches_total: int
+
+    @property
+    def complete(self) -> bool:
+        return self.matches_total == 0 or self.matches_with_deliveries >= self.matches_total
+
+    @property
+    def empty(self) -> bool:
+        return self.matches_with_deliveries == 0
+
+    def note(self) -> str | None:
+        """The sentence a surface prints, or None when there is nothing to say."""
+        if self.complete:
+            return None
+        if self.empty:
+            return (
+                f"None of the {self.matches_total} matches in this scope have "
+                "ball-by-ball data here, so this cannot be computed."
+            )
+        return (
+            f"Computed from {self.matches_with_deliveries} of "
+            f"{self.matches_total} matches - the rest have no ball-by-ball "
+            "record in this deployment, so treat this as a partial picture."
+        )
+
+
+def delivery_coverage(
+    db: Session,
+    *,
+    gender: str,
+    competition_key: str | None = None,
+    player_identifier: str | None = None,
+) -> Coverage:
+    """Matches with a ball record against matches in the slice.
+
+    Counted over `player_match_stats` rather than `matches`, so the denominator
+    is "matches this player actually appeared in" rather than "matches that
+    exist" - which is what makes the ratio mean anything on a player page.
+
+    Cached on the same generation signal as everything else, keyed by the slice,
+    because a profile asks this once per split and the answer only moves on an
+    ingest.
+    """
+    key = ("delivery_coverage", gender, competition_key, player_identifier)
+
+    def build() -> Coverage:
+        stmt = (
+            select(
+                func.count(distinct(PlayerMatchStat.match_id)),
+                func.count(distinct(Delivery.match_id)),
+            )
+            .select_from(PlayerMatchStat)
+            .join(Match, Match.match_id == PlayerMatchStat.match_id)
+            .outerjoin(Delivery, Delivery.match_id == PlayerMatchStat.match_id)
+            .where(Match.gender == gender)
+        )
+        if competition_key:
+            stmt = stmt.join(
+                Competition, Competition.competition_id == Match.competition_id
+            ).where(Competition.key == competition_key)
+        if player_identifier:
+            stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
+        total, covered = db.execute(stmt).one()
+        return Coverage(int(covered or 0), int(total or 0))
+
+    return cache.get_or_compute(db, key, build)

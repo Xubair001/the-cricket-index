@@ -841,6 +841,13 @@ class PlayerSplits(BaseModel):
     # Splits §12 names that no current source supports, with the reason.
     unavailable: dict[str, str]
     buckets: list[SplitBucket]
+    """How much of the player's cricket in this scope has a ball record.
+    Present so a PARTIAL figure cannot render like a complete one - a worse
+    failure than holding no ball data at all, because a partial split reads as a
+    fact where an empty one reads as an absence."""
+    coverage_matches: int | None = None
+    coverage_total: int | None = None
+    coverage_note: str | None = None
 
 
 class PartnershipRow(BaseModel):

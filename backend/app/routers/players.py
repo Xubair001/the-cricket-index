@@ -352,6 +352,9 @@ def player_splits(
         available=sorted(splits_mod.AVAILABLE),
         unavailable=splits_mod.UNAVAILABLE,
         buckets=[schemas.SplitBucket(**vars(b)) for b in result.buckets],
+        coverage_matches=result.coverage_matches,
+        coverage_total=result.coverage_total,
+        coverage_note=result.coverage_note,
     )
 
 

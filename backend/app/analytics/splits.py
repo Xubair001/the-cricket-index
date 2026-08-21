@@ -147,6 +147,11 @@ class SplitResult:
     split: str
     label: str
     applies: bool = True
+    # How much of the player's cricket in this scope has a ball record. None on
+    # a split that does not apply, since there is nothing to qualify.
+    coverage_matches: int | None = None
+    coverage_total: int | None = None
+    coverage_note: str | None = None
     # Populated when `applies` is False -- e.g. phases in a Test.
     not_applicable_because: str | None = None
     buckets: list[SplitBucket] = field(default_factory=list)
@@ -317,6 +322,15 @@ def compute(
             not_applicable_because=capabilities.NO_DELIVERIES,
         )
 
+    # Partial coverage is reported, not hidden. A player who appeared in both
+    # covered and uncovered matches would otherwise get a figure computed from
+    # part of their cricket and rendered exactly like a complete one - which is
+    # the one thing this module's `applies: false` path exists to avoid.
+    coverage = capabilities.delivery_coverage(
+        db, gender=gender, competition_key=competition_key,
+        player_identifier=player_identifier,
+    )
+
     # Phase needs a format, and Tests have none.
     if split == "phase":
         if not competition_key:
@@ -398,7 +412,14 @@ def compute(
     else:
         rows.sort(key=lambda b: (-(b.balls_faced + b.balls_bowled), b.key))
 
-    return SplitResult(split, label, buckets=rows)
+    return SplitResult(
+        split,
+        label,
+        buckets=rows,
+        coverage_matches=coverage.matches_with_deliveries,
+        coverage_total=coverage.matches_total,
+        coverage_note=coverage.note(),
+    )
 
 
 __all__ = ["compute", "SplitResult", "SplitBucket", "AVAILABLE", "UNAVAILABLE"]
