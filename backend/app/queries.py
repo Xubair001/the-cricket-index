@@ -1,9 +1,10 @@
 from datetime import date
 
-from sqlalchemy import case, func, or_, select, union_all
+from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from . import cache, schemas, flags
+from .analytics import explorer as explorer_mod, periods
 from .names import preferred_name
 from .models import (
     Competition,
@@ -279,6 +280,108 @@ def _competition_scoped(stmt, competition_key: str | None, competition_type: str
     return stmt
 
 
+def _scope_anchor(
+    db: Session,
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+) -> str | None:
+    """The newest match date within THIS scope, which is what a relative window
+    like "last 12 months" is measured back from.
+
+    `periods.py` establishes that a relative window is anchored to the newest
+    match in the data rather than to today, because anchoring to now means the
+    day the archive goes stale every current player silently drops out of the
+    window and the product reports a data-freshness problem as a fact about
+    cricket.
+
+    The anchor is taken **within the scope** rather than over the whole
+    database, which is the same call `selection.py` makes for its current-player
+    pool and for the same reason: the PSL season ends in May while the newest
+    match overall is an August Test, so a database-wide anchor would silently
+    cost a PSL board three and a half months of its own season.
+    """
+    stmt = select(func.max(Match.match_date_start)).where(Match.gender == gender)
+    stmt = _competition_scoped(stmt, competition_key, competition_type)
+    return db.execute(stmt).scalar()
+
+
+def _period_scoped(
+    stmt,
+    period: "periods.Period | None",
+    anchor: str | None,
+):
+    """Applies a DATE-BOUNDED window to a statement.
+
+    Count-bounded windows ("last 10 matches") are not expressible here: each
+    player's tenth-most-recent match falls on a different date, so the cut is
+    per player and happens in `_count_bounded_match_ids`. Callers branch on
+    `period.is_count_bounded` rather than guessing.
+    """
+    if period is None:
+        return stmt
+    bounds = period.to_date_bounds(anchor)
+    if bounds is None:  # count-bounded; handled by the caller
+        return stmt
+    start, end = bounds
+    if start:
+        stmt = stmt.where(Match.match_date_start >= start)
+    if end:
+        stmt = stmt.where(Match.match_date_start <= end)
+    if period.season_label:
+        stmt = stmt.where(Match.season_label == period.season_label)
+    return stmt
+
+
+def _count_bounded_window(
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+    matches: int,
+    team_id: int | None = None,
+):
+    """A joinable subquery of the (player, match) pairs inside each player's
+    last N appearances.
+
+    A count-bounded window has to be cut per player: each player's tenth-most
+    recent match falls on a different date, so there is no single date range
+    that expresses it. Filtering on match id alone is wrong for the same reason
+    - a match inside one player's last ten is outside another's, so it would
+    admit every player who happened to appear in somebody else's recent match.
+    The pair is therefore the unit, and it is joined rather than collected in
+    Python so the aggregate stays one query.
+
+    A plain window function, not a SQLite extension: §24 requires the analytics
+    layer to stay portable, and `ROW_NUMBER() OVER (PARTITION BY ...)` is
+    standard SQL that Postgres runs unchanged.
+    """
+    ranked = (
+        select(
+            PlayerMatchStat.player_identifier.label("pid"),
+            PlayerMatchStat.match_id.label("mid"),
+            func.row_number()
+            .over(
+                partition_by=PlayerMatchStat.player_identifier,
+                order_by=(
+                    Match.match_date_start.desc(),
+                    # Two matches can share a date (a double-header), so the id
+                    # breaks the tie and keeps the cut deterministic across runs.
+                    PlayerMatchStat.match_id.desc(),
+                ),
+            )
+            .label("rn"),
+        )
+        .join(Match, Match.match_id == PlayerMatchStat.match_id)
+        .where(Match.gender == gender)
+        .where(PlayerMatchStat.player_identifier.is_not(None))
+    )
+    ranked = _competition_scoped(ranked, competition_key, competition_type)
+    if team_id is not None:
+        ranked = ranked.where(PlayerMatchStat.team_id == team_id)
+    sub = ranked.subquery()
+    return select(sub.c.pid, sub.c.mid).where(sub.c.rn <= matches).subquery()
+
+
 def _build_batting_aggregate_rows(
     db: Session,
     gender: str,
@@ -286,6 +389,7 @@ def _build_batting_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     stmt = (
         select(
@@ -323,6 +427,25 @@ def _build_batting_aggregate_rows(
         stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
     if team_id is not None:
         stmt = stmt.where(PlayerMatchStat.team_id == team_id)
+    # Two different mechanisms, because the two kinds of window are not the
+    # same shape: a date range pushes straight into the WHERE clause, while
+    # "last 10 matches" is a per-player cut and joins a ranked subquery.
+    if period is not None:
+        if period.is_count_bounded:
+            window = _count_bounded_window(
+                gender, competition_key, competition_type,
+                period.matches or 0, team_id,
+            )
+            stmt = stmt.join(
+                window,
+                and_(
+                    window.c.pid == PlayerMatchStat.player_identifier,
+                    window.c.mid == PlayerMatchStat.match_id,
+                ),
+            )
+        else:
+            anchor = _scope_anchor(db, gender, competition_key, competition_type)
+            stmt = _period_scoped(stmt, period, anchor)
 
     rows = db.execute(stmt).all()
     results = []
@@ -358,6 +481,7 @@ def _build_bowling_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     stmt = (
         select(
@@ -382,6 +506,25 @@ def _build_bowling_aggregate_rows(
         stmt = stmt.where(PlayerMatchStat.player_identifier == player_identifier)
     if team_id is not None:
         stmt = stmt.where(PlayerMatchStat.team_id == team_id)
+    # Two different mechanisms, because the two kinds of window are not the
+    # same shape: a date range pushes straight into the WHERE clause, while
+    # "last 10 matches" is a per-player cut and joins a ranked subquery.
+    if period is not None:
+        if period.is_count_bounded:
+            window = _count_bounded_window(
+                gender, competition_key, competition_type,
+                period.matches or 0, team_id,
+            )
+            stmt = stmt.join(
+                window,
+                and_(
+                    window.c.pid == PlayerMatchStat.player_identifier,
+                    window.c.mid == PlayerMatchStat.match_id,
+                ),
+            )
+        else:
+            anchor = _scope_anchor(db, gender, competition_key, competition_type)
+            stmt = _period_scoped(stmt, period, anchor)
 
     rows = db.execute(stmt).all()
     results = []
@@ -404,6 +547,23 @@ def _build_bowling_aggregate_rows(
     return _attach_country(results, _player_country_map(db, gender))
 
 
+def _period_key(period: "periods.Period | None") -> str | None:
+    """A stable cache key for a window.
+
+    Built from the fields that change the rows rather than from the label, so
+    two specs that mean the same window share one cache entry and a relabelled
+    preset does not silently orphan its own entry.
+    """
+    if period is None:
+        return None
+    return "|".join(
+        str(x) for x in (
+            period.kind, period.matches, period.days,
+            period.season_label, period.start, period.end,
+        )
+    )
+
+
 def _cached_aggregate_rows(build, db, key_prefix, *args) -> list[dict]:
     """Cache a scope-wide aggregate, pass a single-player one straight through.
 
@@ -416,13 +576,19 @@ def _cached_aggregate_rows(build, db, key_prefix, *args) -> list[dict]:
     fast, and caching it would key the store by 9,500 identifiers per scope for
     no gain.
     """
-    gender, competition_key, competition_type, player_identifier, team_id = args
+    gender, competition_key, competition_type, player_identifier, team_id, period = args
     if player_identifier is not None:
-        return build(db, gender, competition_key, competition_type, player_identifier, team_id)
+        return build(
+            db, gender, competition_key, competition_type, player_identifier, team_id, period
+        )
+    # The period is part of the key, not of the value: "last 12 months" and
+    # career are different aggregates over the same scope, and sharing one entry
+    # between them would serve whichever was asked for first.
+    period_key = _period_key(period)
     return cache.get_or_compute(
         db,
-        (key_prefix, gender, competition_key, competition_type, team_id),
-        lambda: build(db, gender, competition_key, competition_type, None, team_id),
+        (key_prefix, gender, competition_key, competition_type, team_id, period_key),
+        lambda: build(db, gender, competition_key, competition_type, None, team_id, period),
     )
 
 
@@ -433,10 +599,11 @@ def _batting_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     return _cached_aggregate_rows(
         _build_batting_aggregate_rows, db, "batting_rows",
-        gender, competition_key, competition_type, player_identifier, team_id,
+        gender, competition_key, competition_type, player_identifier, team_id, period,
     )
 
 
@@ -447,10 +614,11 @@ def _bowling_aggregate_rows(
     competition_type: str | None = None,
     player_identifier: str | None = None,
     team_id: int | None = None,
+    period: "periods.Period | None" = None,
 ) -> list[dict]:
     return _cached_aggregate_rows(
         _build_bowling_aggregate_rows, db, "bowling_rows",
-        gender, competition_key, competition_type, player_identifier, team_id,
+        gender, competition_key, competition_type, player_identifier, team_id, period,
     )
 
 
@@ -468,6 +636,28 @@ def _ranking_scope(competition_key: str | None, competition_type: str | None) ->
     return competition_type or DEFAULT_RANKING_COMPETITION_TYPE
 
 
+def applied_period(
+    db: Session,
+    gender: str,
+    competition_key: str | None,
+    competition_type: str | None,
+    period: "periods.Period | None",
+) -> dict:
+    """What window a scoped request actually used, for the response to state.
+
+    Resolving the anchor needs the database and the scope, which is why this
+    lives here rather than in `periods`: that module owns the vocabulary and the
+    arithmetic, this owns "the newest match in THIS scope".
+    """
+    if period is None or period.kind == periods.CAREER:
+        return periods.applied(None, None)
+    anchor_date = _scope_anchor(
+        db, gender, competition_key,
+        _ranking_scope(competition_key, competition_type),
+    )
+    return periods.applied(period, anchor_date)
+
+
 def get_batting_rankings(
     db: Session,
     gender: str,
@@ -477,12 +667,14 @@ def get_batting_rankings(
     limit: int,
     offset: int,
     competition_type: str | None = None,
+    period: "periods.Period | None" = None,
 ) -> tuple[list[dict], int]:
     rows = _batting_aggregate_rows(
         db,
         gender,
         competition_key=competition_key,
         competition_type=_ranking_scope(competition_key, competition_type),
+        period=period,
     )
     rows = [r for r in rows if r["matches"] >= min_matches]
     # Identifier as the final key so equal figures always land in the same
@@ -502,12 +694,14 @@ def get_bowling_rankings(
     limit: int,
     offset: int,
     competition_type: str | None = None,
+    period: "periods.Period | None" = None,
 ) -> tuple[list[dict], int]:
     rows = _bowling_aggregate_rows(
         db,
         gender,
         competition_key=competition_key,
         competition_type=_ranking_scope(competition_key, competition_type),
+        period=period,
     )
     rows = [r for r in rows if r["matches"] >= min_matches]
     reverse = sort_by not in ("average", "economy")  # lower is better for both
@@ -891,7 +1085,9 @@ def search_players(
     return items, total
 
 
-def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | None:
+def get_player_detail(
+    db: Session, identifier: str, period: "periods.Period | None" = None
+) -> schemas.PlayerDetail | None:
     player = db.execute(select(Player).where(Player.identifier == identifier)).scalar_one_or_none()
     if player is None:
         return None
@@ -912,10 +1108,12 @@ def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | No
     ).scalars().all()
     for comp in competitions:
         batting = _batting_aggregate_rows(
-            db, player.gender, competition_key=comp.key, player_identifier=identifier
+            db, player.gender, competition_key=comp.key, player_identifier=identifier,
+            period=period,
         )
         bowling = _bowling_aggregate_rows(
-            db, player.gender, competition_key=comp.key, player_identifier=identifier
+            db, player.gender, competition_key=comp.key, player_identifier=identifier,
+            period=period,
         )
         if not batting and not bowling:
             continue
@@ -1214,15 +1412,17 @@ COMPARISON_METRICS = [
 
 def _scoped_totals(
     db: Session, identifier: str, gender: str, competition_key: str | None,
-    competition_type: str | None,
+    competition_type: str | None, period: "periods.Period | None" = None,
 ) -> schemas.PlayerFormatStats | None:
     batting = _batting_aggregate_rows(
         db, gender, competition_key=competition_key,
         competition_type=competition_type, player_identifier=identifier,
+        period=period,
     )
     bowling = _bowling_aggregate_rows(
         db, gender, competition_key=competition_key,
         competition_type=competition_type, player_identifier=identifier,
+        period=period,
     )
     if not batting and not bowling:
         return None
@@ -1282,7 +1482,7 @@ def _career_span(db: Session, identifier: str) -> list[str | None]:
 
 def _comparison_side(
     db: Session, player: Player, competition_key: str | None, competition_type: str | None,
-    reference: str | None,
+    reference: str | None, period: "periods.Period | None" = None,
 ) -> schemas.ComparisonSide:
     identifier = player.identifier
     team_ids = [
@@ -1303,7 +1503,7 @@ def _comparison_side(
     for comp in db.execute(
         select(Competition).where(Competition.gender == player.gender)
     ).scalars().all():
-        totals = _scoped_totals(db, identifier, player.gender, comp.key, None)
+        totals = _scoped_totals(db, identifier, player.gender, comp.key, None, period)
         if totals is None:
             continue
         totals.competition_key = comp.key
@@ -1328,39 +1528,71 @@ def _comparison_side(
             bio_source=player.bio_source,
             image_url=player.image_url,
         ),
-        totals=_scoped_totals(db, identifier, player.gender, competition_key, competition_type),
+        totals=_scoped_totals(
+            db, identifier, player.gender, competition_key, competition_type, period
+        ),
         by_competition=by_competition,
         icc_rankings=current_icc_ranks_for_player(db, identifier),
         career_span=_career_span(db, identifier),
     )
 
 
-def get_player_comparison(
-    db: Session, identifier_a: str, identifier_b: str,
-    competition_key: str | None, competition_type: str | None,
-) -> schemas.PlayerComparison | str:
-    """Head-to-head between two players. Returns an error string if invalid.
+# 2 to 5, per §13. The upper bound is a readability limit rather than a
+# computational one: the comparison is a table with one column per player, and
+# past five the columns are too narrow to read on any realistic screen.
+MAX_COMPARISON_PLAYERS = 5
 
-    Two rules are enforced rather than left to the caller:
-      * same gender -- men's and women's cricket share no identity anywhere
-        else in this app, and a cross-gender "who scored more" is not a
-        comparison anyone makes;
-      * one competition scope -- comparing an unscoped career total would sum
-        international and franchise runs, the exact blend Phase 2 removed.
+
+def get_player_comparison(
+    db: Session, identifiers: list[str],
+    competition_key: str | None, competition_type: str | None,
+    period: "periods.Period | None" = None,
+) -> schemas.PlayerComparison | str:
+    """Compare 2 to 5 players. Returns an error string if the set is invalid.
+
+    §13 asks for 2-5 and §25 names the extension explicitly. The shape is a list
+    of sides with a list of values per metric, rather than the `a`/`b` pair it
+    replaced: a two-player special case cannot express "who is best of five"
+    without the client re-deriving it, and `better: 'a' | 'b'` has nowhere to put
+    a third player.
+
+    Three rules are enforced here rather than left to the caller:
+      * same gender - men's and women's cricket share no identity anywhere else
+        in this app, and a cross-gender "who scored more" is not a comparison
+        anyone makes;
+      * one competition scope - an unscoped career total would sum international
+        and franchise runs, the exact blend Phase 2 removed;
+      * no duplicates - the same player twice is a column of itself, and
+        silently de-duplicating would return fewer players than were asked for
+        without saying so.
     """
-    a = db.execute(select(Player).where(Player.identifier == identifier_a)).scalar_one_or_none()
-    b = db.execute(select(Player).where(Player.identifier == identifier_b)).scalar_one_or_none()
-    if a is None:
-        return f"player '{identifier_a}' not found"
-    if b is None:
-        return f"player '{identifier_b}' not found"
-    if a.identifier == b.identifier:
-        return "cannot compare a player with themselves"
-    if a.gender != b.gender:
+    if len(identifiers) < 2:
+        return "need at least two players to compare"
+    if len(identifiers) > MAX_COMPARISON_PLAYERS:
         return (
-            f"cannot compare across genders ('{a.name}' is {a.gender}, "
-            f"'{b.name}' is {b.gender})"
+            f"cannot compare more than {MAX_COMPARISON_PLAYERS} players at once "
+            f"({len(identifiers)} requested)"
         )
+    seen: set[str] = set()
+    for identifier in identifiers:
+        if identifier in seen:
+            return f"player '{identifier}' is listed twice"
+        seen.add(identifier)
+
+    players: list[Player] = []
+    for identifier in identifiers:
+        player = db.execute(
+            select(Player).where(Player.identifier == identifier)
+        ).scalar_one_or_none()
+        if player is None:
+            return f"player '{identifier}' not found"
+        players.append(player)
+
+    genders = {p.gender for p in players}
+    if len(genders) > 1:
+        detail = ", ".join(f"'{p.name}' is {p.gender}" for p in players)
+        return f"cannot compare across genders ({detail})"
+    gender = players[0].gender
 
     if not competition_key and not competition_type:
         competition_type = DEFAULT_RANKING_COMPETITION_TYPE
@@ -1368,40 +1600,65 @@ def get_player_comparison(
         competition_type = None
 
     reference = dataset_latest_date(db)
-    side_a = _comparison_side(db, a, competition_key, competition_type, reference)
-    side_b = _comparison_side(db, b, competition_key, competition_type, reference)
+    sides = [
+        _comparison_side(db, p, competition_key, competition_type, reference, period)
+        for p in players
+    ]
 
     metrics = []
     for key, label, lower_better, fmt, gate_field, gate_min in COMPARISON_METRICS:
-        va = getattr(side_a.totals, key, None) if side_a.totals else None
-        vb = getattr(side_b.totals, key, None) if side_b.totals else None
-        comparable = True
+        values = [
+            getattr(side.totals, key, None) if side.totals else None for side in sides
+        ]
+        # A rate needs a sample before it means anything, and the gate applies
+        # per player rather than to the set: one player short of the threshold
+        # makes THEIR figure incomparable, not the whole row. Their value is
+        # still returned - it is a fact about them - but it cannot win the row.
+        qualified = [True] * len(sides)
         if gate_field:
-            ga = getattr(side_a.totals, gate_field, 0) if side_a.totals else 0
-            gb = getattr(side_b.totals, gate_field, 0) if side_b.totals else 0
-            comparable = (ga or 0) >= gate_min and (gb or 0) >= gate_min
-        better = None
-        if comparable and va is not None and vb is not None and va != vb:
-            a_wins = va < vb if lower_better else va > vb
-            better = "a" if a_wins else "b"
+            for i, side in enumerate(sides):
+                have = getattr(side.totals, gate_field, 0) if side.totals else 0
+                qualified[i] = (have or 0) >= gate_min
+
+        contenders = [
+            (i, v) for i, v in enumerate(values) if v is not None and qualified[i]
+        ]
+        best_index = None
+        if len(contenders) > 1:
+            picker = min if lower_better else max
+            best_value = picker(v for _, v in contenders)
+            leaders = [i for i, v in contenders if v == best_value]
+            # A tie has no winner. Highlighting one of two equal figures would
+            # assert a difference that is not there.
+            if len(leaders) == 1:
+                best_index = leaders[0]
+
         metrics.append(
             schemas.ComparisonMetric(
-                key=key, label=label, a=va, b=vb,
-                better=better, lower_is_better=lower_better, format=fmt,
+                key=key,
+                label=label,
+                values=values,
+                qualified=qualified,
+                best_index=best_index,
+                lower_is_better=lower_better,
+                format=fmt,
+                gate_field=gate_field,
+                gate_min=gate_min if gate_field else None,
             )
         )
 
-    series_a = dict((s, (r, w)) for s, r, w in _season_series(
-        db, a.identifier, a.gender, competition_key, competition_type))
-    series_b = dict((s, (r, w)) for s, r, w in _season_series(
-        db, b.identifier, b.gender, competition_key, competition_type))
-    seasons = sorted(set(series_a) | set(series_b))
+    series = [
+        dict((season, (runs, wickets)) for season, runs, wickets in _season_series(
+            db, p.identifier, gender, competition_key, competition_type))
+        for p in players
+    ]
+    seasons = sorted({season for one in series for season in one})
 
     scope_label = competition_key or competition_type or "all"
     if competition_key:
         comp = db.execute(
             select(Competition).where(
-                Competition.key == competition_key, Competition.gender == a.gender
+                Competition.key == competition_key, Competition.gender == gender
             )
         ).scalar_one_or_none()
         if comp:
@@ -1414,17 +1671,16 @@ def get_player_comparison(
     return schemas.PlayerComparison(
         scope=competition_key or competition_type or "all",
         scope_label=scope_label,
-        gender=a.gender,
-        a=side_a,
-        b=side_b,
+        gender=gender,
+        sides=sides,
         metrics=metrics,
         season_runs=[
-            {"season": s, "a": series_a.get(s, (0, 0))[0], "b": series_b.get(s, (0, 0))[0]}
-            for s in seasons
+            {"season": season, "values": [one.get(season, (0, 0))[0] for one in series]}
+            for season in seasons
         ],
         season_wickets=[
-            {"season": s, "a": series_a.get(s, (0, 0))[1], "b": series_b.get(s, (0, 0))[1]}
-            for s in seasons
+            {"season": season, "values": [one.get(season, (0, 0))[1] for one in series]}
+            for season in seasons
         ],
     )
 
@@ -1586,7 +1842,12 @@ PLAYER_SORTS = {
     "wickets": "wickets",
     "bowling_average": "bowling_average",
     "economy": "economy",
-    "form": "form_delta",
+    # Sorts on the bounded score, not on `form_delta`. The raw ratio is a
+    # percentage against the player's own baseline, so ordering by it puts
+    # whoever had the worst baseline on top -- the same defect the form boards
+    # fixed by ranking on par units. The score is a percentile of that same
+    # evidence-weighted move, so this ordering now matches the boards'.
+    "form": "form_score",
 }
 
 # Ascending is right for these: a lower bowling average or economy is better.
@@ -1631,7 +1892,8 @@ def browse_players(
     sort_by: str = "matches",
     limit: int = 25,
     offset: int = 0,
-) -> tuple[list[dict], int]:
+    period: "periods.Period | None" = None,
+) -> tuple[list[dict], int, int, int]:
     """The player directory: aggregates, status and form in one row per player.
 
     Scoped like every other aggregate -- an unqualified request is
@@ -1649,13 +1911,13 @@ def browse_players(
     batting = {
         r["player_identifier"]: r
         for r in _batting_aggregate_rows(
-            db, gender, competition_key, scope_type, team_id=team_id
+            db, gender, competition_key, scope_type, team_id=team_id, period=period
         )
     }
     bowling = {
         r["player_identifier"]: r
         for r in _bowling_aggregate_rows(
-            db, gender, competition_key, scope_type, team_id=team_id
+            db, gender, competition_key, scope_type, team_id=team_id, period=period
         )
     }
 
@@ -1723,18 +1985,42 @@ def browse_players(
                 "form_state": form_row["state"] if form_row else None,
                 "form_label": form_row["label"] if form_row else None,
                 "form_delta": form_row["delta_percent"] if form_row else None,
+                # Bounded 0-100 and the figure the card shows. `form_delta`
+                # above is the raw ratio and has no ceiling.
+                "form_score": form_row["form_score"] if form_row else None,
+                "form_display": form_row["delta_display"] if form_row else None,
                 "form_confidence": form_row["confidence"] if form_row else None,
             }
         )
 
     # Qualification, applied after the rows are built so the thresholds can read
     # the aggregated figures.
+    #
+    # **The default floor is DERIVED when a window narrows the slice**, which is
+    # the same defect `explorer.derive_min_balls` fixed and for the same reason:
+    # 200 balls faced is a fair qualification for a career board and most of a
+    # season's worth of batting inside a 30-day window. Measured on men's Tests,
+    # the fixed floor showed 12 players of the 71 who actually batted in the last
+    # 30 days, and 43 of 146 over six months - with nothing on the page saying so.
     required = SORT_REQUIRES.get(sort_by)
     faced_floor, bowled_floor = min_balls_faced, min_balls_bowled
+    narrowed = period is not None and period.kind != periods.CAREER
     if required == "balls_faced" and min_balls_faced == 0:
-        faced_floor = DEFAULT_QUALIFY_BALLS_FACED
+        faced_floor = (
+            explorer_mod.derive_min_balls(rows, "batting")
+            if narrowed
+            else DEFAULT_QUALIFY_BALLS_FACED
+        )
     if required == "balls_bowled" and min_balls_bowled == 0:
-        bowled_floor = DEFAULT_QUALIFY_BALLS_BOWLED
+        bowled_floor = (
+            explorer_mod.derive_min_balls(rows, "bowling")
+            if narrowed
+            else DEFAULT_QUALIFY_BALLS_BOWLED
+        )
+    # Counted before the floor, because the two being different is the whole
+    # story on a narrowed window - without it a reader cannot tell "nobody played"
+    # from "the floor removed them".
+    total_before_floor = len(rows)
     rows = [
         r
         for r in rows
@@ -1759,4 +2045,9 @@ def browse_players(
             reverse=True,
         )
 
-    return rows[offset : offset + limit], len(rows)
+    return (
+        rows[offset : offset + limit],
+        len(rows),
+        total_before_floor,
+        faced_floor if required == "balls_faced" else bowled_floor,
+    )

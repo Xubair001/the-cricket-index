@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from . import queries
+from .analytics import periods
 
 # How much of a rejected value to quote back. Naming the bad value is what makes
 # a 422 useful, but echoing it in full turns every validation error into a
@@ -77,3 +78,26 @@ MAX_DB_INT = 2**63 - 1
 # venue name, and the shape of the failure (an unbounded string reaching a query
 # planner) is the part worth closing rather than the exact bound.
 MAX_SEARCH_LENGTH = 200
+
+# A period spec is caller-controlled text with its own grammar (a preset key,
+# `season:<label>` or `custom:<start>:<end>`), so it is bounded and parsed here
+# rather than at each call site. `periods.parse` raises PeriodError for anything
+# it does not recognise; that becomes a 422 naming the valid set, the same
+# treatment competition keys get, and for the same reason: the vocabulary lives
+# with the data rather than in a regex the API has to be redeployed to change.
+MAX_PERIOD_LENGTH = 64
+
+
+def check_period(spec: str | None):
+    """Parsed Period, or None for an unset (career-wide) request."""
+    if spec is None or not spec.strip():
+        return None
+    if len(spec) > MAX_PERIOD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"period is too long ({len(spec)} chars, max {MAX_PERIOD_LENGTH})",
+        )
+    try:
+        return periods.parse(spec)
+    except periods.PeriodError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

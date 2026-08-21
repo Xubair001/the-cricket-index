@@ -135,8 +135,85 @@ def parse(spec: str | None) -> Period:
 
 
 def describe() -> list[dict]:
-    """The preset windows, for the UI to render as options."""
+    """The preset windows, for the UI to render as options.
+
+    Seasons are deliberately absent. A season here is Cricsheet's own label, not
+    a calendar year, and men's Tests split across `2024` (13 matches) and
+    `2024/25` (29) - so offering "2024" as an option would return a third of the
+    year's cricket and look like missing data. `season:<label>` stays parseable
+    so a URL naming one still resolves, and a reader who wants a calendar year
+    gets an exact answer from a custom range instead.
+    """
     return [
         {"key": key, "label": period.label, "kind": period.kind}
         for key, period in PRESETS.items()
     ]
+
+
+def applied(period: "Period | None", anchor: str | None) -> dict:
+    """What window was actually used, for the response to state.
+
+    §30 requires a figure to be traceable to how it was produced, and a window
+    is half of that: "617 runs" means nothing without knowing over what. Two
+    parts of this are not cosmetic:
+
+    * **A count-bounded window is each player's OWN last N**, so it puts a
+      player's final ten Tests beside a current player's most recent ten. That
+      is the honest reading of the question and it is genuinely useful, but a
+      board headed "last 10 matches" reads as "recent form" - so the label says
+      whose ten it is rather than leaving the reader to infer it.
+    * **The resolved dates travel with a relative window.** "Last 12 months"
+      is measured from the newest match in the scope, not from today, so the
+      reader has to be able to see which twelve months they are looking at.
+    """
+    if period is None:
+        return {
+            "spec": None,
+            "label": "Career",
+            "kind": CAREER,
+            "start": None,
+            "end": None,
+            "anchor": None,
+            "note": None,
+        }
+    bounds = period.to_date_bounds(anchor)
+    start, end = bounds if bounds else (None, None)
+    note = None
+    label = period.label
+    if period.is_count_bounded:
+        label = f"Each player's last {period.matches} matches"
+        note = (
+            "Counted per player, so a retired player's final matches sit "
+            "beside a current player's most recent ones."
+        )
+    elif period.kind == LAST_DAYS:
+        note = (
+            "Measured back from the newest match in this scope, not from today, "
+            "so the window does not move when the data goes stale."
+        )
+    elif period.kind == SEASON:
+        note = (
+            "A season is the source's own label rather than a calendar year, "
+            "and a format's cricket can span two of them."
+        )
+    return {
+        "spec": spec_of(period),
+        "label": label,
+        "kind": period.kind,
+        "start": start,
+        "end": end,
+        "anchor": anchor,
+        "note": note,
+    }
+
+
+def spec_of(period: "Period") -> str | None:
+    """The URL-safe spec that would reproduce this window."""
+    for key, preset in PRESETS.items():
+        if preset == period:
+            return key
+    if period.kind == SEASON:
+        return f"season:{period.season_label}"
+    if period.kind == CUSTOM:
+        return f"custom:{period.start}:{period.end}"
+    return None

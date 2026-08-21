@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TeamSummary, TeamType } from '../api/types'
@@ -7,7 +7,8 @@ import { Pagination } from '../components/Pagination'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { useScope } from '../scope/scope'
-import { percent } from '../format'
+import { useFilters } from '../state/useFilters'
+import { percent, plural } from '../format'
 import {
   tableClass,
   tdClass,
@@ -36,12 +37,20 @@ export function Teams() {
   // this page's tabs are a legitimate way to look at the other set without
   // changing the whole app's mode.
   const { family } = useScope()
-  const [teamType, setTeamType] = useState<TeamType>(
-    family === 'league' ? 'franchise' : 'international'
-  )
+  const f = useFilters()
+  // A URL naming a type wins over the family default, so a shared link to the
+  // franchise list opens on franchises. Same rule the scope switch follows.
+  const teamType: TeamType =
+    f.get('type') === 'franchise'
+      ? 'franchise'
+      : f.get('type') === 'international'
+        ? 'international'
+        : family === 'league'
+          ? 'franchise'
+          : 'international'
+  const offset = f.int('offset', 0)
   const [teams, setTeams] = useState<TeamSummary[] | null>(null)
   const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -63,8 +72,15 @@ export function Teams() {
     }
   }, [apiGender, teamType, offset])
 
+  // Follow the app-wide family switch, but only when it actually MOVES. Writing
+  // on mount as well would overwrite a shared `?type=` with the family default,
+  // which is the opposite of the rule above.
+  const previousFamily = useRef(family)
   useEffect(() => {
-    setTeamType(family === 'league' ? 'franchise' : 'international')
+    if (previousFamily.current === family) return
+    previousFamily.current = family
+    f.set({ type: family === 'league' ? 'franchise' : 'international' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [family])
 
   if (error) return <ErrorMessage message={error} />
@@ -78,7 +94,7 @@ export function Teams() {
         <div>
           <h1 className="u-display text-title text-ink">Teams</h1>
           <p className="mt-1 text-sm text-muted">
-            {teams ? `${total.toLocaleString()} ${teamType} teams, by matches played` : 'Loading…'}
+            {teams ? `${plural(total, `${teamType} team`, `${teamType} teams`)}, by matches played` : 'Loading…'}
           </p>
         </div>
         <div className="inline-flex rounded-lg border border-border-default bg-surface p-0.5">
@@ -87,8 +103,7 @@ export function Teams() {
               key={t.value}
               type="button"
               onClick={() => {
-                setTeamType(t.value)
-                setOffset(0)
+                f.set({ type: t.value })
               }}
               className={
                 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors ' +
@@ -154,7 +169,7 @@ export function Teams() {
             </tbody>
           </table>
           <div className="px-4">
-            <Pagination total={total} limit={LIMIT} offset={offset} onChange={setOffset} />
+            <Pagination total={total} limit={LIMIT} offset={offset} onChange={(o) => f.keep({ offset: o })} />
           </div>
         </div>
       )}

@@ -90,6 +90,12 @@ def _build(
                 "state": v.state,
                 "label": v.label,
                 "delta_percent": round(v.delta_ratio * 100, 1) if v.delta_ratio is not None else None,
+                # The displayed figure. Bounded 0-100 and percentiled on the
+                # same quantity this board sorts by, so the column and the
+                # order agree; `delta_percent` above is the raw ratio and can
+                # exceed 100, which is why it is no longer the headline.
+                "form_score": v.form_score,
+                "delta_display": v.delta_display,
                 "trend": v.trend,
                 "confidence": round(v.confidence, 3),
                 "recent_matches": v.recent_matches,

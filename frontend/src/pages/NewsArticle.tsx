@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ActionLink } from '../components/ActionLink'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { NewsArticleDetail, NewsEntity } from '../api/types'
@@ -123,9 +124,7 @@ export function NewsArticle() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/news`} className="text-xs text-muted hover:text-ink">
-          ← All news
-        </Link>
+        <ActionLink to={`/${slug}/news`} weight="quiet" direction="back">All news</ActionLink>
       </div>
 
       <article>
@@ -146,14 +145,9 @@ export function NewsArticle() {
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dim">
           {article.authors.length > 0 && <span>By {article.authors.join(', ')}</span>}
           {article.word_count > 0 && <span className="tnum">{article.word_count} words</span>}
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer external"
-            className="font-medium text-analytic-ink hover:underline"
-          >
-            Read the full article at {article.publisher} →
-          </a>
+          <ActionLink href={article.url} weight="primary" direction="external">
+            Read the full article at {article.publisher}
+          </ActionLink>
         </p>
 
         {hero && (

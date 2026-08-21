@@ -1,22 +1,32 @@
 import { useEffect, useState } from 'react'
+import { ActionLink } from '../components/ActionLink'
+
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { FormVerdict, PlayerDetail as PlayerDetailType } from '../api/types'
 import FormVerdictCard from '../components/FormVerdictCard'
 import { CompetitionBadge } from '../components/CompetitionBadge'
+import { competitionLabel } from '../competitions'
+import { PlayerSplitsPanel } from '../components/PlayerSplitsPanel'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { StatusBadge } from '../components/StatusBadge'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useFilters } from '../state/useFilters'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
 import { rate } from '../format'
-import { tdClass } from '../components/ui'
+import { EmptyState, tdClass } from '../components/ui'
 
 const sectionLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 export function PlayerDetail() {
   const { slug } = useGender()
   const { identifier = '' } = useParams()
+  // The window over this player's own record. In the URL like every other
+  // filter, so "Kohli's last twelve months" is a link somebody can send.
+  const f = useFilters()
+  const period = f.get('period')
   const [player, setPlayer] = useState<PlayerDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<FormVerdict | null>(null)
@@ -29,7 +39,7 @@ export function PlayerDetail() {
     setPlayer(null)
     setError(null)
     api
-      .playerDetail(identifier)
+      .playerDetail(identifier, { period: period || undefined })
       .then((res) => {
         if (!cancelled) setPlayer(res)
       })
@@ -39,7 +49,7 @@ export function PlayerDetail() {
     return () => {
       cancelled = true
     }
-  }, [identifier])
+  }, [identifier, period])
 
   // Fetched separately from the profile so a slow form computation never holds
   // up the page, and so a failure here degrades to "form unavailable" rather
@@ -67,12 +77,20 @@ export function PlayerDetail() {
   const bio = player.bio
   const hasAnyBio = bio.date_of_birth || bio.birth_place || bio.nationality
 
+  // Which competition to slice the splits within. Deliberately the one this
+  // player has the most cricket in rather than a fixed default: phases are
+  // defined per competition and a Test has none, so defaulting a Test
+  // specialist to a limited-overs competition would open the panel on a split
+  // that reports itself inapplicable. `by_competition` is ordered by the API,
+  // so this picks by matches rather than trusting that order.
+  const splitScope = player.by_competition.length
+    ? player.by_competition.reduce((best, c) => (c.matches > best.matches ? c : best))
+    : null
+
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/players`} className="text-sm text-muted transition-colors hover:text-ink">
-          &larr; All players
-        </Link>
+        <ActionLink to={`/${slug}/players`} weight="quiet" direction="back">All players</ActionLink>
         <div className="mt-2 flex flex-wrap items-center gap-4">
           <PlayerAvatar src={player.bio.image_url} alt={player.name} />
           <div className="flex flex-wrap items-center gap-3">
@@ -105,12 +123,7 @@ export function PlayerDetail() {
             </span>
           ))}
         </p>
-        <Link
-          to={`/${slug}/compare?a=${player.identifier}`}
-          className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
-        >
-          Compare with another player &rarr;
-        </Link>
+        <ActionLink to={`/${slug}/compare?players=${player.identifier}`} weight="secondary">Compare with another player</ActionLink>
       </div>
 
       {/* Form sits above the career record deliberately: Rule 3 treats "how is
@@ -165,6 +178,19 @@ export function PlayerDetail() {
       )}
 
       <div className="space-y-4">
+        {/* Above the career blocks, because it is those figures the window
+            governs - the form card above has its own window and the splits
+            panel below has its own scope. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <PeriodSelect value={period} onChange={(v) => f.set({ period: v })} label="Career window" />
+          <AppliedPeriodNote period={player.period} />
+        </div>
+        {player.by_competition.length === 0 && (
+          <EmptyState
+            title="No cricket in this window"
+            hint="This player has no recorded matches in the period selected above. Their career record is still there - widen the window."
+          />
+        )}
         {player.by_competition.map((c) => (
           <section key={c.competition_key} className="rounded-xl border border-border-subtle bg-surface shadow-card">
             <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
@@ -200,6 +226,21 @@ export function PlayerDetail() {
           </section>
         ))}
       </div>
+
+      {/* Section 10 lists Opposition, Venue, Phase and Match Situation as
+          profile sections. The analytics for all four shipped with the
+          deliveries backfill; until now nothing on this page asked for them, so
+          a profile showed a career average and not the chasing average that
+          makes it worth reading. The competition defaults to the one the player
+          has most cricket in, because phases are defined per competition. */}
+      {splitScope && (
+        <PlayerSplitsPanel
+          identifier={player.identifier}
+          gender={player.gender === 'female' ? 'female' : 'male'}
+          competitionKey={splitScope.competition_key}
+          competitionLabel={`${competitionLabel(splitScope.competition_key)} cricket`}
+        />
+      )}
 
       <section className="rounded-xl border border-border-subtle bg-surface shadow-card">
         <h2 className="border-b border-border-subtle px-4 py-3 text-sm font-semibold text-ink">

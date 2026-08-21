@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { ScoutCandidate, ScoutResult } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
 import { ParMeter } from '../components/ParMeter'
 import { useGender } from '../gender/useGender'
-import { percent, rate } from '../format'
+import { change, rate, score } from '../format'
 import {
   Card,
   EmptyState,
@@ -68,28 +68,21 @@ const SCOPES = [
 
 export function Scout() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { set: update } = f
 
-  const scope = params.get('scope') || 'international'
-  const role = params.get('role') ?? ''
-  const hand = params.get('hand') ?? ''
-  const family = params.get('family') ?? ''
-  const formState = params.get('form') ?? ''
-  const maxAge = params.get('max_age') ?? ''
-  const minMatches = params.get('min_matches') ?? '20'
+  const scope = f.get('scope', 'international')
+  const role = f.get('role')
+  const hand = f.get('hand')
+  const family = f.get('family')
+  const formState = f.get('form')
+  const maxAge = f.get('max_age')
+  const minMatches = f.get('min_matches', '20')
 
   const [data, setData] = useState<ScoutResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -347,13 +340,16 @@ function CandidateRow({ c, slug }: { c: ScoutCandidate; slug: string }) {
       <span className="w-28 shrink-0" title="Recent output in par units - 1.00 is an average appearance">
         <ParMeter value={c.recent_mean ?? null} />
       </span>
+      {/* Bounded 0-100 rather than the raw ratio: the candidate score above is
+          built from this figure, and the percentage it replaced had no ceiling
+          so the two disagreed. */}
       <span
         className={`tnum w-16 shrink-0 text-right text-xs ${
-          (c.form_delta ?? 0) > 0 ? 'text-positive-ink' : 'text-muted'
+          (c.form_score ?? 50) > 50 ? 'text-positive-ink' : 'text-muted'
         }`}
-        title="Change against this player's own baseline"
+        title={`Form score out of 100 in this scope · ${c.form_display ?? change(c.form_delta)}`}
       >
-        {c.form_delta == null ? '-' : percent(c.form_delta)}
+        {c.form_score == null ? '-' : score(c.form_score)}
       </span>
       <span className="tnum w-14 shrink-0 text-right text-sm font-semibold text-ink" title="Scout score">
         {rate(c.score)}

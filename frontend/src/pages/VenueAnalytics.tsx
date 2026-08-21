@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { VenueOption, VenueProfile } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { useGender } from '../gender/useGender'
-import { rate } from '../format'
+import { useScope } from '../scope/scope'
+import { GroundCharacterChart } from '../components/GroundCharacterChart'
+import { competitionLabel } from '../competitions'
+import { plural, rate } from '../format'
 import {
   Card,
   EmptyState,
   PageHeader,
   Panel,
   Provenance,
+  SectionHeading,
   fieldClass,
   fieldLabelClass,
 } from '../components/ui'
@@ -66,8 +72,8 @@ function ParIndex({ value, label }: { value: number | null; label: string }) {
 
 export function VenueAnalytics() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
-  const selected = params.get('venue') ?? ''
+  const f = useFilters()
+  const selected = f.get('venue')
 
   const [grounds, setGrounds] = useState<VenueOption[]>([])
   const [profile, setProfile] = useState<VenueProfile | null>(null)
@@ -99,11 +105,19 @@ export function VenueAnalytics() {
     }
   }, [selected, apiGender])
 
+  // The cross-ground chart needs ONE competition, because a ground hosting
+  // Tests and T20Is has two characters. Defaults to the competition with the
+  // most cricket in the current family rather than to a fixed key, so the
+  // Leagues switch does not open the chart on an empty international format.
+  // In the URL, like every other filter on this page, so a narrowed view is a
+  // link a colleague can open on the same slice (§27). Component state would
+  // also be lost on a back-navigation.
+  const { competitions } = useScope()
+  const charCompetition = f.get('character') || competitions[0]?.key || ''
+  const setCharCompetition = (value: string) => f.set({ character: value })
+
   function choose(venue: string) {
-    const merged = new URLSearchParams(params)
-    if (venue) merged.set('venue', venue)
-    else merged.delete('venue')
-    setParams(merged, { replace: true })
+    f.set({ venue })
   }
 
   return (
@@ -112,6 +126,43 @@ export function VenueAnalytics() {
         eyebrow="Analytics"
         title="Venue Analytics"
         blurb="What kind of cricket a ground produces - how it scores, how hard wickets are to take, and whether batting first is worth it."
+      />
+
+      {/* The population view FIRST. "Which grounds produce which cricket" is
+          the question a reader has before they know which ground to open, and
+          the per-ground panels below cannot answer it. */}
+      <SectionHeading
+        title="Where every ground sits"
+        note="One competition at a time, because a ground that hosts two formats has two characters."
+        aside={
+          <label className="flex items-center gap-2">
+            <span className="u-eyebrow">Competition</span>
+            <select
+              value={charCompetition}
+              onChange={(e) => setCharCompetition(e.target.value)}
+              className="rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
+            >
+              {competitions.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        }
+      />
+
+      {charCompetition && (
+        <GroundCharacterChart
+          gender={apiGender}
+          competition={charCompetition}
+          competitionLabel={competitionLabel(charCompetition)}
+        />
+      )}
+
+      <SectionHeading
+        title="One ground in detail"
+        note="Every spelling of a ground contributes to one page, so a total here is its whole history."
       />
 
       <div className="max-w-xl">
@@ -135,7 +186,10 @@ export function VenueAnalytics() {
       {!selected && !loading && (
         <EmptyState
           title="Pick a ground"
-          hint={`${grounds.length.toLocaleString()} grounds, normalised from 593 raw venue strings - every spelling of a ground contributes to one page.`}
+          // Reads the live count rather than a number typed in once: the raw
+          // spelling total was hardcoded at 593 and is now 636, so the sentence
+          // had quietly become false.
+          hint={`${plural(grounds.length, 'ground')} in this scope, normalised from the source's own spellings - every spelling of a ground contributes to one page.`}
         />
       )}
 
@@ -271,12 +325,7 @@ export function VenueAnalytics() {
                   ball-by-ball data. “Runs off the bat” excludes extras, which are not attributed to
                   a batter, so it runs about 5% under a true team total; the indices against par are
                   unaffected because both sides are measured the same way.{' '}
-                  <Link
-                    to={`/${slug}/analytics/batting?venue=${encodeURIComponent(profile.venue)}`}
-                    className="text-analytic-ink hover:underline"
-                  >
-                    See the players who scored them →
-                  </Link>
+                  <ActionLink to={`/${slug}/analytics/batting?venue=${encodeURIComponent(profile.venue)}`} weight="secondary">See the players who scored them</ActionLink>
                 </Provenance>
               </Panel>
             ))

@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { ActionLink } from '../components/ActionLink'
+
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { FormLeaderRow, FormLeaderboard } from '../api/types'
 import { ErrorMessage, SkeletonRows } from '../components/LoadingSpinner'
+import { change, score } from '../format'
 import { Pagination } from '../components/Pagination'
 import { ParMeter } from '../components/ParMeter'
 import { PlayerName } from '../components/PlayerName'
@@ -95,9 +99,9 @@ const BOARDS: Board[] = [
 ]
 
 const TREND_GLYPH: Record<FormLeaderRow['trend'], { glyph: string; tone: string; note: string }> = {
-  rising: { glyph: '↗', tone: 'text-positive-ink', note: 'Improving within the recent window' },
-  flat: { glyph: '→', tone: 'text-dim', note: 'Level within the recent window' },
-  falling: { glyph: '↘', tone: 'text-negative-ink', note: 'Declining within the recent window' },
+  rising: { glyph: '\u2197', tone: 'text-positive-ink', note: 'Improving within the recent window' },
+  flat: { glyph: '\u2192', tone: 'text-dim', note: 'Level within the recent window' },
+  falling: { glyph: '\u2198', tone: 'text-negative-ink', note: 'Declining within the recent window' },
   unknown: { glyph: '·', tone: 'text-dim', note: 'Not enough cricket to read a trend' },
 }
 
@@ -108,9 +112,10 @@ export function FormBoards() {
   const { slug, apiGender } = useGender()
   const { board: boardSlug = 'in-form' } = useParams<{ board: string }>()
   const board = BOARDS.find((b) => b.slug === boardSlug) ?? BOARDS[0]
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { keep, set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
+  const requestedCompetition = f.get('competition')
   // The scope switch owns which family is in play. A competition from the other
   // family is dropped rather than sent, so the figures on screen always match
   // the heading above them.
@@ -119,21 +124,12 @@ export function FormBoards() {
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const offset = Number(params.get('offset') ?? 0)
+  const offset = f.int('offset', 0)
 
   const [data, setData] = useState<FormLeaderboard | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>, keepOffset = false) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    if (!keepOffset) merged.delete('offset')
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -165,15 +161,9 @@ export function FormBoards() {
         title={board.label}
         blurb="Form measures change against a player's own recent baseline - not standard. For who is playing the best cricket outright, see the Performance Index."
         actions={
-          <Link
-            to={`/${slug}/performance-index`}
-            className="text-sm text-analytic-ink hover:underline"
-          >
-            Performance Index →
-          </Link>
+          <ActionLink to={`/${slug}/performance-index`} weight="secondary">Performance Index</ActionLink>
         }
       />
-
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="inline-flex flex-wrap rounded-xl border border-border-subtle bg-surface p-0.5 shadow-card">
@@ -228,6 +218,9 @@ export function FormBoards() {
                 <th className={thClass}>Player</th>
                 <th className={thClass}>Standard</th>
                 <th className={thNumClass}>Level</th>
+                <th className={thNumClass} title="0-100. Percentile of the evidence-weighted move within this scope. Bounded, and ordered the same way this board is.">
+                  Form score
+                </th>
                 <th className={thNumClass}>Change</th>
                 <th className={thClass}>Trend</th>
                 <th className={thNumClass}>Evidence</th>
@@ -236,7 +229,7 @@ export function FormBoards() {
             <tbody>
               {loading && !data ? (
                 <tr>
-                  <td colSpan={7} className="p-4">
+                  <td colSpan={8} className="p-4">
                     <SkeletonRows rows={8} />
                   </td>
                 </tr>
@@ -244,10 +237,10 @@ export function FormBoards() {
                 data?.items.map((r, i) => {
                   const thin = r.confidence < THIN_CONFIDENCE
                   const belowPar = (r.recent_mean ?? 0) < 1
-                  const delta =
-                    r.delta_percent !== null
-                      ? `${r.delta_percent > 0 ? '+' : ''}${r.delta_percent.toFixed(0)}%`
-                      : '-'
+                  // The API words this so it is never a percentage over 100: a
+                  // ratio against a player's own baseline has no ceiling, and
+                  // past a doubling it is stated as a multiple instead.
+                  const delta = r.delta_display ?? change(r.delta_percent)
                   const trend = TREND_GLYPH[r.trend]
                   const evidence = `${r.recent_matches} recent vs ${r.baseline_matches} earlier matches`
 
@@ -282,8 +275,23 @@ export function FormBoards() {
                       >
                         {r.recent_mean !== null ? `${r.recent_mean.toFixed(2)}x` : '-'}
                       </td>
+                      {/* The headline figure. Bounded 0-100 and percentiled on
+                          the same quantity this board sorts by, so it cannot
+                          disagree with the row order the way the raw percentage
+                          beside it did. */}
+                      <td className={`${tdNumClass} font-semibold text-ink`}>
+                        {r.form_score === null ? (
+                          '-'
+                        ) : thin ? (
+                          <Uncertain reason={`Confidence ${Math.round(r.confidence * 100)}% - ${evidence}`}>
+                            {score(r.form_score)}
+                          </Uncertain>
+                        ) : (
+                          score(r.form_score)
+                        )}
+                      </td>
                       <td
-                        className={`tnum px-3 py-2.5 text-right font-semibold ${
+                        className={`tnum px-3 py-2.5 text-right ${
                           board.tone === 'positive' ? 'text-positive-ink' : 'text-negative-ink'
                         }`}
                       >
@@ -325,7 +333,7 @@ export function FormBoards() {
               total={data.total}
               limit={LIMIT}
               offset={offset}
-              onChange={(o) => update({ offset: String(o) }, true)}
+              onChange={(o) => keep({ offset: String(o) })}
             />
           </div>
         )}
@@ -333,13 +341,12 @@ export function FormBoards() {
 
       <Provenance>
         Each player is compared with their own preceding twelve months in this scope, never with
-        other players - that is what makes “in form” mean <em>changed</em> rather than{' '}
-        <em>good</em>. Boards are ordered on par units gained rather than on the percentage,
-        because a player improving from poor to below-average can post a bigger percentage than one
-        playing the best cricket in the world. Every performance is weighted by the strength of the
-        side it came against, fitted per era. Internationals and franchise cricket are never blended
-        into one figure. The last column is the evidence the verdict rests on - recent matches
-        against earlier ones - and a change marked with a dotted rule rests on a thin sample.
+        other players - that is what makes "in form" mean <em>changed</em> rather than{' '}
+        <em>good</em>. The <strong className="font-semibold text-muted">form score</strong> is a
+        percentile, out of 100, of the par units gained against that baseline, weighted by how much
+        cricket the verdict rests on. The change is shown beside it, as a multiple past a doubling.
+        Every performance is scaled by the strength of the side it came against. Internationals and
+        franchise cricket are never blended. A figure with a dotted rule rests on a thin sample.
       </Provenance>
     </div>
   )

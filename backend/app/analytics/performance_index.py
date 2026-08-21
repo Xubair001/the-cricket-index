@@ -100,16 +100,41 @@ COMPONENTS: dict[str, tuple[float, bool, str | None]] = {
     "consistency": (0.20, True, None),
     "opposition": (0.15, True, None),
     "match_impact": (0.10, True, None),
-    "role": (0.10, False, "No playing role exists in any current source (Tier C)."),
+    # Off for COVERAGE, not for absence. The ICC scorecard feed does carry a
+    # sourced role, for 2,295 of 9,511 players - so the old reason here ("no
+    # playing role exists in any current source") is no longer true. What is
+    # true is that scoring a role-peer percentile over a quarter of the register
+    # would rate those players against each other and leave everyone else
+    # unscored, which systematically prefers players who happen to appear in the
+    # feed over better players who do not. That is the same selection bias
+    # `selection.py` refuses when it reports balance instead of selecting for
+    # it. Enable this when coverage is broad enough to percentile honestly.
+    "role": (
+        0.10,
+        False,
+        "A sourced role now exists for 2,295 of 9,511 players via the ICC "
+        "squad feed, but scoring against role peers over a quarter of the "
+        "register would rate only those players and would prefer whoever "
+        "appears in that feed. Held until coverage is broad enough.",
+    ),
     # Live since the deliveries backfill: the innings sequence gives chasing
     # directly, so "does this player deliver under a chase" is computable.
     # Pressure in the fuller sense (required rate, wickets in hand) still is
     # not -- what is scored here is chasing specifically, and the basis says so.
     "situation": (0.10, True, None),
+    # Also off for coverage rather than absence. Squad lists DO exist here -
+    # 16,996 rows over 757 fixtures from the ICC scorecard feed, and
+    # `analytics/availability.py` ships on them. But squads are announced only
+    # weeks out: 25 of 274 upcoming fixtures have one. Scoring availability over
+    # that would score an ABSENCE of evidence for most players, which is the
+    # exact asymmetry `availability.py` exists to refuse - a player named in a
+    # squad is a fact, a player absent from every squad is evidence of nothing.
     "availability": (
         0.05,
         False,
-        "Needs squad lists per fixture, which no available feed carries (Tier C).",
+        "Squad lists exist (16,996 rows over 757 fixtures), but only 25 of 274 "
+        "upcoming fixtures have one announced, so scoring this would score an "
+        "absence of evidence for most players rather than their availability.",
     ),
 }
 

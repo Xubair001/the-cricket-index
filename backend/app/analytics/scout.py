@@ -79,7 +79,11 @@ class Candidate:
     bowling_family: str | None
     age: int | None
     index: float | None
+    # Raw ratio against the player's own baseline, in percent. Unbounded, kept
+    # for traceability. `form_score` is the bounded figure to display.
     form_delta: float | None
+    form_score: float | None
+    form_display: str | None
     form_state: str | None
     recent_mean: float | None
     committed_in_window: bool | None
@@ -344,15 +348,25 @@ def search(
 
         # Standard first, current touch second -- the same blend selection uses,
         # so a scout and a selector cannot disagree about who is better.
-        form_pct = 50.0
-        if verdict.delta_ratio is not None:
-            moved = max(-1.0, min(1.0, verdict.delta_ratio)) * verdict.confidence
-            form_pct = 50.0 + moved * 50.0
+        #
+        # `form_score` is the verdict's percentile within this scope: already
+        # 0-100, already confidence-filtered, and calibrated against the
+        # population rather than by an arbitrary transform. It replaced a local
+        # clamp of the ratio to +/-1, which gave every player past a doubling
+        # the same form term and so could not separate the strongest movers from
+        # each other. 50 is the neutral fallback where a verdict is too thin to
+        # place, which is the same thing the clamp did with no delta at all.
+        form_pct = verdict.form_score if verdict.form_score is not None else 50.0
         score = 0.7 * rating.index + 0.3 * form_pct
 
         bits = [f"index {rating.index:.0f}"]
-        if verdict.delta_ratio is not None:
-            bits.append(f"form {verdict.delta_ratio * 100:+.0f}%")
+        if verdict.form_score is not None:
+            # One decimal, because 0dp rounds 99.9 to "100/100" and reads as a
+            # perfect score on a scale where 100 means "top of this scope".
+            bits.append(f"form {verdict.form_score:.1f}/100")
+        elif verdict.delta_display:
+            # Too thin to score, so say the move instead of implying a rank.
+            bits.append(f"form {verdict.delta_display}")
         if role_value:
             bits.append(f"{role_value.lower()}{'' if role_sourced else ' (inferred)'}")
         if is_committed:
@@ -375,6 +389,8 @@ def search(
                 age=age,
                 index=rating.index,
                 form_delta=round(verdict.delta_ratio * 100, 1) if verdict.delta_ratio is not None else None,
+                form_score=verdict.form_score,
+                form_display=verdict.delta_display,
                 form_state=verdict.state,
                 recent_mean=verdict.recent_mean,
                 committed_in_window=is_committed,

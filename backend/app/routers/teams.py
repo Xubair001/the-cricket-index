@@ -1,10 +1,16 @@
+import dataclasses
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from sqlalchemy import select
 
 from .. import flags, queries, schemas, validation
-from ..analytics import squad as squad_mod, team_weakness as weakness_mod
+from ..analytics import (
+    squad as squad_mod,
+    team_strength as strength_mod,
+    team_weakness as weakness_mod,
+)
 from ..database import get_db
 from ..models import Team
 
@@ -112,6 +118,37 @@ def head_to_head(
     return result
 
 
+@router.get("/{team_id}/strength", response_model=schemas.TeamStrengthProfile)
+def team_strength(
+    team_id: int = Path(ge=1, le=validation.MAX_DB_INT),
+    competition: str | None = Query(default=None),
+    window_matches: int = Query(default=20, ge=5, le=60),
+    db: Session = Depends(get_db),
+) -> schemas.TeamStrengthProfile:
+    """Where a side is deep and where it is thin (§19).
+
+    The other half of `/weakness`: that one asks what has declined against the
+    side's own past, this one asks how their depth compares to the sides that
+    actually contest this competition. Both refuse the same reference - the
+    average side - for the same measured reason.
+
+    Every dimension carries its raw figure, the core's figure, and how many peer
+    sides went into it, so a score can be read back to what produced it (§30).
+    """
+    result = strength_mod.analyse(
+        db,
+        team_id,
+        competition_key=validation.check_competition_key(db, competition),
+        window_matches=window_matches,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no team {team_id}, or it has no matches to profile",
+        )
+    return schemas.TeamStrengthProfile(**dataclasses.asdict(result))
+
+
 @router.get("/{team_id}/weakness", response_model=schemas.TeamWeakness)
 def team_weakness(
     team_id: int = Path(ge=1, le=validation.MAX_DB_INT),
@@ -138,5 +175,11 @@ def team_weakness(
         raise HTTPException(status_code=404, detail="team not found")
     return schemas.TeamWeakness(
         **{k: v for k, v in vars(result).items() if k != "facets"},
-        facets=[schemas.WeaknessFacet(**vars(f)) for f in result.facets],
+        # `delta_display` is a property, not a field, so `vars` does not carry
+        # it. Passed explicitly rather than made a field, because it is derived
+        # from `delta_percent` and duplicating it invites the two disagreeing.
+        facets=[
+            schemas.WeaknessFacet(**vars(f), delta_display=f.delta_display)
+            for f in result.facets
+        ],
     )

@@ -7,6 +7,8 @@ instead of keeping a second copy of that list that drifts; `/par` exists because
 every impact score in the product is computed against these.
 """
 
+import dataclasses
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -84,6 +86,37 @@ def list_venues(
             entry["city"] = city
     out = sorted(grouped.values(), key=lambda e: (-e["matches"], e["venue"]))
     return [schemas.VenueOption(**e) for e in out]
+
+
+@router.get("/ground-character", response_model=list[schemas.GroundCharacter])
+def ground_character(
+    gender: str = Query(pattern="^(male|female)$"),
+    competition: str = Query(description="one competition key; required"),
+    min_matches: int = Query(default=1, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[schemas.GroundCharacter]:
+    """Every ground in one competition, on the two axes that describe a pitch.
+
+    Declared before `/venues/{venue_name:path}`, which would otherwise swallow
+    the path.
+
+    `competition` is REQUIRED rather than optional. A ground hosting Tests and
+    T20Is has two characters and one figure describes neither, so there is no
+    sensible unscoped answer to give - and defaulting to one silently would be
+    the "unscoped means everything" mistake §6 exists to prevent.
+    """
+    key = validation.check_competition_key(db, competition)
+    if not key:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown competition '{validation.echo(competition)}'",
+        )
+    rows = venue_mod.character(db, gender=gender, competition_key=key)
+    return [
+        schemas.GroundCharacter(**dataclasses.asdict(g))
+        for g in rows
+        if g.matches >= min_matches
+    ]
 
 
 @router.get("/venues/{venue_name:path}", response_model=schemas.VenueProfile)
@@ -216,7 +249,10 @@ def explore(
     opposition_team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     date_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    min_innings: int = Query(default=explorer_mod.DEFAULT_MIN_INNINGS, ge=1, le=500),
+    # None means DERIVE from the slice, the same as `min_balls`. A fixed default
+    # of 5 matches is fair on a career board and unreachable at one ground
+    # against one side, and it was the larger half of the empty-slice bug.
+    min_innings: int | None = Query(default=None, ge=1, le=500),
     min_balls: int | None = Query(default=None, ge=0, le=100_000),
     # Narrows *within* an explorer's eligible set. Each explorer already
     # excludes the opposite specialism, so this is for asking a batting board
@@ -225,6 +261,11 @@ def explore(
     # Canonical ground name. Now a real filter rather than an absent one: see
     # app/venues.py for why it could not ship until venues were normalised.
     venue: str | None = Query(default=None, max_length=120),
+    # A window over this slice. A date-bounded one resolves into date_from and
+    # date_to below, so `period=last12m` and an explicit range are the same
+    # mechanism and links already carrying raw dates keep resolving. Only a
+    # count-bounded window needs its own path.
+    period: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -245,19 +286,39 @@ def explore(
             detail=f"cannot sort '{validation.echo(explorer)}' by '{validation.echo(sort_by)}'; available: {sorted(sorts)}",
         )
 
-    # The qualification that makes a rate leaderboard mean anything differs by
-    # discipline -- balls faced for batting, balls bowled for bowling -- so the
-    # default depends on which explorer was asked for.
-    if min_balls is None:
-        min_balls = {
-            "batting": explorer_mod.DEFAULT_MIN_BALLS_FACED,
-            "bowling": explorer_mod.DEFAULT_MIN_BALLS_BOWLED,
-        }.get(explorer, 0)
+    # `min_balls` is passed through as None when the caller did not name one, and
+    # the analytics layer derives it FROM THE SLICE. The old behaviour -
+    # substituting a fixed per-discipline default here - is what made a narrowed
+    # view look empty: 200 balls faced is a fair qualification for an all-time
+    # batting board and unreachable at one ground against one side, so
+    # "Bellerive Oval against Australia" returned 0 players of 148.
+
+    competition_key = validation.check_competition_key(db, competition)
+    competition_type = validation.check_competition_type(db, competition_type)
+    window = validation.check_period(period)
+
+    # A date-bounded window becomes a date range, INTERSECTED with any explicit
+    # one rather than overriding it: two ways of narrowing the same axis should
+    # compose, which is the rule `_competition_scoped` already follows for a key
+    # and a type given together.
+    last_matches = None
+    if window is not None:
+        if window.is_count_bounded:
+            last_matches = window.matches
+        else:
+            anchor = queries.applied_period(
+                db, gender, competition_key, competition_type, window
+            )["anchor"]
+            bounds = window.to_date_bounds(anchor)
+            if bounds:
+                start, end = bounds
+                date_from = max(x for x in (date_from, start) if x) if (date_from or start) else None
+                date_to = min(x for x in (date_to, end) if x) if (date_to or end) else None
 
     filters = explorer_mod.ExplorerFilters(
         gender=gender,
-        competition_key=validation.check_competition_key(db, competition),
-        competition_type=validation.check_competition_type(db, competition_type),
+        competition_key=competition_key,
+        competition_type=competition_type,
         team_id=team_id,
         opposition_team_id=opposition_team_id,
         date_from=date_from,
@@ -266,8 +327,11 @@ def explore(
         min_balls=min_balls,
         venue=venue,
         role=role,
+        last_matches=last_matches,
     )
-    items, total = explorer_mod.page(db, explorer, filters, sort_by, limit, offset)
+    items, total, before_floor, applied_balls, applied_innings = explorer_mod.page(
+        db, explorer, filters, sort_by, limit, offset
+    )
     return schemas.ExplorerPage(
         explorer=explorer,
         total=total,
@@ -276,6 +340,16 @@ def explore(
         sort_by=sort_by,
         filters=filters.describe(explorer),
         sorts=sorted(sorts),
+        period=periods.applied(
+            window,
+            queries.applied_period(db, gender, competition_key, competition_type, window)["anchor"],
+        ),
+        # Both counts, because their being different IS the story on a narrowed
+        # slice. Without the "before" figure a reader cannot tell "no cricket
+        # here" from "the volume floor removed all of it".
+        total_before_volume_floor=before_floor,
+        applied_min_balls=applied_balls,
+        applied_min_innings=applied_innings,
         # ExplorerRow allows extra fields, so country/country_code ride along
         # without the model having to know about them.
         items=[
