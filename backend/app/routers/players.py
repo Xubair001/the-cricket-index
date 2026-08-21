@@ -59,7 +59,7 @@ def compare_players(
                 detail=f"player identifier too long: '{validation.echo(identifier)}'",
             )
 
-    window = validation.check_period(period)
+    window = validation.check_period(db, period)
     comp_key = validation.check_competition_key(db, competition)
     comp_type = validation.check_competition_type(db, competition_type)
     result = queries.get_player_comparison(
@@ -109,7 +109,7 @@ def player_directory(
         )
     comp_key = validation.check_competition_key(db, competition)
     comp_type = validation.check_competition_type(db, competition_type)
-    window = validation.check_period(period)
+    window = validation.check_period(db, period)
     rows, total, before_floor, applied_floor = queries.browse_players(
         db,
         gender,
@@ -366,7 +366,7 @@ def player_detail(
     # No gender param needed: a player's identifier already uniquely
     # determines them (and their gender) -- no cross-gender ambiguity to
     # resolve, unlike team names.
-    window = validation.check_period(period)
+    window = validation.check_period(db, period)
     detail = queries.get_player_detail(db, identifier, period=window)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"player '{validation.echo(identifier)}' not found")

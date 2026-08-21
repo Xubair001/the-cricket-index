@@ -40,7 +40,7 @@ def batting_rankings(
 ) -> dict:
     competition = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
-    window = validation.check_period(period)
+    window = validation.check_period(db, period)
     rows, total = queries.get_batting_rankings(
         db, gender, competition, min_matches, sort_by, limit, offset, competition_type,
         period=window,
@@ -76,7 +76,7 @@ def bowling_rankings(
 ) -> dict:
     competition = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
-    window = validation.check_period(period)
+    window = validation.check_period(db, period)
     rows, total = queries.get_bowling_rankings(
         db, gender, competition, min_matches, sort_by, limit, offset, competition_type,
         period=window,

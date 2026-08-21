@@ -88,8 +88,31 @@ MAX_SEARCH_LENGTH = 200
 MAX_PERIOD_LENGTH = 64
 
 
-def check_period(spec: str | None):
-    """Parsed Period, or None for an unset (career-wide) request."""
+def check_period(db: Session | None, spec: str | None):
+    """Parsed Period, or None for an unset (career-wide) request.
+
+    Two checks beyond parsing, and both exist for the reason every validation
+    here does: a filter the data cannot honour must SAY so rather than return an
+    empty board.
+
+    * **A season label is checked against the seasons that exist.** `season:2024`
+      is one of 50 real labels; `season:2024xyz` parsed happily and returned
+      `total: 0`, which reads as "nobody scored a run that season". An unknown
+      competition has always returned a 422 naming the valid set, and a season is
+      the same kind of value - the source's own vocabulary, held in the data.
+    * **A custom range must overlap the data.** A window of 1990 is not an empty
+      board, it is a window before this dataset begins (2001-12-19), and saying
+      which years exist is more useful than showing nothing.
+
+    The second check also narrows a real amplification surface. Every distinct
+    window is a distinct cache key and therefore a full aggregate build - the
+    all-round explorer measures 833 ms for a fresh window against 5 ms warm - and
+    a caller choosing arbitrary dates never hits a warm key. Bounding the range
+    to the span the data covers does not close that (the span is ~9,000 days) but
+    it rejects the trivially-generated payloads before any aggregate runs.
+
+    `db` is optional so the parse-only path stays usable without a session.
+    """
     if spec is None or not spec.strip():
         return None
     if len(spec) > MAX_PERIOD_LENGTH:
@@ -98,6 +121,33 @@ def check_period(spec: str | None):
             detail=f"period is too long ({len(spec)} chars, max {MAX_PERIOD_LENGTH})",
         )
     try:
-        return periods.parse(spec)
+        period = periods.parse(spec)
     except periods.PeriodError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if db is None:
+        return period
+
+    if period.kind == periods.SEASON:
+        known = queries.known_seasons(db)
+        if period.season_label not in known:
+            recent = ", ".join(sorted(known, reverse=True)[:4])
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"unknown season '{echo(period.season_label)}'. This dataset "
+                    f"holds {len(known)} seasons, most recently {recent}."
+                ),
+            )
+
+    if period.kind == periods.CUSTOM:
+        first, last = queries.dataset_span(db)
+        if first and last and (period.end < first or period.start > last):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"the window {echo(period.start)} to {echo(period.end)} falls "
+                    f"outside this dataset, which covers {first} to {last}."
+                ),
+            )
+    return period

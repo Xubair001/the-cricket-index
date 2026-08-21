@@ -44,11 +44,16 @@ def has_deliveries(db: Session) -> bool:
     `LIMIT 1` rather than `count(*)`: the question is existence, and counting
     4.8M rows to answer it would cost more than most of the queries it guards.
     """
+    global _state
     generation = cache.generation(db)
     hit = _state.get(generation)
     if hit is not None:
         return hit
     found = db.execute(select(Delivery.match_id).limit(1)).first() is not None
-    _state.clear()
-    _state[generation] = found
+    # Replaced in one assignment rather than cleared then written. Uvicorn serves
+    # requests from a thread pool, so between a `.clear()` and the write another
+    # thread can observe an empty dict and repeat the probe. Harmless - the probe
+    # is a LIMIT 1 and the answer is the same - but the window does not need to
+    # exist, and rebinding the name closes it without a lock.
+    _state = {generation: found}
     return found

@@ -55,6 +55,38 @@ def dataset_latest_date(db: Session) -> str | None:
     return db.execute(select(func.max(Match.match_date_start))).scalar_one_or_none()
 
 
+def dataset_span(db: Session) -> tuple[str | None, str | None]:
+    """(earliest, latest) match date. Cached: it changes only on an ingest."""
+    return cache.get_or_compute(
+        db,
+        ("dataset_span",),
+        lambda: tuple(
+            db.execute(
+                select(func.min(Match.match_date_start), func.max(Match.match_date_start))
+            ).one()
+        ),
+    )
+
+
+def known_seasons(db: Session) -> set[str]:
+    """Every season label the data actually holds.
+
+    A season is the SOURCE's own label rather than a calendar year, so the valid
+    set is a property of the data and belongs here rather than in a pattern - the
+    same reason competition keys are checked against the `competitions` table.
+    """
+    return cache.get_or_compute(
+        db,
+        ("known_seasons",),
+        lambda: {
+            label
+            for (label,) in db.execute(
+                select(Match.season_label).where(Match.season_label.is_not(None)).distinct()
+            ).all()
+        },
+    )
+
+
 def player_status(
     player: Player, last_played: str | None, reference_date: str | None
 ) -> schemas.PlayerStatus:

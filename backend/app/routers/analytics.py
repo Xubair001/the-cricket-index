@@ -309,7 +309,7 @@ def explore(
 
     competition_key = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
-    window = validation.check_period(period)
+    window = validation.check_period(db, period)
 
     # A date-bounded window becomes a date range, INTERSECTED with any explicit
     # one rather than overriding it: two ways of narrowing the same axis should
