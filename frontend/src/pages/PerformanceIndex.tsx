@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { IndexRow, PerformanceIndexPage } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
@@ -98,8 +99,9 @@ function Decomposition({ row, page }: { row: IndexRow; page: PerformanceIndexPag
 
 export function PerformanceIndex() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
-  const requestedCompetition = params.get('competition') ?? ''
+  const f = useFilters()
+  const { keep, set: update } = f
+  const requestedCompetition = f.get('competition')
   // The scope switch owns which family is in play. A competition from the other
   // family is dropped rather than sent, so the figures on screen always match
   // the heading above them.
@@ -108,25 +110,16 @@ export function PerformanceIndex() {
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const role = params.get('role') ?? ''
-  const offset = Number(params.get('offset') ?? 0)
+  const role = f.get('role')
+  const offset = f.int('offset', 0)
 
   const [data, setData] = useState<PerformanceIndexPage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   // In the URL, not local state: a decomposition is the evidence behind a
   // rating, so it has to be something a scout can send to a colleague (§27).
-  const open = params.get('explain') ?? ''
+  const open = f.get('explain')
 
-  function update(next: Record<string, string>, keepOffset = false) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    if (!keepOffset) merged.delete('offset')
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -167,7 +160,6 @@ export function PerformanceIndex() {
           (official). Click any row to see the components behind its score.
         </p>
       </div>
-
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
@@ -271,10 +263,11 @@ export function PerformanceIndex() {
                       <button
                         type="button"
                         onClick={() =>
-                          update(
-                            { explain: open === row.player_identifier ? '' : row.player_identifier },
-                            true
-                          )
+                          // `keep`, not `set`: a disclosure is UI state, so it
+                          // must not throw away the reader's place in the list.
+                          keep({
+                            explain: open === row.player_identifier ? '' : row.player_identifier,
+                          })
                         }
                         className="font-mono text-[10px] uppercase tracking-[0.1em] text-analytic-ink hover:underline"
                       >
@@ -299,7 +292,7 @@ export function PerformanceIndex() {
               total={data.total}
               limit={LIMIT}
               offset={offset}
-              onChange={(o) => update({ offset: String(o) }, true)}
+              onChange={(o) => keep({ offset: String(o) })}
             />
           </div>
         </div>

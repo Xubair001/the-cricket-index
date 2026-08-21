@@ -76,11 +76,22 @@ export interface IccTeamRankingTable {
 export interface ComparisonMetric {
   key: string
   label: string
-  a: number | null
-  b: number | null
-  better: 'a' | 'b' | null
+  /** Positional against `PlayerComparison.sides`. */
+  values: (number | null)[]
+  /** Per player: whether they have enough cricket for this figure to be
+   *  comparable. An unqualified player keeps their value - it is a fact about
+   *  them - but cannot win the row. Applied per player rather than to the set,
+   *  so one thin sample does not blank the row for everybody. */
+  qualified: boolean[]
+  /** Index into `values`. Null on a tie or where fewer than two players
+   *  qualify - never a guess. */
+  best_index: number | null
   lower_is_better: boolean
   format: 'int' | 'float' | 'none'
+  /** What the qualification is measured on, and its minimum, so the UI can say
+   *  WHY a figure is greyed rather than just greying it. */
+  gate_field: string | null
+  gate_min: number | null
 }
 
 export interface ComparisonSide extends PlayerCountry {
@@ -96,21 +107,19 @@ export interface ComparisonSide extends PlayerCountry {
   career_span: (string | null)[]
 }
 
-export interface SeasonPoint {
-  season: string
-  a: number
-  b: number
-}
-
 export interface PlayerComparison {
   scope: string
   scope_label: string
   gender: ApiGender
-  a: ComparisonSide
-  b: ComparisonSide
+  /** 2 to 5 players. Everything positional - `values` on a metric, `values` in
+   *  a season row - indexes into this. Replaced an `a`/`b` pair, which had
+   *  nowhere to put a third player. */
+  sides: ComparisonSide[]
   metrics: ComparisonMetric[]
-  season_runs: SeasonPoint[]
-  season_wickets: SeasonPoint[]
+  season_runs: { season: string; values: number[] }[]
+  season_wickets: { season: string; values: number[] }[]
+  /** The window these figures cover, resolved by the API. */
+  period: AppliedPeriod | null
 }
 
 export interface TeamRef {
@@ -243,6 +252,8 @@ export interface PlayerDetail extends PlayerCountry {
   icc_rankings: IccRankEntry[]
   by_competition: PlayerFormatStats[]
   recent_matches: MatchSummary[]
+  /** The window `by_competition` covers, resolved by the API. */
+  period: AppliedPeriod | null
 }
 
 export interface MatchSummary {
@@ -410,7 +421,14 @@ export interface FormVerdict {
   baseline_matches: number
   delta_ratio: number | null
   delta_absolute: number | null
+  /** Raw ratio in percent, against the player's own baseline. UNBOUNDED - can
+   *  exceed 100. Kept for traceability; show `form_score` instead. */
   delta_percent: number | null
+  /** 0-100. Percentile of the evidence-weighted move within this scope, so it
+   *  is bounded and orders players the same way the boards do. */
+  form_score: number | null
+  /** The change in words, never a percentage over 100. */
+  delta_display: string | null
   trend: 'rising' | 'flat' | 'falling' | 'unknown'
   confidence: number
   explanation: string
@@ -422,7 +440,29 @@ export interface FormVerdict {
 export interface PeriodOption {
   key: string
   label: string
+  /** 'career' | 'last_matches' | 'last_days'. The UI groups on this, because a
+   *  count-bounded window means something different from a date-bounded one. */
   kind: string
+}
+
+/** The window a response actually used, as reported back by the API. */
+export interface AppliedPeriod {
+  /** The spec that reproduces this window, for a shareable URL. */
+  spec: string | null
+  label: string
+  kind: string
+  /** Resolved bounds, present only for a date-bounded window. */
+  start: string | null
+  end: string | null
+  /** The newest match in this scope, which a relative window counts back from. */
+  anchor: string | null
+  /** Present where the window needs a caveat stated rather than inferred. */
+  note: string | null
+}
+
+/** A paginated board that reports which window produced it. */
+export interface PeriodPaginated<T> extends Paginated<T> {
+  period: AppliedPeriod
 }
 
 export interface ParFigures {
@@ -441,7 +481,10 @@ export interface FormLeaderRow extends PlayerCountry {
   scorecard_name: string | null
   state: FormState
   label: string
+  /** Unbounded raw ratio. Show `form_score`. */
   delta_percent: number | null
+  form_score: number | null
+  delta_display: string | null
   trend: 'rising' | 'flat' | 'falling' | 'unknown'
   confidence: number
   recent_matches: number
@@ -481,7 +524,10 @@ export interface DirectoryPlayer extends PlayerCountry {
   status: PlayerStatus | null
   form_state: FormState | null
   form_label: string | null
+  /** Unbounded raw ratio. Show `form_score`. */
   form_delta: number | null
+  form_score: number | null
+  form_display: string | null
   form_confidence: number | null
 }
 
@@ -491,6 +537,13 @@ export interface PlayerDirectory {
   offset: number
   scope: string
   items: DirectoryPlayer[]
+  /** The window the aggregate columns cover. NOT the form column's window:
+   *  form has its own baseline and is a different question (Principle 3). */
+  period: AppliedPeriod | null
+  /** How many matched before the volume floor, and the floor applied. Derived
+   *  from the slice when a window narrows it, fixed for a career board. */
+  total_before_volume_floor: number
+  applied_min_balls: number
 }
 
 // --- Analytics explorers (§21) --------------------------------------------
@@ -533,6 +586,15 @@ export interface ExplorerPage {
   sort_by: string
   filters: ExplorerFilters
   sorts: string[]
+  /** How many players matched every filter BEFORE the volume floors, and the
+   *  floors actually applied. Both are returned because their being different is
+   *  the whole story on a narrowed slice: without the first, a reader cannot
+   *  tell "no cricket here" from "the floor removed all of it". */
+  total_before_volume_floor: number
+  applied_min_balls: number
+  applied_min_innings: number
+  /** The window these figures cover, resolved by the API. */
+  period: AppliedPeriod | null
   items: ExplorerRow[]
 }
 
@@ -713,9 +775,18 @@ export interface SelectionPick extends PlayerCountry {
   opens: boolean
   matches: number
   index: number | null
+  /** Unbounded raw ratio. Show `form_score`. */
   form_delta: number | null
+  form_score: number | null
+  form_display: string | null
   form_state: string | null
   recent_mean: number | null
+  /** This player's record at the requested ground, where one was requested and
+   *  they have played there. `venue_matches` is the sample the adjustment rests
+   *  on and is always shown beside it: two matches is not a venue record. */
+  venue_matches: number | null
+  venue_mean: number | null
+  venue_score: number | null
   selection_score: number
   reason: string
   /** Sourced from ICC squads where present, else null. Never inferred. */
@@ -749,6 +820,37 @@ export interface SelectedSide {
   cutoff_date: string | null
   /** The weights actually applied, so the blend is checkable on the page. */
   weights: Record<string, number>
+  /** Which of Section 18's objectives this side answers. The same heading means
+   *  a different side depending on it, so it is always reported. */
+  objective: string
+  objective_label: string
+  objective_detail: string
+  /** The ground the side was tilted towards, and how many candidates have any
+   *  record there - a venue term over 12 of 327 candidates is a different claim
+   *  from one over most of them. */
+  venue: string | null
+  venue_candidates_with_record: number
+  eligibility_floor: number
+  /** The best players left out, with the constraint that left them out. */
+  tradeoffs: SelectionTradeOff[]
+  /** Candidates whose age is unknown, where the objective depends on age. */
+  unknown_age: number
+}
+
+export interface SelectionTradeOff {
+  player_identifier: string
+  player_name: string
+  role: string
+  selection_score: number
+  index: number | null
+  matches: number
+  country: string | null
+  country_code: string | null
+  /** The constraint that kept them out, in the selector's own terms. */
+  reason: string
+  /** Who holds the place they would have taken, and that player's score. */
+  displaced: string | null
+  displaced_score: number | null
 }
 
 // --- Player availability (§16) ---------------------------------------------
@@ -793,8 +895,11 @@ export interface ScoutCandidate {
   bowling_family: string | null
   age: number | null
   index: number | null
-  /** Already a percentage against the player's own baseline, not a ratio. */
+  /** Already a percentage against the player's own baseline, not a ratio.
+   *  UNBOUNDED - show `form_score` instead. */
   form_delta: number | null
+  form_score: number | null
+  form_display: string | null
   form_state: string | null
   recent_mean: number | null
   committed_in_window: boolean | null
@@ -1053,6 +1158,261 @@ export interface TournamentDetail extends TournamentSummary {
   notes: string[]
 }
 
+/* ── ICC ranking movement (Section 8) ─────────────────────────── */
+
+export interface IccMover {
+  rank_type: string
+  player_name: string
+  player_identifier: string | null
+  country: string | null
+  country_code: string | null
+  position: number
+  previous_position: number
+  /** Signed so POSITIVE means improvement, despite position 1 being the top. */
+  places_gained: number
+  points: number | null
+  previous_points: number | null
+  points_gained: number | null
+}
+
+export interface IccNewEntry {
+  rank_type: string
+  player_name: string
+  player_identifier: string | null
+  country: string | null
+  country_code: string | null
+  position: number
+  points: number | null
+}
+
+export interface IccMovementReport {
+  rank_type: string
+  current_date: string | null
+  previous_date: string | null
+  /** How many dated lists are held for this ranking. A handful, because the
+   *  daily sync began recently - which is why this is movement, not a trend. */
+  snapshots: number
+  compared: number
+  risers: IccMover[]
+  fallers: IccMover[]
+  new_entries: IccNewEntry[]
+  dropped_out: number
+  notes: string[]
+}
+
+/* ── Ground character (Section 20) ────────────────────────────── */
+
+export interface GroundCharacter {
+  venue: string
+  city: string | null
+  matches: number
+  /** 1.0 = typical scoring for this format. Above means a batting ground. */
+  scoring_index: number | null
+  /** 1.0 = typical balls per wicket. Above means wickets are harder to take. */
+  wicket_index: number | null
+  bat_first_win_pct: number | null
+  decided_matches: number
+  /** False below the match count at which these rates describe a ground rather
+   *  than a handful of games. Marked, never withheld. */
+  reliable: boolean
+}
+
+/* ── Team strength profile (Section 19) ───────────────────────── */
+
+export interface StrengthDimension {
+  key: string
+  label: string
+  value: number | null
+  unit: string
+  /** Percentile against the CORE sides of this scope, not the average side.
+   *  Null where no peer figure could be built - never 50, which would read as
+   *  "exactly typical" for a side nobody could measure. */
+  score: number | null
+  peer_value: number | null
+  peer_sides: number
+  basis: string
+  /** False where the window holds too few matches for the figure to describe
+   *  the side. Marked rather than withheld. */
+  reliable: boolean
+}
+
+export interface TeamStrengthProfile {
+  team_id: number
+  team_name: string
+  gender: ApiGender
+  team_type: string
+  competition_key: string | null
+  window_matches: number
+  matches_in_window: number
+  squad_size: number
+  first_match: string | null
+  last_match: string | null
+  dimensions: StrengthDimension[]
+  notes: string[]
+  unavailable: Record<string, string>
+}
+
+/* ── Performance splits (Section 12) ──────────────────────────── */
+
+export interface SplitBucket {
+  key: string
+  label: string
+  innings: number
+  runs: number
+  balls_faced: number
+  dismissals: number
+  fours: number
+  sixes: number
+  dots: number
+  average: number | null
+  strike_rate: number | null
+  dot_pct: number | null
+  boundary_pct: number | null
+  wickets: number
+  balls_bowled: number
+  runs_conceded: number
+  economy: number | null
+  bowling_average: number | null
+  bowling_dot_pct: number | null
+  /** False where this bucket rests on too little cricket for THAT SIDE's rates
+   *  to mean anything. Per discipline: a batter who bowled two overs at a ground
+   *  must not have their batting average flagged on the bowling sample. The runs
+   *  were still scored, so the row stays - it is the rates that carry a warning. */
+  batting_reliable: boolean
+  bowling_reliable: boolean
+  /** Narrower: an average divides by dismissals, not by innings or balls. */
+  average_reliable: boolean
+  bowling_average_reliable: boolean
+}
+
+export interface PlayerSplits {
+  player_identifier: string
+  split: string
+  label: string
+  gender: string
+  competition_key: string | null
+  /** False when the split does not describe this format at all - phases in a
+   *  Test, for instance. Reported rather than computed anyway. */
+  applies: boolean
+  not_applicable_because: string | null
+  available: string[]
+  /** Splits Section 12 names that no current source supports, with the reason
+   *  each cannot be computed. Rendered, not hidden. */
+  unavailable: Record<string, string>
+  buckets: SplitBucket[]
+}
+
+/* ── Tournament edition (one World Cup, one year) ─────────────── */
+
+export interface EditionStandingsRow {
+  team_id: number
+  team_name: string
+  country_code: string | null
+  /** Group letter where the edition had groups, else null. */
+  group: string | null
+  played: number
+  won: number
+  lost: number
+  /** A tie and an abandoned match both score a point and only one of them means
+   *  the sides finished level, so they are separate columns. */
+  tied: number
+  no_result: number
+  points: number
+  win_pct: number | null
+  runs_for: number
+  balls_faced: number
+  runs_against: number
+  balls_bowled: number
+  /** Charges a side bowled out its FULL overs quota rather than the overs it
+   *  used, which is the actual rule. Null where the format has no quota. */
+  net_run_rate: number | null
+}
+
+export interface EditionFixture {
+  match_id: string
+  match_date: string | null
+  stage: string | null
+  group: string | null
+  venue: string | null
+  city: string | null
+  team1_id: number | null
+  team1_name: string | null
+  team1_code: string | null
+  team2_id: number | null
+  team2_name: string | null
+  team2_code: string | null
+  winner_team_id: number | null
+  winner_name: string | null
+  /** Set only for a tie settled on a super over or boundary count. Cricsheet
+   *  records that in `eliminator` and leaves `winner` null. */
+  eliminator_name: string | null
+  outcome_result: string | null
+  win_by_runs: number | null
+  win_by_wickets: number | null
+  /** The result as a scorecard states it, assembled server-side. */
+  result_text: string
+  /** Preferred display form where the name resolves to a player here, the raw
+   *  Cricsheet value otherwise. */
+  player_of_match: string | null
+  player_of_match_scorecard: string | null
+  player_of_match_identifier: string | null
+  /** Team totals from the ball record, so extras are included and a super over
+   *  is excluded. Null where the match has no deliveries stored. */
+  team1_score: string | null
+  team2_score: string | null
+}
+
+export interface EditionLeader {
+  player_identifier: string
+  player_name: string
+  country_code: string | null
+  matches: number
+  runs: number | null
+  balls_faced: number | null
+  average: number | null
+  strike_rate: number | null
+  fifties: number | null
+  hundreds: number | null
+  highest: number | null
+  wickets: number | null
+  balls_bowled: number | null
+  runs_conceded: number | null
+  economy: number | null
+  bowling_average: number | null
+  best_innings: number | null
+  /** Player-of-the-match awards in this edition. The nearest thing this data
+   *  holds to a player of the tournament, and not that award. */
+  awards: number | null
+}
+
+export interface TournamentEditionDetail {
+  tournament_name: string
+  tournament_slug: string
+  season: string | null
+  gender: string
+  competition_key: string
+  competition_name: string
+  matches: number
+  sides: number
+  first_date: string | null
+  last_date: string | null
+  champion_team_id: number | null
+  champion_name: string | null
+  runner_up_name: string | null
+  has_final: boolean
+  decided_by_tiebreak: boolean
+  final_match_id: string | null
+  venues: string[]
+  groups: string[]
+  standings: EditionStandingsRow[]
+  fixtures: EditionFixture[]
+  top_run_scorers: EditionLeader[]
+  top_wicket_takers: EditionLeader[]
+  most_awards: EditionLeader[]
+  standings_caveats: string[]
+  notes: string[]
+}
+
 /* ── Underrated players (Section 15) ───────────────────────────
  * Where this project's Performance Index and ICC's published position
  * disagree. Not a correction of ICC's rating - the two are built from
@@ -1104,7 +1464,11 @@ export interface WeaknessFacet {
   baseline_deliveries: number
   /** Signed so NEGATIVE is always worse, whether the figure is a run rate or
    *  an economy conceded. */
+  /** UNBOUNDED: a run rate can more than double on a thin sample, and 3 of
+   *  2,340 measured figures exceed 100%. Show `delta_display`. */
   delta_percent: number | null
+  /** The same change in words, never a percentage above 100. */
+  delta_display: string | null
   versus_peers_percent: number | null
   verdict: 'declined' | 'improved' | 'steady' | 'unmeasured'
   note: string

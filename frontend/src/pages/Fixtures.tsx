@@ -5,14 +5,17 @@ import type { FixtureRow, FixtureWindow, PaginatedFixtures } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
+import { useFilters } from '../state/useFilters'
 
 const LIMIT = 25
 
+/** The values the URL may name. Read off WINDOWS so the two cannot drift. */
 const WINDOWS: { value: FixtureWindow; label: string }[] = [
   { value: 'upcoming', label: 'Upcoming' },
   { value: 'live', label: 'Live' },
   { value: 'results', label: 'Results' },
 ]
+const FIXTURE_WINDOWS: FixtureWindow[] = WINDOWS.map((w) => w.value)
 
 /** ISO date -> "Wed 12 Aug 2026". */
 function formatDate(iso: string | null): string {
@@ -88,11 +91,18 @@ function FixtureCard({ fixture, slug }: { fixture: FixtureRow; slug: string }) {
 
 export function Fixtures() {
   const { slug, apiGender } = useGender()
-  const [window_, setWindow] = useState<FixtureWindow>('upcoming')
-  const [matchType, setMatchType] = useState('')
+  const f = useFilters()
+  // Validated against the union rather than cast, so a hand-typed value falls
+  // back instead of reaching the API as an unknown window.
+  const requestedWindow = f.get('window')
+  const window_: FixtureWindow = FIXTURE_WINDOWS.includes(requestedWindow as FixtureWindow)
+    ? (requestedWindow as FixtureWindow)
+    : 'upcoming'
+  const matchType = f.get('type')
+  const offset = f.int('offset', 0)
+
   const [types, setTypes] = useState<string[]>([])
   const [data, setData] = useState<PaginatedFixtures | null>(null)
-  const [offset, setOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -142,8 +152,7 @@ export function Fixtures() {
               key={w.value}
               type="button"
               onClick={() => {
-                setWindow(w.value)
-                setOffset(0)
+                f.set({ window: w.value })
               }}
               className={
                 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors ' +
@@ -159,8 +168,7 @@ export function Fixtures() {
           <select
             value={matchType}
             onChange={(e) => {
-              setMatchType(e.target.value)
-              setOffset(0)
+              f.set({ type: e.target.value })
             }}
             className="rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
           >
@@ -192,7 +200,7 @@ export function Fixtures() {
               ))}
             </div>
           )}
-          <Pagination total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} />
+          <Pagination total={data.total} limit={LIMIT} offset={offset} onChange={(o) => f.keep({ offset: o })} />
         </>
       )}
 

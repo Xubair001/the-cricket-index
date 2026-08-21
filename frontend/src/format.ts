@@ -25,6 +25,40 @@ export function percent(value: number | null | undefined, dash = '-'): string {
   return `${value.toFixed(2)}%`
 }
 
+/**
+ * A 0-100 score. No sign, no percent sign - it is an index, not a proportion.
+ *
+ * One decimal because the top of a percentile board is compressed: the leading
+ * handful of a 700-player scope all sit above 99, and at 0dp they render as an
+ * identical "100" while the rows around them visibly differ.
+ */
+export function score(value: number | null | undefined, dash = '-'): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return dash
+  return value.toFixed(1)
+}
+
+/**
+ * A change against a baseline, worded so it is never a percentage over 100.
+ *
+ * The API sends `delta_display` already worded this way, and that is what
+ * should be rendered when it is present. This is the client-side equivalent for
+ * the rows that carry only a number.
+ *
+ * Why not just print the percentage: a ratio against a player's own baseline
+ * has no ceiling, and this dataset produces up to +306%. A percentage past 100
+ * stops reading as "more than doubled" and starts reading as a broken figure,
+ * so past a doubling the same fact is stated as a multiple instead. Nothing is
+ * clipped - the wording changes, the value does not.
+ */
+export function change(value: number | null | undefined, dash = '-'): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return dash
+  if (Math.abs(value) > 100) {
+    const multiple = value > 0 ? 1 + value / 100 : 1 / (1 + Math.abs(value) / 100)
+    return `${multiple.toFixed(value > 0 ? 1 : 2)}x baseline`
+  }
+  return `${value > 0 ? '+' : ''}${value.toFixed(0)}%`
+}
+
 /** A count. Thousands separated, never given decimals it doesn't have. */
 export function count(value: number | null | undefined, dash = '-'): string {
   if (value === null || value === undefined || Number.isNaN(value)) return dash
@@ -50,4 +84,16 @@ export function timeAgo(iso: string | null): string {
     month: 'short',
     year: 'numeric',
   })
+}
+
+/**
+ * "1 player", "142 players". The count is grouped with thousands separators,
+ * which is why this cannot just be a template literal at the call site.
+ *
+ * Five headings read "1 players" or "1 matches" when a filter narrowed to a
+ * single row, which is the one case a reader is most likely to be looking
+ * straight at. Irregular plurals are passed explicitly.
+ */
+export function plural(n: number, singular: string, many?: string): string {
+  return `${n.toLocaleString()} ${n === 1 ? singular : (many ?? singular + 's')}`
 }

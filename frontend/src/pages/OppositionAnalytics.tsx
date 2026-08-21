@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { HeadToHead, TeamStrengthRow, TeamStrengthTable, TeamSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { Flag } from '../components/Flag'
@@ -87,9 +88,10 @@ function Difficulty({ value }: { value: number | null }) {
 
 export function OppositionAnalytics() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
-  const a = params.get('a') ?? ''
-  const b = params.get('b') ?? ''
+  const f = useFilters()
+  const { set: update } = f
+  const a = f.get('a')
+  const b = f.get('b')
 
   const [table, setTable] = useState<TeamStrengthTable | null>(null)
   const [teams, setTeams] = useState<TeamSummary[]>([])
@@ -97,14 +99,6 @@ export function OppositionAnalytics() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     let cancelled = false

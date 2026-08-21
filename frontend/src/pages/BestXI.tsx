@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { SelectedSide, SelectionPick, TeamSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
 import { useGender } from '../gender/useGender'
 import { useScope, useScopedCompetition } from '../scope/scope'
-import { rate } from '../format'
+import { change, rate, score } from '../format'
 import {
   Card,
   EmptyState,
@@ -47,8 +48,33 @@ const SIZES = [
  * there has been" and useless for "who do we pick next".
  */
 const POOLS = [
-  { value: 'all_time', label: 'All time', hint: 'Everyone who has played enough in this competition, retired players included.' },
-  { value: 'current', label: 'Current squad', hint: 'Only players still in the picture, weighted towards recent evidence. This is the one to pick a next squad from.' },
+  {
+    value: 'current',
+    label: 'Current squad',
+    hint: 'Only players still in the picture - last appearance in this scope within a year, and no sourced retirement. This is the one to pick a next squad from, and the page default.',
+  },
+  {
+    value: 'all_time',
+    label: 'All time',
+    hint: 'Everyone with enough of a record in this competition, retired players included. Answers "the best there has been", not "who do we pick".',
+  },
+]
+
+/*
+ * Section 18's optimisation objectives. Kept in the client only as labels for
+ * the control - the API validates the value against its own table and returns
+ * the label and the explanation it actually applied, which is what the page
+ * renders. So adding an objective server-side does not silently produce a
+ * dropdown entry that means nothing.
+ */
+const OBJECTIVES = [
+  { value: 'overall', label: 'Overall quality' },
+  { value: 'form', label: 'Current form' },
+  { value: 'batting', label: 'Batting strength' },
+  { value: 'bowling', label: 'Bowling strength' },
+  { value: 'balance', label: 'Balance' },
+  { value: 'youth', label: 'Youth' },
+  { value: 'experience', label: 'Experience' },
 ]
 
 /** Conventional reading order for a team sheet, not the order picked. */
@@ -73,23 +99,46 @@ function orderForSheet(picks: SelectionPick[]): SelectionPick[] {
   })
 }
 
-/** Form as a short, honest phrase rather than a raw percentage. */
+/**
+ * Form as a short, honest phrase.
+ *
+ * Reads the bounded score rather than `form_delta`, because the selection
+ * weighting is built from the score: showing the raw ratio here meant a pick
+ * chosen partly on a form term of 92 was labelled "+18%", with no way to see
+ * the relationship. The move itself is still stated, worded by the API so it is
+ * never a percentage over 100.
+ */
 function formNote(p: SelectionPick): { text: string; tone: string } {
-  if (p.form_delta === null) return { text: 'form unknown', tone: 'text-dim' }
-  const sign = p.form_delta > 0 ? '+' : ''
+  if (p.form_score === null) {
+    return { text: p.form_delta === null ? 'form unknown' : 'form not placeable', tone: 'text-dim' }
+  }
   const tone =
-    p.form_delta > 15 ? 'text-positive-ink' : p.form_delta < -15 ? 'text-negative-ink' : 'text-muted'
-  return { text: `${sign}${p.form_delta.toFixed(0)}% vs own baseline`, tone }
+    p.form_score > 60 ? 'text-positive-ink' : p.form_score < 40 ? 'text-negative-ink' : 'text-muted'
+  const move = p.form_display ?? change(p.form_delta)
+  return { text: `form ${score(p.form_score)}/100 · ${move}`, tone }
 }
 
 export function BestXI() {
   const { apiGender, slug } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
-  const size = Number(params.get('size') ?? 11)
-  const teamId = params.get('team') ?? ''
-  const pool = params.get('pool') === 'current' ? 'current' : 'all_time'
+  const requestedCompetition = f.get('competition')
+  const size = f.int('size', 11)
+  const teamId = f.get('team')
+  // The PAGE defaults to the current squad; the API still defaults to all-time.
+  //
+  // Two different requirements. A reader who opens "Best XI" is almost always
+  // asking who to pick next, and landing on a side containing Shane Warne and
+  // Muttiah Muralitharan reads as the product ignoring that they retired. But
+  // the API default has to stay `all_time`, because links already shared carry
+  // no `pool` parameter and must keep returning the side they returned before.
+  //
+  // So the page sends its intent explicitly rather than relying on the default,
+  // and `?pool=all_time` still selects the all-time side.
+  const pool = f.get('pool') === 'all_time' ? 'all_time' : 'current'
+  const objective = f.get('objective', 'overall')
+  const venue = f.get('venue')
 
   const { competitions } = useScope()
   const {
@@ -103,6 +152,7 @@ export function BestXI() {
   const competition = scopedCompetition || competitions[0]?.key || ''
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
+  const [grounds, setGrounds] = useState<{ venue: string; matches: number }[]>([])
   const [side, setSide] = useState<SelectedSide | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -113,14 +163,6 @@ export function BestXI() {
   const scopeLabel =
     competitions.find((c) => c.key === side?.scope)?.display_name ?? side?.scope ?? ''
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   // A PSL side is picked from franchises; an international side from nations.
   const teamType = competition === 'psl' ? 'franchise' : 'international'
@@ -133,6 +175,13 @@ export function BestXI() {
   }, [apiGender, teamType])
 
   useEffect(() => {
+    api
+      .venues(apiGender)
+      .then((res) => setGrounds(res.map((g) => ({ venue: g.venue, matches: g.matches }))))
+      .catch(() => setGrounds([]))
+  }, [apiGender])
+
+  useEffect(() => {
     if (!competition) return
     let cancelled = false
     setLoading(true)
@@ -142,6 +191,8 @@ export function BestXI() {
         competition,
         size,
         pool,
+        objective,
+        venue: venue || undefined,
         team_id: teamId ? Number(teamId) : undefined,
       })
       .then((res) => !cancelled && setSide(res))
@@ -150,7 +201,7 @@ export function BestXI() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, size, teamId, pool])
+  }, [apiGender, competition, size, teamId, pool, objective, venue])
 
   return (
     <div className="space-y-5">
@@ -160,19 +211,49 @@ export function BestXI() {
         blurb="A side picked to a role shape - not the top eleven on rating, which returns six openers and no keeper. Every place shows what it was picked on."
       />
 
-
       <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabelClass}>Optimise for</span>
+          <select
+            value={objective}
+            onChange={(e) => update({ objective: e.target.value === 'overall' ? '' : e.target.value })}
+            className={fieldClass}
+            title={side?.objective_detail}
+          >
+            {OBJECTIVES.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabelClass}>Pick from</span>
           <select
             value={pool}
-            onChange={(e) => update({ pool: e.target.value === 'current' ? 'current' : '' })}
+            onChange={(e) => update({ pool: e.target.value === 'all_time' ? 'all_time' : '' })}
             className={fieldClass}
             title={POOLS.find((p) => p.value === pool)?.hint}
           >
             {POOLS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabelClass}>Ground</span>
+          <select
+            value={venue}
+            onChange={(e) => update({ venue: e.target.value })}
+            className={fieldClass}
+            title="Tilts the side towards players with a record at this ground. Not a re-scope: at any one ground most players have one or two matches, so a side picked only on venue records would be picked on noise."
+          >
+            <option value="">Any ground</option>
+            {grounds.slice(0, 200).map((g) => (
+              <option key={g.venue} value={g.venue}>
+                {g.venue} ({g.matches})
               </option>
             ))}
           </select>
@@ -282,7 +363,27 @@ export function BestXI() {
                   {Object.entries(side.shape)
                     .map(([role, n]) => `${n} ${SLOT_LABEL[role]?.toLowerCase() ?? role}`)
                     .join(', ')}
-                  , with the remaining places on merit.
+                  {/* Only say this when the shape actually leaves a place open.
+                      The default shape sums to ten of eleven, but the batting,
+                      bowling and balance objectives fill all eleven - and
+                      promising "the remaining places on merit" when there are
+                      none describes a step that did not happen. */}
+                  {Object.values(side.shape).reduce((sum, n) => sum + n, 0) < side.size
+                    ? ', with the remaining places on merit.'
+                    : ', which fills the side.'}
+                  {side.venue && (
+                    <>
+                      {' '}
+                      Tilted towards <strong className="font-semibold text-ink">
+                        {side.venue}
+                      </strong>
+                      , where{' '}
+                      <span className="tnum">{side.venue_candidates_with_record}</span> of{' '}
+                      <span className="tnum">{side.pool_size}</span> candidates have any record -
+                      a record at one ground moves a player within the side rather than deciding
+                      it, because at most grounds the median player has one or two matches.
+                    </>
+                  )}
                 </>
               }
               bodyClassName=""
@@ -343,6 +444,23 @@ export function BestXI() {
                           )}
                         </div>
                         <p className="mt-0.5 text-xs text-dim">{p.reason}</p>
+                        {/* The at-ground record, always with its sample beside
+                            it. Three matches at a ground is not a venue record,
+                            and a figure shown without its count invites reading
+                            it as one. */}
+                        {p.venue_matches !== null && p.venue_mean !== null && (
+                          <p className="mt-0.5 text-xs text-muted">
+                            At this ground:{' '}
+                            <span className="tnum font-medium text-ink">
+                              {rate(p.venue_mean)}x par
+                            </span>{' '}
+                            from{' '}
+                            <span className="tnum">
+                              {p.venue_matches} {p.venue_matches === 1 ? 'match' : 'matches'}
+                            </span>
+                            {p.venue_matches < 4 && ' - too few to move them much'}
+                          </p>
+                        )}
                       </div>
 
                       <span
@@ -386,6 +504,52 @@ export function BestXI() {
                     )}
                     .
                   </p>
+                </div>
+              )}
+
+              {/* Section 18 requires this outright: "Show what was traded off -
+                  the highest-rated player omitted, and the constraint that
+                  omitted them." Without it the side is an assertion; with it a
+                  selector can see the decision they are being asked to accept.
+                  Only players who out-score somebody actually picked appear -
+                  a candidate below every pick was not traded off, they simply
+                  were not good enough. */}
+              {side.tradeoffs.length > 0 && (
+                <div className="border-t border-border-subtle px-4 py-3">
+                  <h3 className="u-eyebrow mb-2">What this side cost</h3>
+                  {/* The benchmark is stated once rather than repeated on every
+                      row: it is the same player each time, and five copies of
+                      "against 85.13 for the lowest place (Kumar Sangakkara)"
+                      buries the part that differs, which is the constraint. */}
+                  {side.tradeoffs[0]?.displaced && (
+                    <p className="mb-1.5 text-xs text-dim">
+                      The lowest place in this side scores{' '}
+                      <span className="tnum">{rate(side.tradeoffs[0].displaced_score)}</span> (
+                      {side.tradeoffs[0].displaced}). These players score higher and are still out:
+                    </p>
+                  )}
+                  <ul className="space-y-1.5">
+                    {side.tradeoffs.map((t) => (
+                      <li key={t.player_identifier} className="text-xs leading-relaxed text-muted">
+                        <Link
+                          to={`/${slug}/players/${t.player_identifier}`}
+                          className="font-medium text-ink hover:text-analytic-ink"
+                        >
+                          {t.player_name}
+                        </Link>{' '}
+                        <span className="text-dim">({SLOT_LABEL[t.role] ?? t.role})</span>{' '}
+                        <span className="tnum">{rate(t.selection_score)}</span> - {t.reason}.
+                      </li>
+                    ))}
+                  </ul>
+                  {side.unknown_age > 0 && (
+                    <p className="mt-2 text-xs text-dim">
+                      {side.unknown_age} candidate{side.unknown_age === 1 ? '' : 's'} had no
+                      recorded date of birth. This objective depends on age, so they were scored
+                      neutrally rather than dropped - date of birth is known for about 42% of the
+                      register and a hard bound would discard the majority.
+                    </p>
+                  )}
                 </div>
               )}
 

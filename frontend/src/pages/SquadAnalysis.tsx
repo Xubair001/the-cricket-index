@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { SquadAnalysis as SquadAnalysisType, TeamSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
@@ -135,25 +135,18 @@ function Reliance({
 
 export function SquadAnalysis() {
   const { slug, apiGender } = useGender()
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { set: update, clear } = f
 
   // Selection lives in the URL so a squad view is a link a scout can send (§24).
-  const teamId = params.get('team') ?? ''
-  const windowMatches = Number(params.get('window') ?? 20)
+  const teamId = f.get('team')
+  const windowMatches = f.int('window', 20)
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
   const [data, setData] = useState<SquadAnalysisType | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  function update(next: Record<string, string>) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     api
@@ -174,8 +167,8 @@ export function SquadAnalysis() {
     if (previousGender.current === apiGender) return
     previousGender.current = apiGender
     setData(null)
-    setParams(new URLSearchParams(), { replace: true })
-  }, [apiGender, setParams])
+    clear()
+  }, [apiGender, clear])
 
   useEffect(() => {
     if (!teamId) {

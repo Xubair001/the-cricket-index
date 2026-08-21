@@ -28,6 +28,10 @@ def batting_rankings(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
+    # A window over the same scope, not a different scope. Absent means career,
+    # which is what a leaderboard has always meant here; `last12m` turns the
+    # same board into "leading run-scorers of the last twelve months".
+    period: str | None = Query(default=None),
     min_matches: int = Query(default=10, ge=1),
     sort_by: Literal["runs", "average", "strike_rate", "matches"] = "runs",
     limit: int = Query(default=25, ge=1, le=100),
@@ -36,13 +40,21 @@ def batting_rankings(
 ) -> dict:
     competition = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
+    window = validation.check_period(period)
     rows, total = queries.get_batting_rankings(
-        db, gender, competition, min_matches, sort_by, limit, offset, competition_type
+        db, gender, competition, min_matches, sort_by, limit, offset, competition_type,
+        period=window,
     )
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
+        # What window produced these figures, in the response rather than left to
+        # the caller to re-derive. A relative window resolves to dates here and a
+        # count-bounded one says whose count it is - see periods.applied.
+        "period": queries.applied_period(
+            db, gender, competition, competition_type, window
+        ),
         "items": [schemas.BattingRankingRow(**r) for r in rows],
     }
 
@@ -52,6 +64,10 @@ def bowling_rankings(
     gender: str = Query(pattern="^(male|female)$"),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
+    # A window over the same scope, not a different scope. Absent means career,
+    # which is what a leaderboard has always meant here; `last12m` turns the
+    # same board into "leading run-scorers of the last twelve months".
+    period: str | None = Query(default=None),
     min_matches: int = Query(default=10, ge=1),
     sort_by: Literal["wickets", "average", "economy", "matches"] = "wickets",
     limit: int = Query(default=25, ge=1, le=100),
@@ -60,13 +76,21 @@ def bowling_rankings(
 ) -> dict:
     competition = validation.check_competition_key(db, competition)
     competition_type = validation.check_competition_type(db, competition_type)
+    window = validation.check_period(period)
     rows, total = queries.get_bowling_rankings(
-        db, gender, competition, min_matches, sort_by, limit, offset, competition_type
+        db, gender, competition, min_matches, sort_by, limit, offset, competition_type,
+        period=window,
     )
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
+        # What window produced these figures, in the response rather than left to
+        # the caller to re-derive. A relative window resolves to dates here and a
+        # count-bounded one says whose count it is - see periods.applied.
+        "period": queries.applied_period(
+            db, gender, competition, competition_type, window
+        ),
         "items": [schemas.BowlingRankingRow(**r) for r in rows],
     }
 
@@ -220,6 +244,14 @@ def best_side(
     # always did. 'current' answers a different question and says so in the
     # response rather than quietly changing what the same heading means.
     pool: str = Query(default="all_time", pattern="^(all_time|current)$"),
+    # §18's optimisation objectives. Validated against the analytics table
+    # rather than a regex, so adding one stays a single-file change.
+    objective: str = Query(default="overall"),
+    # Canonical ground name. A TILT rather than a re-scope: at a single ground
+    # almost nobody has a real record, so the side is still picked over the whole
+    # scope and a venue record moves a candidate within it. See
+    # `selection._venue_records`.
+    venue: str | None = Query(default=None, max_length=120),
     db: Session = Depends(get_db),
 ) -> schemas.SelectedSide:
     """Best XI or XV for a scope (§18).
@@ -244,6 +276,14 @@ def best_side(
     if not key and not ctype:
         ctype = queries.DEFAULT_RANKING_COMPETITION_TYPE
 
+    if objective not in selection.OBJECTIVES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"unknown objective '{validation.echo(objective)}'; "
+                f"available: {sorted(selection.OBJECTIVES)}"
+            ),
+        )
     result = selection.select_side(
         db,
         gender=gender,
@@ -252,6 +292,8 @@ def best_side(
         competition_type=ctype,
         team_id=team_id,
         pool=pool,
+        objective=objective,
+        venue=venue,
     )
     team_name = None
     if team_id is not None:
@@ -274,4 +316,12 @@ def best_side(
         reference_date=result.reference_date,
         cutoff_date=result.cutoff_date,
         weights=result.weights,
+        eligibility_floor=result.eligibility_floor,
+        venue=result.venue,
+        venue_candidates_with_record=result.venue_candidates_with_record,
+        objective=result.objective,
+        objective_label=result.objective_label,
+        objective_detail=result.objective_detail,
+        tradeoffs=[schemas.SelectionTradeOff(**vars(t)) for t in result.tradeoffs],
+        unknown_age=result.unknown_age,
     )

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useGender, type GenderSlug } from '../gender/useGender'
 import { ThemeToggle } from './ThemeToggle'
 import { FAMILY_LABEL, useScope, type ScopeFamily } from '../scope/scope'
@@ -37,8 +37,9 @@ const NAV: NavGroup[] = [
   {
     label: 'Discover',
     items: [
-      { label: 'Players', to: 'players' },
-      { label: 'Teams', to: 'teams' },
+      // "Players" and "Teams" used to sit here as well as in their own groups
+      // below, so two entries in the same rail went to the same screen - which
+      // makes a reader think they have moved section when they have not.
       { label: 'In Form', to: 'form/in-form' },
       { label: 'Rising Players', to: 'form/rising' },
       { label: 'Best XI', to: 'best-xi' },
@@ -111,16 +112,20 @@ const NAV: NavGroup[] = [
   {
     label: 'Matches',
     items: [
-      { label: 'Results', to: 'matches' },
-      { label: 'Match Analysis', to: 'matches' },
+      // One entry, not two pointing at the same list. Match analysis is reached
+      // from a match, which is where it belongs: it is a view OF a match rather
+      // than a separate index of them.
+      { label: 'Results and analysis', to: 'matches' },
     ],
   },
   {
     label: 'Scout',
     items: [
+      // Only the destination that is unique to this group. "Build a XI" and
+      // "Compare Candidates" pointed at Best XI and Compare, which already have
+      // their own entries - the same screen reached from two labels reads as a
+      // navigation bug.
       { label: 'Find a Player', to: 'scout' },
-      { label: 'Build a XI', to: 'best-xi' },
-      { label: 'Compare Candidates', to: 'compare' },
     ],
   },
 ]
@@ -314,26 +319,21 @@ export function Layout() {
         </div>
       </nav>
 
-      <div className="border-t border-border-subtle px-4 py-3">
-        {/* Deliberately not "international cricket" any more -- the dataset now
-            also carries franchise cricket (PSL), and naming the competitions
-            here would just be a second place to update per league. */}
-        {/* Both match sources are named because both are used. Attributing an
-            ICC-sourced match to Cricsheet under ODC-BY would be a false
-            licensing claim rather than merely an imprecise one: Cricsheet has
-            withheld every Afghanistan match since 2024-11-14, so all of that
-            cricket reaches this app via the ICC feed. Each match page states
-            its own source. */}
-        <p className="text-[11px] leading-relaxed text-dim">
-          Match data from{' '}
-          <a
-            href="https://cricsheet.org"
-            className="text-muted underline decoration-border-strong underline-offset-2 hover:text-ink"
-          >
-            Cricsheet.org
-          </a>{' '}
-          under ODC-BY 1.0, and from the ICC feed for matches Cricsheet has not published. Rankings
-          and fixtures come from the ICC. Derived figures are computed here, not published ratings.
+      <div className="border-t border-border-subtle px-4 py-3.5">
+        {/* The data attribution used to live here, on every screen, which read
+            as a disclaimer stapled to the product. It cannot simply be deleted -
+            the match records are ODC-BY 1.0 and that licence requires
+            attribution - so it moved to the About page, which is linked below.
+            This spot is now the product's own mark and its copyright. */}
+        <Link
+          to={`/${slug}/about`}
+          className="block text-[11px] leading-relaxed text-dim transition-colors hover:text-muted"
+        >
+          <span className="block font-semibold text-muted">The Cricket Index</span>
+          About, contact and data sources
+        </Link>
+        <p className="mt-2 text-[11px] text-dim">
+          &copy; {new Date().getFullYear()} The Cricket Index
         </p>
       </div>
     </div>

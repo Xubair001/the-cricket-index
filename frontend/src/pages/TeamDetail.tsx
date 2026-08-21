@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react'
+import { ActionLink } from '../components/ActionLink'
+
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
 import type { MatchSummary, TeamDetail as TeamDetailType } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
+import { TeamStrengthPanel } from '../components/TeamStrength'
 import { TeamWeaknessPanel } from '../components/TeamWeakness'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { StatCard } from '../components/StatCard'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useScope } from '../scope/scope'
 import { percent, rate } from '../format'
 import { PlayerName } from '../components/PlayerName'
 import {
@@ -54,8 +59,19 @@ function Result({ match, teamId }: { match: MatchSummary; teamId: number }) {
 export function TeamDetail() {
   const { slug } = useGender()
   const { teamId = '' } = useParams()
+  const f = useFilters()
   const [team, setTeam] = useState<TeamDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // One competition for both team-intelligence panels. Phases are defined per
+  // competition and Tests have none, so a Test-playing side must not default to
+  // Tests or the weakness panel opens on something it cannot measure.
+  // In the URL rather than component state, so a team page opened on T20Is stays
+  // on T20Is through a back-navigation and can be shared as that view.
+  const { competitions } = useScope()
+  const phaseCompetitions = competitions.filter((c) => c.key !== 'tests')
+  const intelCompetition = f.get('intel') || phaseCompetitions[0]?.key || ''
+  const setIntelCompetition = (value: string) => f.set({ intel: value })
 
   useEffect(() => {
     // Guards against a slower request for a previous team resolving after
@@ -82,9 +98,7 @@ export function TeamDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to={`/${slug}/teams`} className="text-sm text-muted transition-colors hover:text-ink">
-          &larr; All teams
-        </Link>
+        <ActionLink to={`/${slug}/teams`} weight="quiet" direction="back">All teams</ActionLink>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <Flag code={team.country_code} name={team.name} className="text-2xl" />
           <h1 className="u-display text-title text-ink">{team.name}</h1>
@@ -94,12 +108,7 @@ export function TeamDetail() {
         </div>
         {/* This page is the side's whole record; the squad view is the same
             side over its recent matches only, which is a different question. */}
-        <Link
-          to={`/${slug}/teams/squad?team=${team.team_id}`}
-          className="mt-2 inline-block text-sm text-analytic-ink hover:underline"
-        >
-          Squad analysis &rarr;
-        </Link>
+        <ActionLink to={`/${slug}/teams/squad?team=${team.team_id}`} weight="secondary">Squad analysis</ActionLink>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -185,7 +194,36 @@ export function TeamDetail() {
         </Panel>
       </div>
 
-      <TeamWeaknessPanel teamId={team.team_id} />
+      {/* Section 19 pairs these two: strength says where the side is deep,
+          weakness says what has declined against its own past. Strength first,
+          because a reader needs the shape of the side before the change in it.
+
+          ONE competition selector drives both. Each panel owning its own put two
+          dropdowns on the page and let them disagree, so a reader saw depth over
+          all international cricket beside a decline measured in T20Is. Phases
+          are defined per competition and Tests have none, so the default is the
+          richest competition that has them. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="u-eyebrow">Team intelligence</h2>
+        <label className="flex items-center gap-2">
+          <span className="u-eyebrow">Competition</span>
+          <select
+            value={intelCompetition}
+            onChange={(e) => setIntelCompetition(e.target.value)}
+            className="rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-sm text-ink"
+          >
+            {phaseCompetitions.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <TeamStrengthPanel teamId={team.team_id} competition={intelCompetition || undefined} />
+
+      <TeamWeaknessPanel teamId={team.team_id} competition={intelCompetition} />
 
       <Panel title="Recent Matches">
         {team.recent_matches.length === 0 ? (

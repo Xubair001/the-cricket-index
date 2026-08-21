@@ -1,19 +1,15 @@
-const LABELS: Record<string, string> = {
-  tests: 'Test',
-  odis: 'ODI',
-  t20is: 'T20I',
-  psl: 'PSL',
-}
-
 /* Format badges are neutral chips, not semantic colour: green/red/amber carry
  * meaning elsewhere in the product (above baseline, below baseline, low
  * confidence) and must not be spent labelling a format. Franchise cricket is
  * the one distinction drawn, because it is the one that must never be read as
- * interchangeable with international cricket. */
-const FRANCHISE = new Set(['psl'])
+ * interchangeable with international cricket.
+ *
+ * The label map and the franchise set live in `../competitions` so prose
+ * elsewhere can reuse them without this file exporting a non-component. */
+import { FRANCHISE, competitionLabel } from '../competitions'
 
 export function CompetitionBadge({ competition }: { competition: string }) {
-  const label = LABELS[competition] ?? competition
+  const label = competitionLabel(competition)
   const franchise = FRANCHISE.has(competition)
   // The analytic tier is the text-weight step (AA on its own tint); the mark
   // tier is too light to read as 10px type.

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { plural } from '../format'
 import type { MatchSummary, TeamSummary } from '../api/types'
 import { CompetitionBadge } from '../components/CompetitionBadge'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
@@ -8,6 +9,7 @@ import { Pagination } from '../components/Pagination'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
+import { useFilters } from '../state/useFilters'
 import {
   tableClass,
   tdClass,
@@ -23,7 +25,8 @@ const fieldLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 export function Matches() {
   const { slug, apiGender } = useGender()
-  const [requestedCompetition, setCompetition] = useState('')
+  const f = useFilters()
+  const requestedCompetition = f.get('competition')
   // A match list is not a summed figure, so mixing families here would not
   // corrupt a number - but a reader who has put the app into Leagues is asking
   // for league cricket, and a list that quietly included Tests would make the
@@ -33,10 +36,14 @@ export function Matches() {
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const [teamId, setTeamId] = useState('')
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [offset, setOffset] = useState(0)
+  const teamId = f.get('team')
+  const search = f.get('q')
+  const offset = f.int('offset', 0)
+
+  // The input is local so typing stays instant; the URL takes the settled value
+  // 300ms later. Writing every keystroke would put a history entry (and a
+  // request) behind each letter.
+  const [searchInput, setSearchInput] = useState(search)
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
   const [matches, setMatches] = useState<MatchSummary[]>([])
@@ -54,11 +61,11 @@ export function Matches() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(search)
-      setOffset(0)
+      if (searchInput !== search) f.set({ q: searchInput })
     }, 300)
     return () => clearTimeout(timer)
-  }, [search])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput])
 
   useEffect(() => {
     // Guards against a slower request for previous filters resolving after
@@ -71,7 +78,7 @@ export function Matches() {
         competition: competition || undefined,
         competition_type: competitionType,
         team_id: teamId ? Number(teamId) : undefined,
-        search: debouncedSearch || undefined,
+        search: search || undefined,
         limit: LIMIT,
         offset,
       })
@@ -89,14 +96,14 @@ export function Matches() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, competition, competitionType, teamId, debouncedSearch, offset])
+  }, [apiGender, competition, competitionType, teamId, search, offset])
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="u-display text-title text-ink">Matches</h1>
         <p className="mt-1 text-sm text-muted">
-          {total.toLocaleString()} matches, most recent first
+          {plural(total, 'match', 'matches')}, most recent first
         </p>
       </div>
 
@@ -106,8 +113,7 @@ export function Matches() {
           <select
             value={competition}
             onChange={(e) => {
-              setCompetition(e.target.value)
-              setOffset(0)
+              f.set({ competition: e.target.value })
             }}
             className={field}
           >
@@ -123,8 +129,7 @@ export function Matches() {
           <select
             value={teamId}
             onChange={(e) => {
-              setTeamId(e.target.value)
-              setOffset(0)
+              f.set({ team: e.target.value })
             }}
             className={field}
           >
@@ -141,8 +146,8 @@ export function Matches() {
           <input
             type="text"
             placeholder="Venue or event"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className={`${field} w-56 placeholder:text-dim`}
           />
         </label>
@@ -185,7 +190,7 @@ export function Matches() {
             </tbody>
           </table>
           <div className="px-4">
-            <Pagination total={total} limit={LIMIT} offset={offset} onChange={setOffset} />
+            <Pagination total={total} limit={LIMIT} offset={offset} onChange={(o) => f.keep({ offset: o })} />
           </div>
         </div>
       )}

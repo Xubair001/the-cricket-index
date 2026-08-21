@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { useFilters } from '../state/useFilters'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
 import type { ExplorerKind, ExplorerPage, ExplorerRow, TeamSummary, VenueOption } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
+import { ExplorerScatter } from '../components/ExplorerScatter'
+import { competitionLabel } from '../competitions'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
 import { useScopedCompetition } from '../scope/scope'
@@ -112,9 +116,10 @@ export function Explorer() {
   const { slug, apiGender } = useGender()
   const { explorer = 'batting' } = useParams<{ explorer: ExplorerKind }>()
   const kind = (EXPLORERS.some((e) => e.key === explorer) ? explorer : 'batting') as ExplorerKind
-  const [params, setParams] = useSearchParams()
+  const f = useFilters()
+  const { keep, set: update } = f
 
-  const requestedCompetition = params.get('competition') ?? ''
+  const requestedCompetition = f.get('competition')
   // The scope switch owns which family is in play. A competition from the other
   // family is dropped rather than sent, so the figures on screen always match
   // the heading above them.
@@ -123,15 +128,18 @@ export function Explorer() {
     competitionType,
     options: competitionOptions,
   } = useScopedCompetition(requestedCompetition)
-  const opposition = params.get('opposition') ?? ''
-  const dateFrom = params.get('from') ?? ''
-  const dateTo = params.get('to') ?? ''
-  const sortBy = params.get('sort') ?? ''
-  const minInnings = params.get('min_innings') ?? ''
-  const minBalls = params.get('min_balls') ?? ''
-  const role = params.get('role') ?? ''
-  const venue = params.get('venue') ?? ''
-  const offset = Number(params.get('offset') ?? 0)
+  const opposition = f.get('opposition')
+  // Still read, because links already shared carry them and the API still
+  // intersects them with any window.
+  const dateFrom = f.get('from')
+  const dateTo = f.get('to')
+  const period = f.get('period')
+  const sortBy = f.get('sort')
+  const minInnings = f.get('min_innings')
+  const minBalls = f.get('min_balls')
+  const role = f.get('role')
+  const venue = f.get('venue')
+  const offset = f.int('offset', 0)
 
   const [teams, setTeams] = useState<TeamSummary[]>([])
   const [venues, setVenues] = useState<VenueOption[]>([])
@@ -139,15 +147,6 @@ export function Explorer() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  function update(next: Record<string, string>, keepOffset = false) {
-    const merged = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(next)) {
-      if (v) merged.set(k, v)
-      else merged.delete(k)
-    }
-    if (!keepOffset) merged.delete('offset')
-    setParams(merged, { replace: true })
-  }
 
   useEffect(() => {
     api
@@ -171,6 +170,7 @@ export function Explorer() {
         opposition_team_id: opposition ? Number(opposition) : undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
+        period: period || undefined,
         min_innings: minInnings ? Number(minInnings) : undefined,
         min_balls: minBalls ? Number(minBalls) : undefined,
         role: role || undefined,
@@ -185,7 +185,7 @@ export function Explorer() {
     return () => {
       cancelled = true
     }
-  }, [kind, apiGender, competition, competitionType, opposition, dateFrom, dateTo, minInnings, minBalls, role, venue, sortBy, offset])
+  }, [kind, apiGender, competition, competitionType, opposition, dateFrom, dateTo, period, minInnings, minBalls, role, venue, sortBy, offset])
 
   const columns = COLUMNS[kind]
   const active = EXPLORERS.find((e) => e.key === kind)!
@@ -212,7 +212,6 @@ export function Explorer() {
           </Link>
         ))}
       </div>
-
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
@@ -258,24 +257,12 @@ export function Explorer() {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className={fieldLabel}>From</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => update({ from: e.target.value })}
-            className={field}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={fieldLabel}>To</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => update({ to: e.target.value })}
-            className={field}
-          />
-        </label>
+        {/* One "when" control, not two mechanisms side by side. The raw
+            `from`/`to` params are still sent and still honoured by the API, so
+            links already shared keep resolving - but a reader picking a window
+            picks it once, and gets the count-bounded options a pair of date
+            inputs cannot express. */}
+        <PeriodSelect value={period} onChange={(v) => update({ period: v })} />
         {kind !== 'allround' && (
           <label className="flex flex-col gap-1">
             <span className={fieldLabel}>Role</span>
@@ -295,7 +282,7 @@ export function Explorer() {
           <input
             type="number"
             min={1}
-            placeholder={String(data?.filters.min_innings ?? '')}
+            placeholder={data ? String(data.applied_min_innings) : ''}
             value={minInnings}
             onChange={(e) => update({ min_innings: e.target.value })}
             className={`${field} w-24 placeholder:text-dim`}
@@ -306,13 +293,18 @@ export function Explorer() {
           <input
             type="number"
             min={0}
-            placeholder={String(data?.filters.min_balls ?? '')}
+            placeholder={data ? String(data.applied_min_balls) : ''}
             value={minBalls}
             onChange={(e) => update({ min_balls: e.target.value })}
             className={`${field} w-24 placeholder:text-dim`}
           />
         </label>
       </div>
+
+      {/* The window is what the figures MEAN, so it sits above the first row. */}
+
+      <AppliedPeriodNote period={data?.period ?? null} />
+
 
       {error && <ErrorMessage message={error} />}
 
@@ -321,11 +313,47 @@ export function Explorer() {
           everyone (§21). */}
       {data && (
         <p className="text-xs text-muted">
-          {data.total.toLocaleString()} players qualify ·{' '}
-          <span className="tnum">{data.filters.min_innings}</span> matches and{' '}
-          <span className="tnum">{data.filters.min_balls}</span> balls minimum
-          {data.filters.min_balls > 0 && ' - rate columns are meaningless below a volume floor'}
+          {/* The count BEFORE the floor is the important half. A batting board
+              for one ground against one side used to report 0 players where 148
+              had played, and nothing on the page distinguished that from a
+              ground with no cricket at it. */}
+          <span className="tnum font-medium text-ink">{data.total.toLocaleString()}</span> of{' '}
+          <span className="tnum">{data.total_before_volume_floor.toLocaleString()}</span>{' '}
+          {data.total_before_volume_floor === 1 ? 'player' : 'players'} shown · needs <span className="tnum">{data.applied_min_innings}</span>{' '}
+          {data.applied_min_innings === 1 ? 'match' : 'matches'} and{' '}
+          <span className="tnum">{data.applied_min_balls}</span> balls
+          {!minInnings && !minBalls && ' (scaled to this slice)'}
         </p>
+      )}
+
+      {/* The chart sits ABOVE the table, because it answers a different
+          question and answering it first is the point: the table ranks, the
+          scatter shows the shape of the field. A reader who only ever sees a
+          sorted column cannot tell an accumulator from an aggressor. */}
+      {data && data.items.length >= 4 && (
+        <ExplorerScatter
+          kind={kind}
+          gender={apiGender}
+          query={{
+            competition: competition || undefined,
+            competition_type: competition ? undefined : competitionType ?? undefined,
+            opposition_team_id: opposition ? Number(opposition) : undefined,
+            date_from: dateFrom || undefined,
+            date_to: dateTo || undefined,
+            period: period || undefined,
+            min_innings: minInnings ? Number(minInnings) : undefined,
+            min_balls: minBalls ? Number(minBalls) : undefined,
+            role: role || undefined,
+            venue: venue || undefined,
+          }}
+          scopeLabel={
+            competition
+              ? `${competitionLabel(competition)} cricket`
+              : competitionType === 'domestic_league'
+                ? 'franchise cricket'
+                : 'international cricket'
+          }
+        />
       )}
 
       <div className="scroll-x rounded-xl border border-border-subtle bg-surface shadow-card">
@@ -416,7 +444,7 @@ export function Explorer() {
               total={data.total}
               limit={LIMIT}
               offset={offset}
-              onChange={(o) => update({ offset: String(o) }, true)}
+              onChange={(o) => keep({ offset: String(o) })}
             />
           </div>
         )}

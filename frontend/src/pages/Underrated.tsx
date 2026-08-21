@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { UnderratedTable } from '../api/types'
 import { useGender } from '../gender/useGender'
+import { useFilters } from '../state/useFilters'
 import { ErrorMessage, SkeletonRows } from '../components/LoadingSpinner'
 import { PlayerName } from '../components/PlayerName'
 import { count, rate } from '../format'
@@ -67,17 +68,25 @@ export function Underrated() {
   const { slug, apiGender } = useGender()
   const formats = apiGender === 'female' ? FORMATS_WOMEN : FORMATS_MEN
 
-  const [format, setFormat] = useState(formats[0].value)
-  const [discipline, setDiscipline] = useState('batting')
+  const f = useFilters()
+  // Validated against the CURRENT gender's list rather than taken raw, because
+  // men's and women's rank types share no vocabulary: 'test' has no women's
+  // equivalent, so a gender switch carrying it over would request a table the
+  // ICC does not publish. An unknown value falls back rather than erroring.
+  const requestedFormat = f.get('format')
+  const format = formats.some((o) => o.value === requestedFormat)
+    ? requestedFormat
+    : formats[0].value
+  const discipline = f.get('discipline', 'batting')
   const [data, setData] = useState<UnderratedTable | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Men's and women's rank types share no vocabulary ('test' has no women's
-  // equivalent), so a gender switch has to reset rather than carry over.
+  // The fallback above already displays the right table; this clears the stale
+  // value out of the URL so a shared link matches what is on screen.
   useEffect(() => {
-    setFormat(formats[0].value)
-  }, [apiGender]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (requestedFormat && requestedFormat !== format) f.set({ format: null })
+  }, [requestedFormat, format, f])
 
   useEffect(() => {
     let cancelled = false
@@ -106,7 +115,7 @@ export function Underrated() {
           <span className={fieldLabelClass}>Format</span>
           <select
             value={format}
-            onChange={(e) => setFormat(e.target.value)}
+            onChange={(e) => f.set({ format: e.target.value })}
             className={fieldClass}
           >
             {formats.map((f) => (
@@ -120,7 +129,7 @@ export function Underrated() {
           <span className={fieldLabelClass}>Discipline</span>
           <select
             value={discipline}
-            onChange={(e) => setDiscipline(e.target.value)}
+            onChange={(e) => f.set({ discipline: e.target.value })}
             className={fieldClass}
           >
             {DISCIPLINES.map((d) => (

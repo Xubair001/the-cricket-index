@@ -54,11 +54,44 @@ from . import config
 # Split types this module can actually compute.
 AVAILABLE = ("phase", "situation", "venue", "opposition", "competition")
 
+# Packs (venue, city) into one GROUP BY key. A character that cannot occur in
+# either column, so unpacking is unambiguous.
+_VENUE_CITY_SEPARATOR = "\x1f"
+
+# Below this a bucket's RATES are not a record of anything, and the venue split
+# is where it bites: a Test career spans ~79 grounds and around one in seven of
+# them is a single innings, so an average of 146.50 from two visits was being
+# shown at the same weight as one from eight. The bucket is still returned -
+# the runs were scored - it is the rates that carry a warning.
+#
+# **Each rate is gated on its OWN denominator**, which the first version was not.
+# Gating everything on innings marked the wrong figures: a batting average is
+# runs / DISMISSALS, so 192.00 off four innings and two dismissals is the
+# unstable case and passed an innings test comfortably, while a strike rate off
+# the same four innings rests on 200-odd balls and is perfectly sound. The
+# denominators are different quantities and one threshold cannot describe both.
+RELIABLE_MIN_INNINGS = 3
+RELIABLE_MIN_BALLS = 60
+# An average divides by dismissals, so that is what has to be counted. Four is
+# where the figure stops swinging by tens of runs on one more innings.
+RELIABLE_MIN_DISMISSALS = 4
+# A bowling average divides by wickets, and the same reasoning applies.
+RELIABLE_MIN_WICKETS = 4
+
 # Declared so the API can report them as absent-with-a-reason rather than
 # silently offering a shorter list than §12 promises.
 UNAVAILABLE = {
-    "home_away": "Needs a venue-to-country mapping; canonicalising a ground's "
-                 "name is a different problem from knowing which country it is in.",
+    "home_away": "Needs a venue-to-country mapping, and this dataset has no "
+                 "country to read. Measured over all 636 distinct "
+                 "(venue, city) pairs, only 15 carry a segment that resolves to "
+                 "a country - 2.4%. Cricsheet gives a ground and a city (270 of "
+                 "them), never a country, so canonicalising a ground's name is a "
+                 "different problem from knowing which country it is in. "
+                 "Unblocking this is a data decision: a sourced ground-to-country "
+                 "list. It is deliberately not inferred from which side plays "
+                 "somewhere most often, because that resolves Sharjah and Dubai "
+                 "to Pakistan and India, which is exactly backwards for the "
+                 "neutral venues where the question matters most.",
     "bowling_type": "Needs a pace/spin source for each bowler, which exists in "
                     "neither Cricsheet nor Wikidata (Tier C).",
 }
@@ -89,6 +122,22 @@ class SplitBucket:
     economy: float | None = None
     bowling_average: float | None = None
     bowling_dot_pct: float | None = None
+    # False where this bucket rests on too little cricket for THAT SIDE's rates
+    # to describe anything. Per discipline, because a batter who bowled two overs
+    # at a ground must not have their batting average flagged on the strength of
+    # the bowling sample - which is the same conflation the explorers guard
+    # against when they keep batters off a bowling board.
+    #
+    # Marked rather than withheld: the runs were scored, so the row stays and it
+    # is the rates that carry the warning. Matters most on the venue split, where
+    # a Test career spans ~79 grounds and around one in seven is a single innings.
+    batting_reliable: bool = True
+    bowling_reliable: bool = True
+    # Narrower still, for the two rates whose denominator is not balls. See
+    # RELIABLE_MIN_DISMISSALS: a strike rate off four innings is sound and the
+    # average over the same four is not, because they divide by different things.
+    average_reliable: bool = True
+    bowling_average_reliable: bool = True
 
 
 @dataclass
@@ -113,6 +162,17 @@ def _finish(b: SplitBucket) -> SplitBucket:
     b.boundary_pct = _rate((b.fours + b.sixes) * 100.0, b.balls_faced)
     b.economy = _rate(b.runs_conceded * 6.0, b.balls_bowled)
     b.bowling_average = _rate(b.runs_conceded, b.wickets)
+    # Per discipline. A single flag marked Kohli's Wankhede batting (6 innings,
+    # 433 runs) unreliable because he had also bowled a few balls there.
+    b.batting_reliable = (
+        b.innings >= RELIABLE_MIN_INNINGS and b.balls_faced >= RELIABLE_MIN_BALLS
+    )
+    b.bowling_reliable = (
+        b.innings >= RELIABLE_MIN_INNINGS and b.balls_bowled >= RELIABLE_MIN_BALLS
+    )
+    # ...and then per rate, on the denominator that rate actually divides by.
+    b.average_reliable = b.batting_reliable and b.dismissals >= RELIABLE_MIN_DISMISSALS
+    b.bowling_average_reliable = b.bowling_reliable and b.wickets >= RELIABLE_MIN_WICKETS
     return b
 
 
@@ -201,7 +261,17 @@ def _group_expression(split: str, competition_key: str | None):
         ]
 
     if split == "venue":
-        return Match.venue, None, None
+        # Grouped on venue AND city, not the venue alone. Six different English
+        # grounds are all called "County Ground" and two are "National Stadium",
+        # so grouping on the raw column merges them: players here have up to 37
+        # appearances spread across six County Grounds, reported as one row.
+        # The pair is packed into one expression because this is a GROUP BY key,
+        # and unpacked when the label is resolved.
+        return (
+            Match.venue + _VENUE_CITY_SEPARATOR + func.coalesce(Match.city, ""),
+            None,
+            None,
+        )
     if split == "opposition":
         return func.iif(
             Delivery.batting_team_id == Match.team1_id, Match.team2_id, Match.team1_id
@@ -291,7 +361,11 @@ def compute(
     # Names for the splits whose bucket key is an id or a raw string.
     if split == "venue":
         for b in rows:
-            b.label = canonical(b.key) or b.key
+            venue, _, city = b.key.partition(_VENUE_CITY_SEPARATOR)
+            # `canonical` takes the city so a shared ground name is qualified -
+            # "County Ground (Bristol)" rather than six rows all reading
+            # "County Ground".
+            b.label = canonical(venue, city or None) or venue
     elif split == "opposition":
         names = dict(db.execute(select(Team.team_id, Team.name)).all())
         for b in rows:
