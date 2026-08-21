@@ -1124,6 +1124,55 @@ Four things that are load-bearing:
   2025-08-15..2026-01-01. This is what let the explorer's two raw date inputs be
   replaced by one window control without breaking a single shared link.
 
+#### The window reaches six surfaces, and the profile is where it reads hardest
+
+Rankings, all three explorers, the player directory, Compare and the player
+profile all take `period`. Two of those are worth knowing about:
+
+- **Compare** is §13's explicit requirement ("period adjustable within the
+  comparison"), and it turns the page from "who has scored more" into "who is
+  scoring more now": Kohli against Rohit in ODIs is 14,819 to 11,532 over a
+  career and **760 to 584 over the last twelve months**, off twelve matches each.
+- **The profile drops formats it has no cricket in.** Kohli's career page shows
+  Test, ODI and T20I; narrowed to twelve months it shows ODI alone, because that
+  is the only format he has played in the window. That is the honest answer, so
+  the empty state says "no cricket in this window - widen it" rather than looking
+  like a data failure.
+
+The profile's window is anchored on gender only, not on a competition: a profile
+spans every format the player has played, so there is no single competition to
+count a relative window back from.
+
+Form is **not** narrowed with the aggregates on the directory. Form has its own
+baseline and answers a different question (Principle 3), so a `period=last30d`
+board shows thirty-day run tallies beside standard form verdicts, and the note
+says which is which.
+
+#### A career-scale volume floor emptied a narrowed WINDOW too
+
+Exactly the defect `explorer.derive_min_balls` already fixed, in a new place. The
+directory applies a default floor of 200 balls faced (300 bowled) whenever the
+sort is a volume field, and that floor was fixed regardless of the window - so it
+was measuring a career qualification against a month of cricket. Measured on
+men's Tests sorted by runs:
+
+    window        fixed floor        derived floor
+    career        693 of 1,063       693 of 1,063  (200, unchanged)
+    last 12m       88 of 197         115 of 197    (floor 99)
+    last 6m        43 of 146          88 of 146    (floor 59)
+    last 30d       12 of 71           52 of 71     (floor 35)
+    last 5 matches 552 of 1,063      769 of 1,063  (floor 98)
+
+At thirty days the fixed floor hid **83% of the players who actually batted**, and
+the page said only "12 players in tests". The floor is now derived from the slice
+when a window narrows it and left fixed for a career board, and the response
+carries `total_before_volume_floor` so the page leads with "52 of 71".
+
+One copy defect fell out of the same line: the header read "sorted on a rate, so
+a minimum of 200 balls faced applies" for **runs** and **wickets**, which are
+totals. `QUALIFIED` now holds the unit only and the threshold comes from the API,
+since it is no longer a constant the client can know.
+
 #### A count-bounded board puts a retired player beside a current one, and says so
 
 "Last 10 matches" on a leaderboard reads as *recent form*, and it is not: it is

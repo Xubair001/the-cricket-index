@@ -22,6 +22,8 @@ def compare_players(
     b: str | None = Query(default=None, description="legacy: second player", deprecated=True),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
+    # §13 asks for the period to be adjustable within the comparison.
+    period: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> schemas.PlayerComparison:
     """Compare 2 to 5 players within one competition scope (§13).
@@ -57,15 +59,21 @@ def compare_players(
                 detail=f"player identifier too long: '{validation.echo(identifier)}'",
             )
 
+    window = validation.check_period(period)
+    comp_key = validation.check_competition_key(db, competition)
+    comp_type = validation.check_competition_type(db, competition_type)
     result = queries.get_player_comparison(
-        db,
-        identifiers,
-        validation.check_competition_key(db, competition),
-        validation.check_competition_type(db, competition_type),
+        db, identifiers, comp_key, comp_type, period=window,
     )
     if isinstance(result, str):
         # 404 for a missing player, 422 for a set that can't be compared.
         raise HTTPException(status_code=404 if "not found" in result else 422, detail=result)
+    # §13 asks for the period to be adjustable inside the comparison, so the
+    # window travels with the answer for the same reason it does on a board: two
+    # players' figures mean nothing without knowing over what.
+    result.period = queries.applied_period(
+        db, result.gender, comp_key, comp_type, window
+    )
     return result
 
 
@@ -75,6 +83,10 @@ def player_directory(
     search: str | None = Query(default=None, max_length=validation.MAX_SEARCH_LENGTH),
     competition: str | None = Query(default=None),
     competition_type: str | None = Query(default=None),
+    # A window over the same scope. §9 lists a date range among the directory's
+    # filters; this is that, plus the count-bounded windows a pair of dates
+    # cannot express.
+    period: str | None = Query(default=None),
     team_id: int | None = Query(default=None, ge=1, le=validation.MAX_DB_INT),
     min_matches: int = Query(default=1, ge=1, le=500),
     min_balls_faced: int = Query(default=0, ge=0),
@@ -97,7 +109,8 @@ def player_directory(
         )
     comp_key = validation.check_competition_key(db, competition)
     comp_type = validation.check_competition_type(db, competition_type)
-    rows, total = queries.browse_players(
+    window = validation.check_period(period)
+    rows, total, before_floor, applied_floor = queries.browse_players(
         db,
         gender,
         search=search,
@@ -112,12 +125,21 @@ def player_directory(
         sort_by=sort_by,
         limit=limit,
         offset=offset,
+        period=window,
     )
     return schemas.PlayerDirectory(
         total=total,
         limit=limit,
         offset=offset,
         scope=form_board.scope_label(comp_key, comp_type),
+        # The window the aggregates cover. NOT the form column's window: form is
+        # a different question with its own baseline (Principle 3), and narrowing
+        # the career figures does not narrow the form verdict beside them.
+        period=queries.applied_period(db, gender, comp_key, comp_type, window),
+        # Both counts, because their being different is the story on a narrowed
+        # window: 12 of 71 is a floor removing people, not an absence of cricket.
+        total_before_volume_floor=before_floor,
+        applied_min_balls=applied_floor,
         items=[
             schemas.DirectoryPlayer(**r)
             for r in queries._attach_country(
@@ -334,11 +356,23 @@ def player_splits(
 
 
 @router.get("/{identifier}", response_model=schemas.PlayerDetail)
-def player_detail(identifier: str, db: Session = Depends(get_db)) -> schemas.PlayerDetail:
+def player_detail(
+    identifier: str,
+    # A window over this player's own record. Absent means career, which is what
+    # a profile has always shown.
+    period: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> schemas.PlayerDetail:
     # No gender param needed: a player's identifier already uniquely
     # determines them (and their gender) -- no cross-gender ambiguity to
     # resolve, unlike team names.
-    detail = queries.get_player_detail(db, identifier)
+    window = validation.check_period(period)
+    detail = queries.get_player_detail(db, identifier, period=window)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"player '{validation.echo(identifier)}' not found")
+    # The window travels with the figures: a profile narrowed to twelve months
+    # shows the same labels over very different numbers, so it has to say which.
+    # Scoped by gender only - a profile spans every competition the player has
+    # played, so there is no single competition to anchor a relative window to.
+    detail.period = queries.applied_period(db, detail.gender, None, None, window)
     return detail

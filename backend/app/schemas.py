@@ -454,6 +454,10 @@ class PlayerDetail(PlayerCountry):
     icc_rankings: list[IccRankEntry]
     by_competition: list[PlayerFormatStats]
     recent_matches: list["MatchSummary"]
+    """The window `by_competition` covers, resolved. Absent means career, which
+    is what a profile has always shown; a narrowed window has to say so, because
+    "9,230 runs" and "668 runs" are the same player."""
+    period: dict | None = None
 
 
 class IccRankingRow(BaseModel):
@@ -552,6 +556,10 @@ class PlayerComparison(BaseModel):
     # [{season, values: [...]}], positional against `sides`.
     season_runs: list[dict]
     season_wickets: list[dict]
+    """The window these figures cover, resolved. A relative window counts back
+    from the newest match in the scope rather than from today, and a
+    count-bounded one is each player's own last N."""
+    period: dict | None = None
 
 
 class FixtureRow(BaseModel):
@@ -1421,6 +1429,16 @@ class PlayerDirectory(BaseModel):
     offset: int
     scope: str
     items: list[DirectoryPlayer]
+    """The window these figures cover, resolved. A relative window counts back
+    from the newest match in the scope rather than from today, and a
+    count-bounded one is each player's own last N."""
+    period: dict | None = None
+    """How many players matched before the volume floor, and the floor applied.
+    On a narrowed window the default floor is derived from the slice rather than
+    fixed - a 200-ball career qualification is most of a season inside a 30-day
+    window, and left fixed it showed 12 of the 71 players who actually batted."""
+    total_before_volume_floor: int = 0
+    applied_min_balls: int = 0
 
 
 # ---------------------------------------------------------------------------

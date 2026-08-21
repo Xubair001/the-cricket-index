@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { api } from '../api/client'
 import { useFilters } from '../state/useFilters'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
 import type { ApiGender, ComparisonMetric, PlayerComparison, PlayerSummary } from '../api/types'
 import { ErrorMessage, LoadingSpinner } from '../components/LoadingSpinner'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -290,6 +291,7 @@ export function Compare() {
   // `?players=x,y,z`, and a legacy link is rewritten to it on arrival so
   // copying the URL again yields the new form.
   const scope = f.get('scope')
+  const period = f.get('period')
   const chosen = useMemo(() => {
     const listed = (params.get('players') ?? '')
       .split(',')
@@ -339,14 +341,17 @@ export function Compare() {
     setLoading(true)
     setError(null)
     api
-      .comparePlayers(ids, scope ? { competition: scope } : {})
+      .comparePlayers(ids, {
+        ...(scope ? { competition: scope } : {}),
+        ...(period ? { period } : {}),
+      })
       .then((res) => !cancelled && setData(res))
       .catch((e) => !cancelled && (setError(String(e)), setData(null)))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [key, scope])
+  }, [key, scope, period])
 
   const names = data?.sides.map((s) => s.name) ?? []
   const colours = data?.sides.map((_, i) => chart.series[i % chart.series.length]) ?? []
@@ -475,6 +480,10 @@ export function Compare() {
               ))}
             </select>
           </div>
+          {/* §13 asks for the period to be adjustable within the comparison,
+              which is what turns "who has scored more" into "who is scoring
+              more now" without leaving the page. */}
+          <PeriodSelect value={period} onChange={(v) => set({ period: v })} />
         </div>
         {chosen.length >= MAX_PLAYERS && (
           <p className="text-xs text-dim">
@@ -540,6 +549,11 @@ export function Compare() {
               </div>
             ))}
           </div>
+
+          {/* The window, above the figures it governs: at career Kohli's ODI runs
+              are 14,819 and over twelve months they are 760, under the same
+              heading. */}
+          <AppliedPeriodNote period={data.period} />
 
           {/* Legend is always present: identity must never rest on colour alone. */}
           <Panel title={`Head to head - ${data.scope_label}`} aside={seriesLegend}>

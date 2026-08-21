@@ -4,7 +4,7 @@ from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from . import cache, schemas, flags
-from .analytics import periods
+from .analytics import explorer as explorer_mod, periods
 from .names import preferred_name
 from .models import (
     Competition,
@@ -1085,7 +1085,9 @@ def search_players(
     return items, total
 
 
-def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | None:
+def get_player_detail(
+    db: Session, identifier: str, period: "periods.Period | None" = None
+) -> schemas.PlayerDetail | None:
     player = db.execute(select(Player).where(Player.identifier == identifier)).scalar_one_or_none()
     if player is None:
         return None
@@ -1106,10 +1108,12 @@ def get_player_detail(db: Session, identifier: str) -> schemas.PlayerDetail | No
     ).scalars().all()
     for comp in competitions:
         batting = _batting_aggregate_rows(
-            db, player.gender, competition_key=comp.key, player_identifier=identifier
+            db, player.gender, competition_key=comp.key, player_identifier=identifier,
+            period=period,
         )
         bowling = _bowling_aggregate_rows(
-            db, player.gender, competition_key=comp.key, player_identifier=identifier
+            db, player.gender, competition_key=comp.key, player_identifier=identifier,
+            period=period,
         )
         if not batting and not bowling:
             continue
@@ -1408,15 +1412,17 @@ COMPARISON_METRICS = [
 
 def _scoped_totals(
     db: Session, identifier: str, gender: str, competition_key: str | None,
-    competition_type: str | None,
+    competition_type: str | None, period: "periods.Period | None" = None,
 ) -> schemas.PlayerFormatStats | None:
     batting = _batting_aggregate_rows(
         db, gender, competition_key=competition_key,
         competition_type=competition_type, player_identifier=identifier,
+        period=period,
     )
     bowling = _bowling_aggregate_rows(
         db, gender, competition_key=competition_key,
         competition_type=competition_type, player_identifier=identifier,
+        period=period,
     )
     if not batting and not bowling:
         return None
@@ -1476,7 +1482,7 @@ def _career_span(db: Session, identifier: str) -> list[str | None]:
 
 def _comparison_side(
     db: Session, player: Player, competition_key: str | None, competition_type: str | None,
-    reference: str | None,
+    reference: str | None, period: "periods.Period | None" = None,
 ) -> schemas.ComparisonSide:
     identifier = player.identifier
     team_ids = [
@@ -1497,7 +1503,7 @@ def _comparison_side(
     for comp in db.execute(
         select(Competition).where(Competition.gender == player.gender)
     ).scalars().all():
-        totals = _scoped_totals(db, identifier, player.gender, comp.key, None)
+        totals = _scoped_totals(db, identifier, player.gender, comp.key, None, period)
         if totals is None:
             continue
         totals.competition_key = comp.key
@@ -1522,7 +1528,9 @@ def _comparison_side(
             bio_source=player.bio_source,
             image_url=player.image_url,
         ),
-        totals=_scoped_totals(db, identifier, player.gender, competition_key, competition_type),
+        totals=_scoped_totals(
+            db, identifier, player.gender, competition_key, competition_type, period
+        ),
         by_competition=by_competition,
         icc_rankings=current_icc_ranks_for_player(db, identifier),
         career_span=_career_span(db, identifier),
@@ -1538,6 +1546,7 @@ MAX_COMPARISON_PLAYERS = 5
 def get_player_comparison(
     db: Session, identifiers: list[str],
     competition_key: str | None, competition_type: str | None,
+    period: "periods.Period | None" = None,
 ) -> schemas.PlayerComparison | str:
     """Compare 2 to 5 players. Returns an error string if the set is invalid.
 
@@ -1592,7 +1601,7 @@ def get_player_comparison(
 
     reference = dataset_latest_date(db)
     sides = [
-        _comparison_side(db, p, competition_key, competition_type, reference)
+        _comparison_side(db, p, competition_key, competition_type, reference, period)
         for p in players
     ]
 
@@ -1883,7 +1892,8 @@ def browse_players(
     sort_by: str = "matches",
     limit: int = 25,
     offset: int = 0,
-) -> tuple[list[dict], int]:
+    period: "periods.Period | None" = None,
+) -> tuple[list[dict], int, int, int]:
     """The player directory: aggregates, status and form in one row per player.
 
     Scoped like every other aggregate -- an unqualified request is
@@ -1901,13 +1911,13 @@ def browse_players(
     batting = {
         r["player_identifier"]: r
         for r in _batting_aggregate_rows(
-            db, gender, competition_key, scope_type, team_id=team_id
+            db, gender, competition_key, scope_type, team_id=team_id, period=period
         )
     }
     bowling = {
         r["player_identifier"]: r
         for r in _bowling_aggregate_rows(
-            db, gender, competition_key, scope_type, team_id=team_id
+            db, gender, competition_key, scope_type, team_id=team_id, period=period
         )
     }
 
@@ -1985,12 +1995,32 @@ def browse_players(
 
     # Qualification, applied after the rows are built so the thresholds can read
     # the aggregated figures.
+    #
+    # **The default floor is DERIVED when a window narrows the slice**, which is
+    # the same defect `explorer.derive_min_balls` fixed and for the same reason:
+    # 200 balls faced is a fair qualification for a career board and most of a
+    # season's worth of batting inside a 30-day window. Measured on men's Tests,
+    # the fixed floor showed 12 players of the 71 who actually batted in the last
+    # 30 days, and 43 of 146 over six months - with nothing on the page saying so.
     required = SORT_REQUIRES.get(sort_by)
     faced_floor, bowled_floor = min_balls_faced, min_balls_bowled
+    narrowed = period is not None and period.kind != periods.CAREER
     if required == "balls_faced" and min_balls_faced == 0:
-        faced_floor = DEFAULT_QUALIFY_BALLS_FACED
+        faced_floor = (
+            explorer_mod.derive_min_balls(rows, "batting")
+            if narrowed
+            else DEFAULT_QUALIFY_BALLS_FACED
+        )
     if required == "balls_bowled" and min_balls_bowled == 0:
-        bowled_floor = DEFAULT_QUALIFY_BALLS_BOWLED
+        bowled_floor = (
+            explorer_mod.derive_min_balls(rows, "bowling")
+            if narrowed
+            else DEFAULT_QUALIFY_BALLS_BOWLED
+        )
+    # Counted before the floor, because the two being different is the whole
+    # story on a narrowed window - without it a reader cannot tell "nobody played"
+    # from "the floor removed them".
+    total_before_floor = len(rows)
     rows = [
         r
         for r in rows
@@ -2015,4 +2045,9 @@ def browse_players(
             reverse=True,
         )
 
-    return rows[offset : offset + limit], len(rows)
+    return (
+        rows[offset : offset + limit],
+        len(rows),
+        total_before_floor,
+        faced_floor if required == "balls_faced" else bowled_floor,
+    )

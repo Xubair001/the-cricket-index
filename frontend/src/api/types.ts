@@ -118,6 +118,8 @@ export interface PlayerComparison {
   metrics: ComparisonMetric[]
   season_runs: { season: string; values: number[] }[]
   season_wickets: { season: string; values: number[] }[]
+  /** The window these figures cover, resolved by the API. */
+  period: AppliedPeriod | null
 }
 
 export interface TeamRef {
@@ -250,6 +252,8 @@ export interface PlayerDetail extends PlayerCountry {
   icc_rankings: IccRankEntry[]
   by_competition: PlayerFormatStats[]
   recent_matches: MatchSummary[]
+  /** The window `by_competition` covers, resolved by the API. */
+  period: AppliedPeriod | null
 }
 
 export interface MatchSummary {
@@ -533,6 +537,13 @@ export interface PlayerDirectory {
   offset: number
   scope: string
   items: DirectoryPlayer[]
+  /** The window the aggregate columns cover. NOT the form column's window:
+   *  form has its own baseline and is a different question (Principle 3). */
+  period: AppliedPeriod | null
+  /** How many matched before the volume floor, and the floor applied. Derived
+   *  from the slice when a window narrows it, fixed for a career board. */
+  total_before_volume_floor: number
+  applied_min_balls: number
 }
 
 // --- Analytics explorers (§21) --------------------------------------------

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import { useFilters } from '../state/useFilters'
-import type { DirectoryPlayer, FormState } from '../api/types'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
+import type { AppliedPeriod, DirectoryPlayer, FormState } from '../api/types'
 import { ErrorMessage } from '../components/LoadingSpinner'
 import { Pagination } from '../components/Pagination'
 import { useGender } from '../gender/useGender'
@@ -52,13 +53,23 @@ const FORM_STATES = [
 ]
 
 // Which sorts rest on a rate, and therefore carry a server-side qualification.
+/**
+ * Which volume a sort is qualified on, as the UNIT only - the threshold itself
+ * comes from the API, because it is derived from the slice when a window
+ * narrows it rather than fixed.
+ *
+ * Runs and wickets are in here beside the rates. They are totals, not rates, so
+ * the old copy calling every one of these "sorted on a rate" was wrong on two
+ * of the six - but a total still needs the floor, because a leaderboard of
+ * whoever faced twenty balls is not a leaderboard.
+ */
 const QUALIFIED: Record<string, string> = {
-  batting_average: '200 balls faced',
-  strike_rate: '200 balls faced',
-  runs: '200 balls faced',
-  bowling_average: '300 balls bowled',
-  economy: '300 balls bowled',
-  wickets: '300 balls bowled',
+  batting_average: 'balls faced',
+  strike_rate: 'balls faced',
+  runs: 'balls faced',
+  bowling_average: 'balls bowled',
+  economy: 'balls bowled',
+  wickets: 'balls bowled',
 }
 
 const FORM_TONE: Record<FormState, string> = {
@@ -116,11 +127,15 @@ export function Players() {
   const minMatches = f.int('min_matches', 1)
   const offset = f.int('offset', 0)
   const search = f.get('q')
+  const period = f.get('period')
 
   const [searchInput, setSearchInput] = useState(search)
   const [rows, setRows] = useState<DirectoryPlayer[]>([])
   const [total, setTotal] = useState(0)
   const [scope, setScope] = useState('')
+  const [applied, setApplied] = useState<AppliedPeriod | null>(null)
+  const [beforeFloor, setBeforeFloor] = useState(0)
+  const [appliedFloor, setAppliedFloor] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -148,6 +163,7 @@ export function Players() {
         form_state: formState || undefined,
         sort_by: sortBy,
         min_matches: minMatches,
+        period: period || undefined,
         limit: LIMIT,
         offset,
       })
@@ -156,6 +172,9 @@ export function Players() {
         setRows(res.items)
         setTotal(res.total)
         setScope(res.scope)
+        setApplied(res.period)
+        setBeforeFloor(res.total_before_volume_floor)
+        setAppliedFloor(res.applied_min_balls)
       })
       .catch((e) => {
         if (!cancelled) setError(String(e))
@@ -166,21 +185,39 @@ export function Players() {
     return () => {
       cancelled = true
     }
-  }, [apiGender, search, competition, competitionType, status, formState, sortBy, minMatches, offset])
+  }, [apiGender, search, competition, competitionType, status, formState, sortBy, minMatches, period, offset])
 
   const qualification = useMemo(() => QUALIFIED[sortBy], [sortBy])
+  const removed = Math.max(0, beforeFloor - total)
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="u-display text-title text-ink">Players</h1>
         <p className="mt-1 text-sm text-muted">
-          {plural(total, 'player')} in {scope || 'this scope'}
+          {/* Both counts when the floor removed anybody, because their being
+              different is the story: "52 of 71" is a qualification working,
+              where "52 players" reads as the extent of the cricket played. */}
+          {removed > 0 ? (
+            <>
+              <span className="tnum text-ink">{total.toLocaleString()}</span> of{' '}
+              <span className="tnum">{beforeFloor.toLocaleString()}</span>{' '}
+              {beforeFloor === 1 ? 'player' : 'players'}
+            </>
+          ) : (
+            plural(total, 'player')
+          )}{' '}
+          in {scope || 'this scope'}
           {qualification && (
             <>
               {' '}
-              · sorted on a rate, so a minimum of{' '}
-              <span className="text-warning-ink">{qualification}</span> applies
+              · needs{' '}
+              <span className="tnum text-warning-ink">{appliedFloor.toLocaleString()}</span>{' '}
+              {qualification}
+              {/* Scaled when a window narrows the slice: a 200-ball career
+                  qualification is most of a season inside 30 days, and left
+                  fixed it showed 12 of the 71 players who actually batted. */}
+              {period && ' (scaled to this window)'}
             </>
           )}
         </p>
@@ -198,6 +235,7 @@ export function Players() {
           />
         </label>
         <Select label="Competition" value={competition} options={competitionOptions.map((c) => ({ key: c.value, label: c.label }))} onChange={(v) => update({ competition: v })} />
+        <PeriodSelect value={period} onChange={(v) => update({ period: v })} />
         <Select label="Sort by" value={sortBy} options={SORTS.map((s) => ({ key: s.key, label: s.label }))} onChange={(v) => update({ sort: v })} />
         <Select label="Status" value={status} options={STATUSES} onChange={(v) => update({ status: v })} />
         <Select label="Form" value={formState} options={FORM_STATES} onChange={(v) => update({ form: v })} />
@@ -212,6 +250,13 @@ export function Players() {
           />
         </label>
       </div>
+
+      {/* The window narrows the aggregate columns. Form is not narrowed with
+
+          them: it has its own baseline and answers a different question. */}
+
+      <AppliedPeriodNote period={applied} />
+
 
       {error && <ErrorMessage message={error} />}
 

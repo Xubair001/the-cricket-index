@@ -122,8 +122,8 @@ export const api = {
   players: (gender: ApiGender, params: { search?: string; limit?: number; offset?: number }) =>
     getJson<Paginated<PlayerSummary>>('/api/players', { gender, ...params }),
 
-  playerDetail: (identifier: string) =>
-    getJson<PlayerDetail>(`/api/players/${encodeURIComponent(identifier)}`),
+  playerDetail: (identifier: string, params: { period?: string } = {}) =>
+    getJson<PlayerDetail>(`/api/players/${encodeURIComponent(identifier)}`, params),
 
   // Form is a separate call from the profile on purpose: it is the expensive
   // half, and it answers a different question (Rule 3 -- form is not career).
@@ -187,6 +187,8 @@ export const api = {
       min_balls_bowled?: number
       status?: string
       form_state?: string
+      /** A period spec. Narrows the aggregate columns, not the form column. */
+      period?: string
       sort_by?: string
       limit?: number
       offset?: number
@@ -218,7 +220,7 @@ export const api = {
    */
   comparePlayers: (
     identifiers: string[],
-    params: { competition?: string; competition_type?: string } = {},
+    params: { competition?: string; competition_type?: string; period?: string } = {},
   ) =>
     getJson<PlayerComparison>('/api/players/compare', {
       players: identifiers.join(','),

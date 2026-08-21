@@ -13,14 +13,20 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { StatusBadge } from '../components/StatusBadge'
 import { Flag } from '../components/Flag'
 import { useGender } from '../gender/useGender'
+import { useFilters } from '../state/useFilters'
+import { AppliedPeriodNote, PeriodSelect } from '../components/PeriodSelect'
 import { rate } from '../format'
-import { tdClass } from '../components/ui'
+import { EmptyState, tdClass } from '../components/ui'
 
 const sectionLabel = 'font-mono text-[10px] uppercase tracking-[0.1em] text-muted'
 
 export function PlayerDetail() {
   const { slug } = useGender()
   const { identifier = '' } = useParams()
+  // The window over this player's own record. In the URL like every other
+  // filter, so "Kohli's last twelve months" is a link somebody can send.
+  const f = useFilters()
+  const period = f.get('period')
   const [player, setPlayer] = useState<PlayerDetailType | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<FormVerdict | null>(null)
@@ -33,7 +39,7 @@ export function PlayerDetail() {
     setPlayer(null)
     setError(null)
     api
-      .playerDetail(identifier)
+      .playerDetail(identifier, { period: period || undefined })
       .then((res) => {
         if (!cancelled) setPlayer(res)
       })
@@ -43,7 +49,7 @@ export function PlayerDetail() {
     return () => {
       cancelled = true
     }
-  }, [identifier])
+  }, [identifier, period])
 
   // Fetched separately from the profile so a slow form computation never holds
   // up the page, and so a failure here degrades to "form unavailable" rather
@@ -172,6 +178,19 @@ export function PlayerDetail() {
       )}
 
       <div className="space-y-4">
+        {/* Above the career blocks, because it is those figures the window
+            governs - the form card above has its own window and the splits
+            panel below has its own scope. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <PeriodSelect value={period} onChange={(v) => f.set({ period: v })} label="Career window" />
+          <AppliedPeriodNote period={player.period} />
+        </div>
+        {player.by_competition.length === 0 && (
+          <EmptyState
+            title="No cricket in this window"
+            hint="This player has no recorded matches in the period selected above. Their career record is still there - widen the window."
+          />
+        )}
         {player.by_competition.map((c) => (
           <section key={c.competition_key} className="rounded-xl border border-border-subtle bg-surface shadow-card">
             <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
