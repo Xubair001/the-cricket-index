@@ -138,7 +138,11 @@ def _endpoints() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", default="http://127.0.0.1:8009")
+    # The port CLAUDE.md documents for the API. It used to default to 8009,
+    # which was a scratch port from a review session - so the script's own
+    # exit code was correct (it fails on an unreachable endpoint) while its
+    # summary line still read "OK", and a clean-looking run had checked nothing.
+    parser.add_argument("--base", default="http://127.0.0.1:8001")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     args = parser.parse_args()
 
@@ -170,6 +174,16 @@ def main() -> int:
         checked = len(_endpoints()) - len(unreachable)
         if findings:
             print(f"\n{len(findings)} of {checked} endpoints carry an out-of-range display figure.")
+        elif unreachable:
+            # Never "OK" when something could not be reached. The exit code was
+            # always right; the summary line was not, and the summary is what a
+            # person reads. A run that checked nothing is the case this guard
+            # exists for.
+            print(
+                f"\nFAIL {len(unreachable)} of {len(_endpoints())} endpoints were "
+                f"unreachable, so {checked} were actually checked. Is the API "
+                f"running on {args.base}?"
+            )
         else:
             print(f"OK  {checked} endpoints checked, no display figure outside its range.")
 

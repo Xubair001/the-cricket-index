@@ -255,7 +255,11 @@ def list_tournaments(
     # Flagship events first, then by how much cricket they hold. Ordering only:
     # nothing is hidden for not being a flagship, and the list says how many
     # tournaments it holds so the tail is visibly there.
-    out.sort(key=lambda t: (not t.is_flagship, not t.is_icc, -t.matches))
+    # `slug` closes the sort. Dozens of tournaments hold the same number of
+    # matches, so without a final key their order is whatever the engine
+    # produced - which made the same request return a different order on SQLite
+    # and on Postgres, and makes any future paging of this list unreliable.
+    out.sort(key=lambda t: (not t.is_flagship, not t.is_icc, -t.matches, t.slug))
     return out
 
 

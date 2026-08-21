@@ -59,12 +59,14 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from collections import OrderedDict
 from typing import Any, Callable
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .database import DB_PATH
+from .database import DB_PATH, IS_SQLITE, engine
 
 # Hard ceiling on entries, with least-recently-used eviction.
 #
@@ -96,15 +98,58 @@ _signature_value: tuple | None = None
 _probe: sqlite3.Connection | None = None
 _probe_lock = threading.Lock()
 
+# --------------------------------------------------------------------------
+# The Postgres path: no cheap gate exists, so the signature IS the gate
+# --------------------------------------------------------------------------
+#
+# The two-tier design above is worth having on SQLite because the tiers cost
+# wildly different amounts: `PRAGMA data_version` is a memory read and the
+# signature is a real query. On Postgres that asymmetry disappears - there is no
+# pragma, and every candidate for one (`pg_current_xact_id`, `pg_stat_database`
+# counters) is a round trip exactly like the signature. A two-tier scheme would
+# pay the same cost for less information.
+#
+# **What matters instead is not probing on every lookup.** `data_version` is
+# called inside `get_or_compute`, so on SQLite every warm cache hit pays one
+# memory read - nothing. Over a network to a managed Postgres it would pay a
+# round trip, which is the whole warm-path budget: the boards this cache exists
+# to protect are under 5 ms warm, and a probe per hit would multiply that by the
+# link latency. So the signature is checked at most once per interval and the
+# last answer is reused in between.
+#
+# The cost is stated rather than hidden: **a figure can be up to
+# `PROBE_INTERVAL_SECONDS` stale after an ingest commits.** That is acceptable
+# here and would not be everywhere - ingestion is a daily scheduled job, so the
+# window is a few seconds inside a 24-hour cycle. It is not acceptable to make it
+# much larger, because the whole reason this module exists is that a long-running
+# API otherwise serves pre-ingest figures indefinitely.
+PROBE_INTERVAL_SECONDS = 5.0
+_last_probe_at: float = 0.0
+_last_probe_value: int = 0
+
 
 def data_version(db: Session | None = None) -> int:
-    """The database's change counter, from the dedicated probe connection.
+    """A counter that moves when the data MIGHT have changed.
 
     The `db` argument is accepted and ignored, so callers can keep passing the
-    session they already hold. Probing *that* session would reintroduce the
-    cross-connection comparison this function exists to avoid.
+    session they already hold. On SQLite, probing *that* session would
+    reintroduce the cross-connection comparison this function exists to avoid;
+    on Postgres a `count(*)` is comparable from any connection, so the hazard is
+    SQLite's alone.
     """
-    global _probe
+    global _probe, _last_probe_at, _last_probe_value
+    if not IS_SQLITE:
+        with _probe_lock:
+            now = time.monotonic()
+            if now - _last_probe_at < PROBE_INTERVAL_SECONDS:
+                return _last_probe_value
+            _last_probe_at = now
+            # The signature itself, hashed to an int so it slots into the
+            # counter's contract. `_sweep_locked` then compares the real
+            # signature and only discards entries when it genuinely differs, so
+            # a hash collision costs a wasted re-check and never a stale serve.
+            _last_probe_value = hash(_query_signature())
+            return _last_probe_value
     with _probe_lock:
         if _probe is None:
             _probe = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -126,9 +171,22 @@ _SIGNATURE_SQL = """
 """
 
 
+def _query_signature() -> tuple:
+    """Run the signature query on whichever engine is configured.
+
+    The SQL is unchanged between the two: `count(*)` and `max()` over four small
+    tables is as portable as SQL gets, which is why the signature tier survived
+    the move intact while the pragma tier did not.
+    """
+    with engine.connect() as conn:
+        return tuple(conn.execute(text(_SIGNATURE_SQL)).one())
+
+
 def _signature() -> tuple:
     """A cheap fingerprint of the data the caches are built from."""
     global _probe
+    if not IS_SQLITE:
+        return _query_signature()
     with _probe_lock:
         if _probe is None:
             _probe = sqlite3.connect(DB_PATH, check_same_thread=False)

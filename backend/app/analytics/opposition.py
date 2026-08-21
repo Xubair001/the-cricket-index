@@ -204,7 +204,7 @@ class OppositionTable:
             }
             for team_id, (idx, n) in self._overall.items()
         ]
-        rows.sort(key=lambda r: r["concession_index"])
+        rows.sort(key=lambda r: (r["concession_index"], r.get("team_name") or ""))
         return rows
 
 
@@ -293,7 +293,18 @@ def table(db: Session, *, refresh: bool = False) -> OppositionTable:
             Match.team1_id.is_not(None),
             Match.team2_id.is_not(None),
         )
-        .group_by(PlayerMatchStat.match_id, PlayerMatchStat.team_id)
+        # The four match-level columns are in the GROUP BY although they are
+        # constant within each (match, team) group: SQLite allows a bare column
+        # here and Postgres does not, and Postgres infers functional dependency
+        # only through a grouped primary key. Listing them changes no grouping.
+        .group_by(
+            PlayerMatchStat.match_id,
+            PlayerMatchStat.team_id,
+            Competition.key,
+            Competition.type,
+            Match.gender,
+            Match.match_date_start,
+        )
     )
 
     # match_id -> the per-side impact totals within it, plus its fitting pool

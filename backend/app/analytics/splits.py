@@ -44,8 +44,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import String, cast, Select, func, select
 from sqlalchemy.orm import Session
+from .. import capabilities
+from ..sqlfun import iif
 
 from ..models import Competition, Delivery, Match, Team
 from ..venues import canonical
@@ -196,12 +198,20 @@ def _batting_rows(db: Session, pid: str, group, gender, competition_key):
             func.sum(Delivery.runs_batter),
             # A wide is not a ball faced -- the same rule the aggregate parser
             # applies, so a split and a career figure agree.
-            func.sum(func.iif(Delivery.wides == 0, 1, 0)),
-            func.sum(func.iif(Delivery.runs_total == 0, 1, 0)),
-            func.sum(func.iif((Delivery.runs_batter == 4) & (Delivery.non_boundary == 0), 1, 0)),
-            func.sum(func.iif((Delivery.runs_batter == 6) & (Delivery.non_boundary == 0), 1, 0)),
-            func.sum(func.iif(Delivery.player_out == pid, 1, 0)),
-            func.count(func.distinct(Delivery.match_id + "-" + Delivery.innings)),
+            func.sum(iif(Delivery.wides == 0, 1, 0)),
+            func.sum(iif(Delivery.runs_total == 0, 1, 0)),
+            func.sum(iif((Delivery.runs_batter == 4) & (Delivery.non_boundary == 0), 1, 0)),
+            func.sum(iif((Delivery.runs_batter == 6) & (Delivery.non_boundary == 0), 1, 0)),
+            func.sum(iif(Delivery.player_out == pid, 1, 0)),
+            # The innings number is CAST before concatenating. SQLite coerces an
+            # integer into a string join silently; Postgres refuses with
+            # "operator does not exist: text + integer", which is the loose-typing
+            # difference biting in the one place this codebase relied on it.
+            func.count(
+                func.distinct(
+                    Delivery.match_id + "-" + cast(Delivery.innings, String)
+                )
+            ),
         )
         .join(Match, Match.match_id == Delivery.match_id)
         .join(Competition, Competition.competition_id == Match.competition_id)
@@ -217,11 +227,11 @@ def _bowling_rows(db: Session, pid: str, group, gender, competition_key):
             group.label("bucket"),
             # Wides and no-balls are not legal deliveries, but their runs are
             # charged to the bowler; byes and leg-byes are neither.
-            func.sum(func.iif((Delivery.wides == 0) & (Delivery.noballs == 0), 1, 0)),
+            func.sum(iif((Delivery.wides == 0) & (Delivery.noballs == 0), 1, 0)),
             func.sum(Delivery.runs_batter + Delivery.wides + Delivery.noballs),
-            func.sum(func.iif(Delivery.runs_total == 0, 1, 0)),
+            func.sum(iif(Delivery.runs_total == 0, 1, 0)),
             func.sum(
-                func.iif(
+                iif(
                     Delivery.wicket_kind.in_(tuple(BOWLER_CREDITED_KINDS)), 1, 0
                 )
             ),
@@ -246,7 +256,7 @@ def _group_expression(split: str, competition_key: str | None):
         bands = config.PHASE_BANDS.get(competition_key or "")
         expr = None
         for key, _label, lo, hi in bands:
-            branch = func.iif((Delivery.over >= lo) & (Delivery.over <= hi), key, None)
+            branch = iif((Delivery.over >= lo) & (Delivery.over <= hi), key, None)
             expr = branch if expr is None else func.coalesce(expr, branch)
         labels = {k: lbl for k, lbl, _lo, _hi in bands}
         order = [k for k, _l, _lo, _hi in bands]
@@ -255,7 +265,7 @@ def _group_expression(split: str, competition_key: str | None):
     if split == "situation":
         # Innings number IS the situation in limited-overs cricket: the side
         # batting in innings 1 set a target, the side in innings 2 chased it.
-        expr = func.iif(Delivery.innings == 1, "batting_first", "chasing")
+        expr = iif(Delivery.innings == 1, "batting_first", "chasing")
         return expr, {"batting_first": "Batting first", "chasing": "Chasing"}, [
             "batting_first", "chasing",
         ]
@@ -273,7 +283,7 @@ def _group_expression(split: str, competition_key: str | None):
             None,
         )
     if split == "opposition":
-        return func.iif(
+        return iif(
             Delivery.batting_team_id == Match.team1_id, Match.team2_id, Match.team1_id
         ), None, None
     if split == "competition":
@@ -294,6 +304,18 @@ def compute(
         raise ValueError(f"unknown split '{split}'")
 
     label = split.replace("_", " ").title()
+
+    # Every split here is read off the ball record, so a deployment without it
+    # can compute none of them. Reported as "does not apply, and here is why"
+    # rather than as an empty table: an empty phase split reads as "this player
+    # never batted in the powerplay", which is a claim about cricket, and this is
+    # a fact about the deployment. Same distinction the module already draws for
+    # home/away and bowling type.
+    if not capabilities.has_deliveries(db):
+        return SplitResult(
+            split, label, applies=False,
+            not_applicable_because=capabilities.NO_DELIVERIES,
+        )
 
     # Phase needs a format, and Tests have none.
     if split == "phase":
@@ -374,7 +396,7 @@ def compute(
     if order:
         rows.sort(key=lambda b: order.index(b.key) if b.key in order else 99)
     else:
-        rows.sort(key=lambda b: -(b.balls_faced + b.balls_bowled))
+        rows.sort(key=lambda b: (-(b.balls_faced + b.balls_bowled), b.key))
 
     return SplitResult(split, label, buckets=rows)
 

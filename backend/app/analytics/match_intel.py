@@ -166,7 +166,7 @@ def compute(db: Session, match_id: str) -> MatchIntel | None:
     def who(pid: str | None) -> str:
         return names.get(pid or "", pid or "unknown")
 
-    out = MatchIntel(match_id=match_id, deferred=DEFERRED)
+    out = MatchIntel(match_id=match_id, deferred=dict(DEFERRED))
 
     by_innings: dict[int, list[Delivery]] = {}
     for d in rows:
@@ -292,7 +292,7 @@ def _spells(balls: list[Delivery], who) -> list[Spell]:
         if current:
             spells.append(_close_spell(current, who))
 
-    spells.sort(key=lambda s: s.start_over)
+    spells.sort(key=lambda s: (s.start_over, s.bowler))
     return spells
 
 

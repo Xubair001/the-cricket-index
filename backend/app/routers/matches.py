@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import queries, schemas, validation
+from .. import capabilities, queries, schemas, validation
 from ..analytics import match_intel
 from ..database import get_db
 
@@ -45,13 +45,19 @@ def match_intelligence(match_id: str, db: Session = Depends(get_db)) -> schemas.
     """
     result = match_intel.compute(db, match_id)
     if result is None:
-        # Distinguish "no such match" from "this match exists but its figures
-        # came from a source with no deliveries". A bare 404 reads as the first
-        # and hides the second, which is the difference between a broken link
-        # and a real limit of the data.
+        # Three different reasons, and they must not collapse into one 404.
+        #
+        # A bare "not found" reads as a broken link, and here it can also mean
+        # "this match's figures came from a feed without deliveries" or "this
+        # DEPLOYMENT holds no ball-by-ball data at all". The third was added
+        # when the ball record stopped being guaranteed present: the message
+        # below blames the source feed, which is simply untrue when the source
+        # is Cricsheet and the rows merely were not loaded.
         match = queries.get_match_detail(db, match_id)
         if match is None:
             raise HTTPException(status_code=404, detail=f"match '{validation.echo(match_id)}' not found")
+        if not capabilities.has_deliveries(db):
+            raise HTTPException(status_code=422, detail=capabilities.NO_DELIVERIES)
         raise HTTPException(
             status_code=422 if match.source != "cricsheet" else 404,
             detail=(

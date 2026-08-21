@@ -10,10 +10,50 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(PROJECT_ROOT, "cricket.db")
 
-engine = create_engine(
-    f"sqlite:///{DB_PATH}",
-    connect_args={"check_same_thread": False},
+# `DATABASE_URL` selects the store, and its absence means the local SQLite file -
+# so nothing about running this repo changes until the variable is set.
+#
+# §24 asked for a later move to Postgres to be "a connection change, not a
+# rewrite", and this is that change. What it does NOT cover is the two places
+# where portability is genuinely not free, both documented where they live:
+# `cache.py`'s invalidation signal (`PRAGMA data_version` has no Postgres
+# equivalent) and the ingestion pipeline's raw SQL.
+#
+# `postgres://` is normalised to `postgresql+psycopg://`: managed providers
+# (Neon, Heroku, Supabase) hand out the short form, SQLAlchemy 2 rejects it, and
+# the bare `postgresql://` form would pick psycopg2, which is not a dependency
+# here.
+def _resolve_url() -> str:
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        return f"sqlite:///{DB_PATH}"
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+DATABASE_URL = _resolve_url()
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+# Serverless Postgres closes idle connections and can scale its compute to zero,
+# so a pooled connection that has been sitting open is often already dead by the
+# time the next request takes it. `pool_pre_ping` costs one cheap round trip and
+# turns that from a 500 into a transparent reconnect; `pool_recycle` retires a
+# connection before the provider does. Neither applies to a local file.
+_engine_kwargs: dict = (
+    {"connect_args": {"check_same_thread": False}}
+    if IS_SQLITE
+    else {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_size": 5,
+        "max_overflow": 5,
+    }
 )
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 
 @event.listens_for(engine, "connect")
@@ -52,6 +92,10 @@ def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
     Sizes are ceilings, not allocations: SQLite maps and caches lazily, so a
     process serving only small queries does not pay for them.
     """
+    if not IS_SQLITE:
+        # Registered unconditionally so the docstring above stays with the
+        # settings it explains, but a PRAGMA is meaningless anywhere else.
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=5000")

@@ -16,9 +16,16 @@ cd frontend && npm install
 ```bash
 temporal server start-dev                                              # Web UI: localhost:8233
 cd ingestion && source ../venv/bin/activate && python worker.py
-cd backend && source ../venv/bin/activate && python -m uvicorn main:app --port 8001
+cd backend && source ../venv/bin/activate && python -m uvicorn main:app --port 8001 --env-file ../.env
 cd frontend && npm run dev                                             # localhost:5173
 ```
+
+**Which database** is chosen by `DATABASE_URL` in `.env` (gitignored). With no
+`.env`, or no such variable, everything uses the local `cricket.db` exactly as
+before - so `--env-file` is harmless when the file is absent. A Neon connection
+string goes in as-is; `postgres://` and `postgresql://` are both normalised to
+the psycopg driver, because managed providers hand out the short form and
+SQLAlchemy 2 rejects it.
 
 **Trigger ingestion** (worker must be running):
 ```bash
@@ -30,6 +37,15 @@ cd ingestion && python starter.py enrich   # cricinfo crosswalk + Wikidata bios/
 ```
 Re-running match ingestion is cheap - each match is content-hashed; unchanged
 matches are skipped, not re-parsed.
+
+**Migrate to Postgres** (idempotent; safe to re-run, resumes where it stopped):
+```bash
+cd backend && python -m scripts.migrate_to_postgres --url "$DATABASE_URL" --create-schema
+cd backend && python -m scripts.migrate_to_postgres --url "$DATABASE_URL" --skip deliveries
+cd backend && python -m scripts.migrate_to_postgres --url "$DATABASE_URL" --verify-only
+```
+Use the DIRECT endpoint rather than the pooled one for the load: it is one long
+`COPY` per chunk, which is what a transaction pooler is not for.
 
 **Register the daily ICC sync** (rankings + fixtures; re-running updates it):
 ```bash
@@ -1076,6 +1092,146 @@ other.
 `npm run check:filters` asserts the ten merge rules. The repo has no test suite
 and this is not the start of one; it is the one piece of the filter layer that is
 pure logic and was got wrong twice.
+
+### Postgres works, and §24's "a connection change, not a rewrite" was 90% true
+
+`DATABASE_URL` selects the store and its absence means the local SQLite file, so
+nothing about running this repo changed. The read path was genuinely portable:
+every query goes through SQLAlchemy with bound parameters, and the window
+functions the period work added are standard SQL. But "no SQLite-specific SQL"
+was not quite the case, and the gaps only appear when something actually runs
+the queries on Postgres:
+
+- **`func.iif` is SQLite's**, and 22 call sites across five analytics modules
+  used it. Postgres has no such function at all. `sqlfun.iif` emits `CASE WHEN`,
+  which both accept, so this is a translation rather than a dialect branch.
+- **`TEXT + INTEGER` concatenation.** `Delivery.match_id + "-" + Delivery.innings`
+  in the splits counter. SQLite coerces silently; Postgres refuses with "operator
+  does not exist". The innings is now `cast(..., String)`.
+- **Postgres is stricter about GROUP BY**, and four queries selected a bare
+  column that SQLite allowed: impact, opposition, venue and the news list. The
+  fix is to group by the joined tables' PRIMARY KEYS, because that is how
+  Postgres infers functional dependency - and `news_article_images` has a
+  COMPOSITE key, so two of its three columns infers nothing.
+- **`group_concat` had no business being there.** It was the only
+  dialect-specific function in the read path. Removed rather than branched:
+  `/api/competitions` groups by (key, gender) and folds in Python, the same call
+  `queries.py` already makes for the ranking aggregates.
+- **The same expression must be built ONCE** when it appears in both the select
+  list and the GROUP BY. Calling `_era_expr()` twice looks equivalent and is not:
+  each call mints its own bind parameters, so Postgres could not match the
+  grouped expression and rejected the all-round explorer outright.
+
+`schema.sql` stays the single definition and is translated at load time
+(`scripts/postgres_schema.py`): `INTEGER PRIMARY KEY AUTOINCREMENT` becomes an
+identity column, `WITHOUT ROWID` is dropped. A hand-maintained second schema file
+would be the copy that drifts.
+
+#### `PRAGMA data_version` has no Postgres equivalent, and the fix is not a translation
+
+`cache.py`'s two-tier invalidation exists because the pragma is a memory read and
+the content signature is a real query. On Postgres that asymmetry disappears -
+there is no pragma, and every candidate (`pg_current_xact_id`, `pg_stat_database`)
+is a round trip exactly like the signature.
+
+What matters instead is **not probing on every lookup**. `data_version` is called
+inside `get_or_compute`, so on SQLite every warm cache hit pays nothing; over a
+network it would pay a full round trip, which is the entire warm-path budget for
+boards that are meant to be under 5 ms. So on Postgres the signature is polled at
+most once per `PROBE_INTERVAL_SECONDS` (5) and the last answer is reused. The cost
+is stated rather than hidden: a figure can be up to five seconds stale after an
+ingest commits, which is nothing against a daily ingestion schedule.
+
+#### Tie-breaks are not tidiness, and SQLite hid a dozen missing ones
+
+Comparing 46 endpoints between the two engines found 9 disagreeing. Almost none
+were value corruption: they were **the same rows in a different order**, because
+an `ORDER BY` or a `.sort()` left ties to the engine. `queries.py` had used a
+final key from the start ("otherwise paging through a ranking can repeat or skip
+a row"); a dozen other places had not.
+
+Fixed with one rule applied everywhere - fixtures (dozens share a start date),
+match performers, tournaments, underrated, form leaders, scout candidates,
+selection candidates, venue formats and grounds, opposition rows, splits buckets,
+bowling spells. **This was a live defect on SQLite too**, not a portability
+detail: any of those lists paged with an arbitrary tie order can repeat or skip.
+
+Two of the nine were a different problem: the same ground reported a different
+city on each engine. `matches.city` genuinely holds two spellings for one ground
+(Dhaka/Mirpur, Chittagong/Chattogram, Port Elizabeth/Gqeberha), and both the
+venue profile and the venue listing picked one arbitrarily - the profile through a
+bare `LIMIT 1` with no `ORDER BY`. They now pick the spelling **most of the
+cricket was filed under**, alphabetical when level: deterministic, and a better
+answer than a coin flip.
+
+After all of it: **43 of 46 endpoints byte-identical**, 2 differing only in the
+last bits of one float (`recent_mean`, largest relative difference 1.11e-15
+against a float64 epsilon of 2.2e-16 - summation order, rendered at 2dp), and 0
+errors. Float sums are not made bit-identical across engines and should not be.
+
+#### Latency is geographic, and no amount of batching fixes it
+
+Measured against a Neon project in `us-east-2` from Pakistan: **median round-trip
+617 ms**. That single number explains every reading, and none of it is cold start:
+
+    player profile   22 round trips x 617ms = 13.6s   (observed 14.7s warm)
+    dashboard         9 round trips x 617ms =  5.6s   (observed  6.8s warm)
+
+Query *execution* is fine - the same 22 queries run in 266 ms against local
+Postgres, and several aggregates are faster there than on SQLite. The cost is
+distance multiplied by round-trip count, so the two levers are the region and the
+number of queries per request.
+
+`_player_competition_totals` is the second lever applied: the profile looped the
+competitions calling both aggregate builders per competition, which is 14 queries
+for seven competitions. Grouped by competition key instead, it is 2 - the profile
+went from 22 round trips to 16. **This is the N+1 lesson CLAUDE.md already
+records for Best XI and Scout, resurfacing the moment the database stopped being
+a local file**: on SQLite the loop was 26 ms and invisible.
+
+The region is the larger lever and it is a one-time decision, because Neon cannot
+move a project after creation. A region near the reader takes the RTT from 617 ms
+to roughly 40-120 ms.
+
+#### Ball-by-ball data is 2.7x larger in Postgres, which decides what fits
+
+Measured, not estimated: the 24 other tables are **79 MB** and `deliveries` is
+**842 MB**, against ~310 MB in SQLite. The gap is exactly the `WITHOUT ROWID`
+that CLAUDE.md's "64 bytes per delivery" depended on - Postgres has no
+equivalent, so every row carries a tuple header and the primary key becomes a
+separate index. Total 922 MB against 661 MB of SQLite.
+
+That matters because a plan's storage limit decides whether the product is whole.
+Neon's free plan reports `neon.max_cluster_size = 512MB`, so the ball record does
+not fit and `capabilities.has_deliveries` exists for exactly that deployment:
+every figure derived from deliveries reports **"this deployment does not hold
+ball-by-ball data"** rather than returning an empty result. An empty phase split
+reads as "this player never batted in the powerplay", which is a claim about
+cricket; this is a fact about the deployment, and §17 and §30 are about not
+conflating those.
+
+#### The migration is resumable, because a remote load is interrupted
+
+`scripts/migrate_to_postgres.py`. One `COPY` per table inside one transaction is
+faster and wrong for a metered link: a dropped connection at four million rows
+rolls back the lot and spends a gigabyte of transfer for nothing. So:
+
+- **Committed per chunk**, capping the loss at one chunk.
+- **Resumable by counting the target** and skipping that many source rows in the
+  same deterministic order. Verified by deleting 40,000 rows mid-table: the
+  re-run loaded exactly those 40,000 and reported "(resumed)", and a third run
+  was a no-op reporting "(complete)". This is also what makes the script safe to
+  run twice by accident.
+- **Keyset pagination, not OFFSET.** `LIMIT n OFFSET m` per chunk makes a 4.8M
+  row load quadratic - the last chunk re-scans the whole index to find its start.
+- **Retried with reconnect** on connection errors only; a constraint violation is
+  raised at once, because retrying it just fails again more slowly.
+- **Load order from Postgres's own FK catalog**, topologically sorted, rather
+  than a hand-written list or `session_replication_role = replica` - the latter
+  needs superuser, which a managed Postgres does not give you.
+
+Verification compares row counts **and** a per-table integer checksum, because
+equal counts over mangled values is the failure a count-only check cannot see.
 
 ### The period vocabulary existed with no consumers, and two window kinds are not one
 
@@ -2348,6 +2504,14 @@ records, so the defect had to be in the weighting:
     Alastair Cook  ours 161 Tests / 12,472 runs / 45.35    published identical
     James Anderson ours 682 wkts / avg 26.41               published 704 / 26.45
     R Ashwin       ours 532 wkts / avg 24.12               published 537 / 24.00
+
+One figure needs its column read carefully. The **bowling** board's `Mat` is
+matches in which the player BOWLED - `_build_bowling_aggregate_rows` filters
+`balls_bowled > 0` - so Broad shows 166 there against 167 on the batting board
+and on his profile. The missing one is the Antigua Test of February 2009,
+abandoned after ten balls, where he is named and bowled nothing. Both numbers are
+right for what they count; only a reader comparing the bowling board directly
+against a published Test-match count will notice.
 
 Broad's and Cook's whole careers fall inside the window, and both reproduce
 exactly; Anderson and Ashwin differ only by the matches Cricsheet is missing.

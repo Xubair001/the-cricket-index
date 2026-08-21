@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from ..sqlfun import iif
 
 from .. import flags, queries as queries_mod
 from ..models import Delivery, Match, Player, PlayerMatchStat, Team
@@ -310,12 +311,12 @@ def _team_innings(
                 func.sum(Delivery.runs_total),
                 # A legal ball: wides and no-balls do not count towards the over.
                 func.sum(
-                    func.iif((Delivery.wides == 0) & (Delivery.noballs == 0), 1, 0)
+                    iif((Delivery.wides == 0) & (Delivery.noballs == 0), 1, 0)
                 ),
                 # Dismissals that cost the side a wicket. Retired hurt is not
                 # one, which is why this is not simply "wicket_kind not null".
                 func.sum(
-                    func.iif(
+                    iif(
                         Delivery.wicket_kind.is_not(None)
                         & Delivery.wicket_kind.notin_(("retired hurt", "retired not out")),
                         1,

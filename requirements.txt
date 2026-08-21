@@ -3,3 +3,9 @@ httpx>=0.28.1
 fastapi>=0.141.1
 uvicorn>=0.52.1
 sqlalchemy>=2.0.51
+# Postgres driver. Only needed when DATABASE_URL points at Postgres;
+# the default SQLite path uses the stdlib.
+psycopg[binary]>=3.2
+# Lets `uvicorn --env-file` work, and lets both components read the same
+# .env without importing from each other.
+python-dotenv>=1.0

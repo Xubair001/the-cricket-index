@@ -672,7 +672,9 @@ def leaderboard(
     # Best-first, with identifier as a stable tiebreak so paging can't repeat or
     # skip a row when two players share a delta.
     leaders.sort(key=lambda l: l.player_identifier)
-    leaders.sort(key=lambda l: l.rank_score, reverse=True)
+    # Identifier closes it: two verdicts can share a rank score, and a
+    # leaderboard whose ties order arbitrarily repeats or skips rows when paged.
+    leaders.sort(key=lambda l: (-l.rank_score, l.player_identifier or ""))
 
     # The score comes from the scope-wide reduction rather than from this board,
     # and that is deliberate. This board drops inactive players and thin

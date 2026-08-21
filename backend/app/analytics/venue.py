@@ -149,7 +149,10 @@ def profile(
         .join(Match, Match.match_id == PlayerMatchStat.match_id)
         .join(Competition, Competition.competition_id == Match.competition_id)
         .where(at_ground, Match.gender == gender)
-        .group_by(Competition.key)
+        # `display_name` is grouped alongside the key it is functionally
+        # dependent on: Postgres requires every selected non-aggregate column in
+        # the GROUP BY, where SQLite does not.
+        .group_by(Competition.key, Competition.display_name)
     )
     if competition_key:
         stmt = stmt.where(Competition.key == competition_key)
@@ -200,7 +203,7 @@ def profile(
             )
         )
 
-    formats.sort(key=lambda f: -f.matches)
+    formats.sort(key=lambda f: (-f.matches, f.competition_key))
 
     span = db.execute(
         select(func.min(Match.match_date_start), func.max(Match.match_date_start)).where(
@@ -212,8 +215,21 @@ def profile(
             at_ground, Match.gender == gender
         )
     ).scalar_one()
+    # The city that appears in the MOST matches at this ground, not whichever
+    # row came back first.
+    #
+    # A bare `LIMIT 1` with no ORDER BY leaves the answer to the engine, and this
+    # column genuinely holds two spellings for one ground - CLAUDE.md records
+    # Dhaka against Mirpur, Kandy against Pallekele, Chittagong against
+    # Chattogram. So the arbitrary pick was visible: the same ground reported a
+    # different city on SQLite and on Postgres. Counting picks the dominant
+    # spelling, and the alphabetical tie-break makes it stable when two are level.
     city = db.execute(
-        select(Match.city).where(at_ground, Match.city.is_not(None)).limit(1)
+        select(Match.city)
+        .where(at_ground, Match.city.is_not(None))
+        .group_by(Match.city)
+        .order_by(func.count().desc(), Match.city.asc())
+        .limit(1)
     ).scalar_one_or_none()
 
     return VenueProfile(
@@ -349,7 +365,9 @@ def character(
             key,
             {
                 "name": canonical(venue, city) or venue,
-                "city": city,
+                # city -> matches, resolved to the dominant spelling below. The
+                # first-seen city was arbitrary for the same reason as above.
+                "cities": {},
                 "matches": 0,
                 "runs": 0,
                 "balls": 0,
@@ -360,7 +378,16 @@ def character(
         bucket["runs"] += runs or 0
         bucket["balls"] += balls or 0
         bucket["dismissals"] += dismissals or 0
-        bucket["city"] = bucket["city"] or city
+        if city:
+            bucket["cities"][city] = bucket["cities"].get(city, 0) + (matches or 0)
+
+    # Most-used spelling wins, alphabetical when level - deterministic on either
+    # engine.
+    for bucket in folded.values():
+        cities = bucket.pop("cities")
+        bucket["city"] = (
+            min(cities.items(), key=lambda kv: (-kv[1], kv[0]))[0] if cities else None
+        )
 
     # Bat-first record per ground, from the toss, in one pass over the matches.
     toss_rows = db.execute(
@@ -417,7 +444,7 @@ def character(
                 reliable=b["matches"] >= MIN_MATCHES_FOR_CHARACTER,
             )
         )
-    out.sort(key=lambda g: -g.matches)
+    out.sort(key=lambda g: (-g.matches, g.venue))
     return out
 
 

@@ -79,11 +79,25 @@ def list_venues(
         name = venues.canonical(raw, city)
         if not name:
             continue
-        entry = grouped.setdefault(name, {"venue": name, "city": city, "matches": 0, "raw_spellings": 0})
+        entry = grouped.setdefault(
+            name, {"venue": name, "cities": {}, "matches": 0, "raw_spellings": 0}
+        )
         entry["matches"] += count
         entry["raw_spellings"] += 1
-        if not entry["city"]:
-            entry["city"] = city
+        if city:
+            entry["cities"][city] = entry["cities"].get(city, 0) + count
+
+    # The DOMINANT city spelling, not the first one the engine happened to
+    # return. This column genuinely holds two names for one ground - Dhaka and
+    # Mirpur, Chittagong and Chattogram, Port Elizabeth and Gqeberha - so
+    # "whichever came first" is a real coin-flip, and it flipped differently on
+    # SQLite and on Postgres. Counting picks the name most of the cricket was
+    # filed under; the alphabetical tie-break makes it stable when level.
+    for entry in grouped.values():
+        cities = entry.pop("cities")
+        entry["city"] = (
+            min(cities.items(), key=lambda kv: (-kv[1], kv[0]))[0] if cities else None
+        )
     out = sorted(grouped.values(), key=lambda e: (-e["matches"], e["venue"]))
     return [schemas.VenueOption(**e) for e in out]
 

@@ -1085,6 +1085,97 @@ def search_players(
     return items, total
 
 
+def _player_competition_totals(
+    db: Session,
+    identifier: str,
+    gender: str,
+    period: "periods.Period | None" = None,
+) -> dict[str, dict]:
+    """Every competition's figures for ONE player, in two queries rather than 2N.
+
+    The profile used to loop the competitions and call the two aggregate builders
+    per competition: seven competitions, fourteen queries, on top of the eight
+    the rest of the page needs. On a local SQLite file that is 26 ms and invisible.
+    Against a managed Postgres it is fourteen network round trips, and at the
+    617 ms median measured from here that alone was 8.6 of the profile's 14.7
+    seconds - the same N+1 lesson CLAUDE.md records for Best XI and Scout,
+    surfacing again the moment the database stopped being a local file.
+
+    Grouped by competition key in SQL instead. Two round trips, any number of
+    competitions.
+    """
+    def rows(discipline: str) -> dict[str, dict]:
+        if discipline == "batting":
+            columns = [
+                func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
+                func.sum(PlayerMatchStat.runs_scored).label("runs"),
+                func.sum(PlayerMatchStat.dismissals).label("dismissals"),
+                func.sum(PlayerMatchStat.balls_faced).label("balls_faced"),
+                func.sum(PlayerMatchStat.fours).label("fours"),
+                func.sum(PlayerMatchStat.sixes).label("sixes"),
+            ]
+        else:
+            columns = [
+                func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
+                func.sum(PlayerMatchStat.wickets_taken).label("wickets"),
+                func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
+                func.sum(PlayerMatchStat.balls_bowled).label("balls_bowled"),
+            ]
+        stmt = (
+            select(Competition.key, Competition.display_name, *columns)
+            .join(Match, Match.match_id == PlayerMatchStat.match_id)
+            .join(Competition, Competition.competition_id == Match.competition_id)
+            .where(
+                PlayerMatchStat.player_identifier == identifier,
+                Match.gender == gender,
+            )
+            # `display_name` is grouped with the key it depends on: Postgres
+            # requires every non-aggregate column in the GROUP BY.
+            .group_by(Competition.key, Competition.display_name)
+        )
+        if period is not None:
+            if period.is_count_bounded:
+                window = _count_bounded_window(
+                    gender, None, None, period.matches or 0, None
+                )
+                stmt = stmt.join(
+                    window,
+                    and_(
+                        window.c.pid == PlayerMatchStat.player_identifier,
+                        window.c.mid == PlayerMatchStat.match_id,
+                    ),
+                )
+            else:
+                stmt = _period_scoped(
+                    stmt, period, _scope_anchor(db, gender, None, None)
+                )
+        out: dict[str, dict] = {}
+        for row in db.execute(stmt).all():
+            data = dict(row._mapping)
+            out[data.pop("key")] = data
+        return out
+
+    batting = rows("batting")
+    bowling = rows("bowling")
+    merged: dict[str, dict] = {}
+    for key in set(batting) | set(bowling):
+        b = batting.get(key, {})
+        bo = bowling.get(key, {})
+        merged[key] = {
+            "display_name": b.get("display_name") or bo.get("display_name") or key,
+            "matches": max(b.get("matches") or 0, bo.get("matches") or 0),
+            "runs": b.get("runs") or 0,
+            "dismissals": b.get("dismissals") or 0,
+            "balls_faced": b.get("balls_faced") or 0,
+            "fours": b.get("fours") or 0,
+            "sixes": b.get("sixes") or 0,
+            "wickets": bo.get("wickets") or 0,
+            "runs_conceded": bo.get("runs_conceded") or 0,
+            "balls_bowled": bo.get("balls_bowled") or 0,
+        }
+    return merged
+
+
 def get_player_detail(
     db: Session, identifier: str, period: "periods.Period | None" = None
 ) -> schemas.PlayerDetail | None:
@@ -1106,36 +1197,31 @@ def get_player_detail(
     competitions = db.execute(
         select(Competition).where(Competition.gender == player.gender)
     ).scalars().all()
+    # Two queries for every competition, not two per competition. See
+    # `_player_competition_totals`: on a local file the loop was invisible, and
+    # against a remote database it was 14 of this page's 22 round trips.
+    totals = _player_competition_totals(db, identifier, player.gender, period)
     for comp in competitions:
-        batting = _batting_aggregate_rows(
-            db, player.gender, competition_key=comp.key, player_identifier=identifier,
-            period=period,
-        )
-        bowling = _bowling_aggregate_rows(
-            db, player.gender, competition_key=comp.key, player_identifier=identifier,
-            period=period,
-        )
-        if not batting and not bowling:
+        row = totals.get(comp.key)
+        if row is None:
             continue
-        b = batting[0] if batting else None
-        bo = bowling[0] if bowling else None
         by_competition.append(
             schemas.PlayerFormatStats(
                 competition_key=comp.key,
                 display_name=comp.display_name,
-                matches=(b or bo)["matches"],
-                runs=b["runs"] if b else 0,
-                dismissals=b["dismissals"] if b else 0,
-                balls_faced=b["balls_faced"] if b else 0,
-                fours=b["fours"] if b else 0,
-                sixes=b["sixes"] if b else 0,
-                batting_average=b["average"] if b else None,
-                strike_rate=b["strike_rate"] if b else None,
-                wickets=bo["wickets"] if bo else 0,
-                runs_conceded=bo["runs_conceded"] if bo else 0,
-                balls_bowled=bo["balls_bowled"] if bo else 0,
-                bowling_average=bo["average"] if bo else None,
-                economy=bo["economy"] if bo else None,
+                matches=row["matches"],
+                runs=row["runs"],
+                dismissals=row["dismissals"],
+                balls_faced=row["balls_faced"],
+                fours=row["fours"],
+                sixes=row["sixes"],
+                batting_average=_safe_div(row["runs"], row["dismissals"]),
+                strike_rate=_safe_div(row["runs"] * 100.0, row["balls_faced"]),
+                wickets=row["wickets"],
+                runs_conceded=row["runs_conceded"],
+                balls_bowled=row["balls_bowled"],
+                bowling_average=_safe_div(row["runs_conceded"], row["wickets"]),
+                economy=_safe_div(row["runs_conceded"] * 6.0, row["balls_bowled"]),
             )
         )
 
@@ -1230,12 +1316,21 @@ def list_fixtures(
     if match_type:
         stmt = stmt.where(Fixture.match_type == match_type)
 
+    # `icc_match_id` closes every ordering below. Dozens of fixtures share a
+    # start date, so date alone leaves their order to the engine - which means
+    # paging can repeat or skip a row, and it made a SQLite result and a Postgres
+    # result of the same query disagree. Same discipline as the ranking
+    # aggregates, which have used a final key from the start.
     if window == "upcoming":
         stmt = stmt.where(Fixture.is_upcoming == 1).order_by(
-            Fixture.start_date.asc(), Fixture.start_time_gmt.asc()
+            Fixture.start_date.asc(),
+            Fixture.start_time_gmt.asc(),
+            Fixture.icc_match_id.asc(),
         )
     elif window == "live":
-        stmt = stmt.where(Fixture.is_live == 1).order_by(Fixture.start_date.asc())
+        stmt = stmt.where(Fixture.is_live == 1).order_by(
+            Fixture.start_date.asc(), Fixture.icc_match_id.asc()
+        )
     else:  # results
         # Date-bounded, not just `is_upcoming == 0`. A cancelled *future*
         # fixture carries is_upcoming=0 and match_result="Match Cancelled", so
@@ -1245,7 +1340,7 @@ def list_fixtures(
             Fixture.is_upcoming == 0,
             Fixture.match_result.is_not(None),
             Fixture.start_date <= date.today().isoformat(),
-        ).order_by(Fixture.start_date.desc())
+        ).order_by(Fixture.start_date.desc(), Fixture.icc_match_id.desc())
 
     rows = db.execute(stmt).scalars().all()
     total = len(rows)
@@ -1792,7 +1887,13 @@ def get_match_detail(db: Session, match_id: str) -> schemas.MatchDetail | None:
     performers = db.execute(
         select(PlayerMatchStat)
         .where(PlayerMatchStat.match_id == match_id)
-        .order_by(PlayerMatchStat.team_id, PlayerMatchStat.runs_scored.desc())
+        # Player identifier last, so two performers on the same runs always land
+        # in the same order rather than the engine's arbitrary one.
+        .order_by(
+            PlayerMatchStat.team_id,
+            PlayerMatchStat.runs_scored.desc(),
+            PlayerMatchStat.player_identifier.asc(),
+        )
     ).scalars().all()
 
     # The flag earns its place most on a franchise scorecard, where one XI holds

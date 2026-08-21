@@ -64,6 +64,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import Integer, Select, String, and_, false as sa_false, func, or_, select
 from sqlalchemy.orm import Session
+from ..sqlfun import iif
 
 from .. import cache
 from ..models import Competition, Delivery, Match, Player, PlayerMatchStat
@@ -149,7 +150,7 @@ def _era_expr():
 
 def _opponent_id():
     """The side a row's player was playing against."""
-    return func.iif(
+    return iif(
         PlayerMatchStat.team_id == Match.team1_id, Match.team2_id, Match.team1_id
     )
 
@@ -457,18 +458,30 @@ def allround_rows(db: Session, f: ExplorerFilters) -> list[dict]:
     par = impact_mod.par_table(db)
     opp = opposition_mod.table(db)
 
+    # Each computed expression is built ONCE and the same object is used in both
+    # the select list and the GROUP BY.
+    #
+    # Calling the builders twice looks equivalent and is not: each call mints its
+    # own bind parameters, so the two renderings of the era expression carried
+    # different placeholder names and Postgres - which matches a grouped
+    # expression structurally - rejected the query with "column
+    # matches.match_date_start must appear in the GROUP BY clause". SQLite
+    # accepted it, which is why the duplication survived.
+    opponent = _opponent_id()
+    era = _era_expr()
+
     stmt = _base(
         *_identity_columns(),
         Competition.key.label("comp_key"),
-        _opponent_id().label("opponent_id"),
-        _era_expr().label("era"),
+        opponent.label("opponent_id"),
+        era.label("era"),
         func.count(func.distinct(PlayerMatchStat.match_id)).label("matches"),
         func.sum(PlayerMatchStat.runs_scored).label("runs"),
         func.sum(PlayerMatchStat.balls_faced).label("balls_faced"),
         func.sum(PlayerMatchStat.wickets_taken).label("wickets"),
         func.sum(PlayerMatchStat.balls_bowled).label("balls_bowled"),
         func.sum(PlayerMatchStat.runs_conceded).label("runs_conceded"),
-    ).group_by(PlayerMatchStat.player_identifier, Competition.key, _opponent_id(), _era_expr())
+    ).group_by(PlayerMatchStat.player_identifier, Competition.key, opponent, era)
     stmt = _scoped(stmt, f, db)
 
     # pid -> accumulated figures across every (competition, opponent) group

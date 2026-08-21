@@ -256,7 +256,18 @@ def team_match_totals(db: Session, *, refresh: bool = False) -> dict[tuple[str, 
         .join(Match, Match.match_id == PlayerMatchStat.match_id)
         .join(Competition, Competition.competition_id == Match.competition_id)
         .where(PlayerMatchStat.team_id.is_not(None))
-        .group_by(PlayerMatchStat.match_id, PlayerMatchStat.team_id)
+        # `Competition.key` and `Match.gender` are in the GROUP BY even though
+        # they are constant within each (match, team) group: a match has exactly
+        # one competition and one gender. SQLite allows a bare column here and
+        # Postgres does not, and Postgres only infers functional dependency
+        # through a grouped primary key, which `match_id` alone is not. Listing
+        # them changes no grouping and makes the query portable.
+        .group_by(
+            PlayerMatchStat.match_id,
+            PlayerMatchStat.team_id,
+            Competition.key,
+            Match.gender,
+        )
     )
     out: dict[tuple[str, int], float] = {}
     for match_id, team_id, key, gender, runs, bf, wkts, bb, conceded in db.execute(stmt).all():

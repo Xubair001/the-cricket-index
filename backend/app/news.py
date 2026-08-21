@@ -200,7 +200,15 @@ def list_articles(
     rows = db.execute(
         text(
             f"{_LIST_SQL} {joins} WHERE {clause} "
-            "GROUP BY a.article_id "
+            # Grouped by each joined table's PRIMARY KEY, not by `a.article_id` alone.
+            # Postgres allows a bare column only when it is functionally
+            # dependent on the grouping, and it infers that through primary
+            # keys - so grouping the article alone leaves `p.name` and the
+            # image columns unaccounted for. SQLite allowed all of them.
+            # `news_article_images` has a COMPOSITE key, so all three of its
+            # columns are needed: two of the three infers nothing.
+            "GROUP BY a.article_id, p.publisher_id, "
+            "         ai.article_id, ai.image_id, ai.role, i.image_id "
             # NULLs last so an article with no publication date sinks to the
             # bottom rather than heading the feed.
             "ORDER BY a.published_at IS NULL, a.published_at DESC, a.article_id DESC "
@@ -213,7 +221,11 @@ def list_articles(
 
 def get_article(db: Session, article_id: int) -> dict | None:
     row = db.execute(
-        text(f"{_LIST_SQL} WHERE a.article_id = :id GROUP BY a.article_id"),
+        text(
+            f"{_LIST_SQL} WHERE a.article_id = :id "
+            "GROUP BY a.article_id, p.publisher_id, "
+            "         ai.article_id, ai.image_id, ai.role, i.image_id"
+        ),
         {"id": article_id},
     ).first()
     if row is None:

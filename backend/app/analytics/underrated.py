@@ -174,7 +174,14 @@ def compute(db: Session, rank_type: str, limit: int = 25) -> UnderratedTable | N
             IccPlayerRanking.rank_type == rank_type,
             IccPlayerRanking.rank_date == latest,
         )
-        .order_by(IccPlayerRanking.position)
+        # `player_name` closes the ordering. ICC marks ties with '=' and the
+        # parser carries the previous position forward, so several rows genuinely
+        # share a position - and which of them comes first then decides both
+        # re-ranked positions below. Left to the engine that differed between
+        # SQLite and Postgres, which moved players on and off the board.
+        # `player_name` is part of this table's primary key precisely because
+        # ties exist, so it is the natural final key.
+        .order_by(IccPlayerRanking.position, IccPlayerRanking.player_name)
     ).scalars().all()
 
     icc_listed = len(icc_rows)
@@ -208,7 +215,13 @@ def compute(db: Session, rank_type: str, limit: int = 25) -> UnderratedTable | N
     icc_rank = _dense_ranks([r.player_identifier for r in shared])
     index_rank = _dense_ranks([
         r.player_identifier
-        for r in sorted(shared, key=lambda r: -index_of[r.player_identifier].index)
+        for r in sorted(
+            shared,
+            # Identifier closes it: two players can hold the same Index to the
+            # decimal, and a stable sort would otherwise inherit whatever order
+            # the ICC query produced.
+            key=lambda r: (-index_of[r.player_identifier].index, r.player_identifier),
+        )
     ])
 
     from .. import queries as _queries
@@ -238,7 +251,9 @@ def compute(db: Session, rank_type: str, limit: int = 25) -> UnderratedTable | N
             matches=rating.matches,
         ))
 
-    items.sort(key=lambda p: (-p.gap, -p.index))
+    # Identifier last: players tie on both gap and index often enough that
+    # without it the board's order is the engine's, not ours.
+    items.sort(key=lambda p: (-p.gap, -p.index, p.player_identifier or ""))
     return UnderratedTable(
         rank_type=rank_type, gender=gender, competition_key=competition_key,
         role=role, rank_date=latest, icc_listed=icc_listed,

@@ -431,7 +431,7 @@ def search(
             "and uneven slice of the league."
         )
 
-    out.sort(key=lambda c: -c.score)
+    out.sort(key=lambda c: (-c.score, c.player_identifier or ""))
     return ScoutResult(
         scope=competition_key or competition_type or "international",
         gender=gender,

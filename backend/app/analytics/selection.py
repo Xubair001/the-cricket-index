@@ -52,6 +52,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from ..sqlfun import iif
 
 from ..models import Competition, Delivery, Match, PlayerMatchStat, Team
 from ..names import preferred_name
@@ -325,8 +326,8 @@ def _keepers(db: Session, gender: str, competition_key, competition_type) -> dic
     stmt = (
         select(
             Delivery.fielder,
-            func.sum(func.iif(Delivery.wicket_kind == "stumped", 1, 0)),
-            func.sum(func.iif(Delivery.wicket_kind == "caught", 1, 0)),
+            func.sum(iif(Delivery.wicket_kind == "stumped", 1, 0)),
+            func.sum(iif(Delivery.wicket_kind == "caught", 1, 0)),
         )
         .join(Match, Match.match_id == Delivery.match_id)
         .join(Competition, Competition.competition_id == Match.competition_id)
@@ -847,7 +848,7 @@ def select_side(
             )
         )
 
-    candidates.sort(key=lambda p: -p.selection_score)
+    candidates.sort(key=lambda p: (-p.selection_score, p.player_identifier or ""))
     # `wanted` is the shape SCALED to `size`, which is what was actually filled.
     # Reporting the unscaled XI shape instead made a XV page state a shape
     # summing to ten, contradicting the fifteen names printed under it.

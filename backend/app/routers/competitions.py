@@ -37,33 +37,54 @@ def list_competitions(
     (key, gender), so an ungendered request would otherwise list "Test" twice
     and a switcher built from it would show duplicates.
     """
+    # Grouped by (key, gender) in SQL and folded to one row per key in Python.
+    #
+    # This used to be one GROUP BY with `group_concat(gender)`, which is SQLite's
+    # spelling of an aggregate Postgres calls `string_agg` - the only
+    # dialect-specific function in the whole read path. Folding in Python removes
+    # it rather than branching on the dialect, which is the same call
+    # `queries.py` already makes for the ranking aggregates: one GROUP BY, then
+    # the part SQL expresses awkwardly done in Python.
     stmt = (
         select(
             Competition.key,
+            Competition.gender,
             func.min(Competition.display_name),
             func.min(Competition.type),
             func.count(Match.match_id),
-            # Which genders actually hold this competition. Needed because
-            # `competitions` is keyed by (key, gender) and grouping by key
-            # alone hides that the PSL is men-only - which let a client offer
-            # a "Leagues" switch to a women's scope that has no league in it,
-            # and every board behind it came back empty.
-            func.group_concat(Competition.gender.distinct()),
         )
         .outerjoin(Match, Match.competition_id == Competition.competition_id)
-        .group_by(Competition.key)
-        .order_by(func.min(Competition.type), func.count(Match.match_id).desc())
+        .group_by(Competition.key, Competition.gender)
     )
     if gender is not None:
         stmt = stmt.where(Competition.gender == gender)
 
+    # Which genders actually hold each competition. Needed because
+    # `competitions` is keyed by (key, gender) and reporting the key alone hides
+    # that the PSL is men-only - which let a client offer a "Leagues" switch to a
+    # women's scope that has no league in it, and every board behind it came back
+    # empty.
+    folded: dict[str, dict] = {}
+    for key, row_gender, display_name, ctype, matches in db.execute(stmt).all():
+        entry = folded.setdefault(
+            key,
+            {"display_name": display_name, "type": ctype, "matches": 0, "genders": set()},
+        )
+        entry["matches"] += matches
+        entry["genders"].add(row_gender)
+
+    # Ordered as before: international families first, then by how much cricket
+    # each holds. Done here because the fold changes the row set SQL sorted.
+    ordered = sorted(
+        folded.items(), key=lambda kv: (kv[1]["type"], -kv[1]["matches"])
+    )
     return [
         schemas.CompetitionInfo(
             key=key,
-            display_name=display_name,
-            type=ctype,
-            matches=matches,
-            genders=sorted((genders or "").split(",")) if genders else [],
+            display_name=entry["display_name"],
+            type=entry["type"],
+            matches=entry["matches"],
+            genders=sorted(entry["genders"]),
         )
-        for key, display_name, ctype, matches, genders in db.execute(stmt).all()
+        for key, entry in ordered
     ]

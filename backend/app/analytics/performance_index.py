@@ -87,6 +87,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from ..sqlfun import iif
 
 from .. import cache
 
@@ -414,10 +415,10 @@ def _chasing_ratio(db: Session, pid, gender, competition_key, competition_type) 
         stmt = (
             select(
                 Delivery.batter,
-                func.sum(func.iif(Delivery.innings == 1, Delivery.runs_batter, 0)),
-                func.sum(func.iif(Delivery.innings == 1, func.iif(Delivery.player_out == Delivery.batter, 1, 0), 0)),
-                func.sum(func.iif(Delivery.innings > 1, Delivery.runs_batter, 0)),
-                func.sum(func.iif(Delivery.innings > 1, func.iif(Delivery.player_out == Delivery.batter, 1, 0), 0)),
+                func.sum(iif(Delivery.innings == 1, Delivery.runs_batter, 0)),
+                func.sum(iif(Delivery.innings == 1, iif(Delivery.player_out == Delivery.batter, 1, 0), 0)),
+                func.sum(iif(Delivery.innings > 1, Delivery.runs_batter, 0)),
+                func.sum(iif(Delivery.innings > 1, iif(Delivery.player_out == Delivery.batter, 1, 0), 0)),
             )
             .join(Match, Match.match_id == Delivery.match_id)
             .join(Competition, Competition.competition_id == Match.competition_id)
