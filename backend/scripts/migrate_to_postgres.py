@@ -129,6 +129,7 @@ def copy_table(
     table: str,
     chunk: int = BATCH,
     attempts: int = 6,
+    where: str | None = None,
 ) -> tuple[int, int]:
     """Load one table, resumably. Returns (rows written now, rows already there).
 
@@ -155,7 +156,8 @@ def copy_table(
     quoted = ", ".join(f'"{c}"' for c in cols)
     order = pk_columns(src, table) or cols
     order_sql = ", ".join(f'"{c}"' for c in order)
-    total = src.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+    filt = f" WHERE {where}" if where else ""
+    total = src.execute(f"SELECT count(*) FROM {table}{filt}").fetchone()[0]
 
     written = 0
     already = 0
@@ -180,8 +182,8 @@ def copy_table(
                 cursor_key = None
                 if already:
                     seek = src.execute(
-                        f"SELECT {order_sql} FROM {table} ORDER BY {order_sql} "
-                        f"LIMIT 1 OFFSET {already - 1}"
+                        f"SELECT {order_sql} FROM {table}{filt} "
+                        f"ORDER BY {order_sql} LIMIT 1 OFFSET {already - 1}"
                     ).fetchone()
                     cursor_key = tuple(seek) if seek else None
                 key_tuple = f"({order_sql})"
@@ -189,13 +191,17 @@ def copy_table(
                 while offset < total:
                     if cursor_key is None:
                         rows = src.execute(
-                            f"SELECT {quoted} FROM {table} ORDER BY {order_sql} "
-                            f"LIMIT {chunk}"
+                            f"SELECT {quoted} FROM {table}{filt} "
+                            f"ORDER BY {order_sql} LIMIT {chunk}"
                         ).fetchall()
                     else:
+                        # The filter is ANDed with the keyset predicate, never
+                        # replaced by it: a partial load still has to walk the
+                        # same deterministic order or the resume count is wrong.
+                        more = f" AND {where}" if where else ""
                         rows = src.execute(
                             f"SELECT {quoted} FROM {table} "
-                            f"WHERE {key_tuple} > {placeholders} "
+                            f"WHERE {key_tuple} > {placeholders}{more} "
                             f"ORDER BY {order_sql} LIMIT {chunk}",
                             cursor_key,
                         ).fetchall()
@@ -291,6 +297,21 @@ def main() -> int:
         help="comma-separated tables to leave out (e.g. deliveries, to size first)",
     )
     ap.add_argument("--only", default="", help="comma-separated tables to load")
+    ap.add_argument(
+        "--where",
+        action="append",
+        default=[],
+        metavar="TABLE=PREDICATE",
+        help=(
+            "load only part of a table, e.g. "
+            "--where 'deliveries=match_id IN (SELECT ...)'. Exists because a "
+            "storage-capped target may not hold a whole table: Neon's free plan "
+            "reports neon.max_cluster_size = 512MB and the ball record alone "
+            "projects to 728MB in Postgres, so the choice is a deliberate subset "
+            "or nothing. Applied to the SQLite read, so the count and the "
+            "resume arithmetic both see the same filtered set."
+        ),
+    )
     ap.add_argument("--truncate", action="store_true", help="empty target tables first")
     ap.add_argument("--verify-only", action="store_true")
     ap.add_argument(
@@ -307,6 +328,14 @@ def main() -> int:
 
     src = sqlite3.connect(f"file:{SQLITE_PATH}?mode=ro", uri=True)
     skip = {t.strip() for t in args.skip.split(",") if t.strip()}
+    # TABLE=PREDICATE, applied to the SQLite read for a partial load.
+    filters: dict[str, str] = {}
+    for spec in args.where:
+        if "=" not in spec:
+            print(f"--where needs TABLE=PREDICATE, got {spec!r}", file=sys.stderr)
+            return 1
+        table_name, predicate = spec.split("=", 1)
+        filters[table_name.strip()] = predicate.strip()
     only = {t.strip() for t in args.only.split(",") if t.strip()}
 
     with psycopg.connect(args.url, autocommit=False) as pg:
@@ -332,19 +361,55 @@ def main() -> int:
             print(f"skipping: {', '.join(sorted(skip))}")
 
         if args.truncate:
-            # Reverse order so a child is emptied before its parent. CASCADE is
-            # deliberately not used: it would silently empty a table that was
-            # excluded from this run.
+            # ONE statement listing every table, because Postgres refuses to
+            # truncate a table that anything references unless the referencing
+            # table is in the same command - and it refuses even when that table
+            # is already empty. Truncating one at a time in reverse dependency
+            # order therefore fails on the first parent, which is what happened.
+            #
+            # CASCADE is deliberately still not used: it would silently empty a
+            # table excluded from this run. Instead an excluded referencing table
+            # is added to the list only when it is already EMPTY, and a populated
+            # one is reported rather than quietly wiped.
             with pg.cursor() as cur:
-                for table in reversed(wanted):
-                    cur.execute(f'TRUNCATE TABLE "{table}"')
+                cur.execute(
+                    """
+                    SELECT DISTINCT src.relname
+                    FROM pg_constraint c
+                    JOIN pg_class src ON src.oid = c.conrelid
+                    JOIN pg_class tgt ON tgt.oid = c.confrelid
+                    JOIN pg_namespace n ON n.oid = src.relnamespace
+                    WHERE c.contype = 'f' AND n.nspname = 'public'
+                      AND tgt.relname = ANY(%s) AND src.relname <> ALL(%s)
+                    """,
+                    (wanted, wanted),
+                )
+                dependents = [r[0] for r in cur.fetchall()]
+                blocked = []
+                for dep in dependents:
+                    cur.execute(f'SELECT EXISTS (SELECT 1 FROM "{dep}")')
+                    if cur.fetchone()[0]:
+                        blocked.append(dep)
+                if blocked:
+                    print(
+                        f"cannot truncate: {', '.join(blocked)} reference these "
+                        "tables and hold rows. Include them in this run, or "
+                        "empty them first.",
+                        file=sys.stderr,
+                    )
+                    return 1
+                targets = ", ".join(f'"{t}"' for t in wanted + dependents)
+                cur.execute(f"TRUNCATE TABLE {targets}")
             pg.commit()
-            print("target tables emptied")
+            extra = f" (plus {len(dependents)} empty dependent)" if dependents else ""
+            print(f"target tables emptied{extra}")
 
         total_bytes = 0
         print(f"\n{'table':26} {'loaded':>10} {'existing':>9} {'size':>10}")
         for table in wanted:
-            n, already = copy_table(args.url, src, table, chunk=args.chunk)
+            n, already = copy_table(
+                args.url, src, table, chunk=args.chunk, where=filters.get(table)
+            )
             size, pretty = table_size(pg, table)
             total_bytes += size
             note = "" if not already else "  (resumed)" if n else "  (complete)"
